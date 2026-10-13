@@ -251,6 +251,8 @@ async function loadReservations() {
 // Devuelve el catálogo, o null si la tienda aún no tiene catálogo guardado.
 // Si falla la conexión, lanza un error: nunca se muestra (ni se guarda) el catálogo de muestra en su lugar.
 async function loadCatalog() {
+  // Pedidos web sin pago vencidos: el servidor los anula y libera su stock (no espera respuesta)
+  supabase.rpc("expire_unpaid_orders").then(() => {}, () => {});
   const [main, rev, reservations] = await Promise.all([
     supabase.from("store_data").select("data").eq("id", "main").maybeSingle(),
     supabase.from("product_reviews").select("product_id,data").order("created_at"),
@@ -4440,8 +4442,11 @@ const TrackingEditor = ({ order, onSave }) => {
   );
 };
 
-const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, canValidate, settings }) => {
+const unpaidHoursOf = (settings) => numOr(settings?.unpaidOrderHours, 24);
+const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, canValidate, settings, onCancelUnpaid, onSaveUnpaidHours }) => {
   const [labelOrder, setLabelOrder] = useState(null);
+  const unpaidHours = unpaidHoursOf(settings);
+  const [hoursInput, setHoursInput] = useState(String(unpaidHours));
   const [batch, setBatch] = useState(null);
   const orders = sales.filter((s) => s.channel === "online" && s.source === "web" && s.status !== "anulado").sort((a, b) => b.createdAt - a.createdAt);
   return (
@@ -4451,6 +4456,14 @@ const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, can
         return (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
             <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: 0 }}>Pedidos Online</h1>
+            {canValidate && onSaveUnpaidHours && (
+              <div title="Los pedidos web sin pago se anulan solos pasado este tiempo y la prenda vuelve a estar disponible. 0 = nunca." style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, flexBasis: "100%", order: 3 }}>
+                Cancelar solos los pedidos sin pago después de
+                <input inputMode="numeric" value={hoursInput} onChange={(e) => setHoursInput(e.target.value.replace(/\D/g, "").slice(0, 3))} style={{ ...inputStyle, width: 58, padding: "6px 8px", textAlign: "center" }} />
+                horas
+                {hoursInput !== String(unpaidHours) && <button onClick={() => onSaveUnpaidHours(Number(hoursInput) || 0)} style={{ padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Guardar</button>}
+              </div>
+            )}
             {ready.length > 0 && <button onClick={() => setBatch(ready)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}><Package size={14} /> Imprimir etiquetas por enviar ({ready.length})</button>}
           </div>
         );
@@ -4506,6 +4519,16 @@ const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, can
                   ✓ Validar pago recibido
                 </button>
               )}
+              {!validated && (() => {
+                const hrs = (Date.now() - (o.createdAt || Date.now())) / 3600000;
+                const left = unpaidHours > 0 ? Math.max(0, unpaidHours - hrs) : null;
+                return (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", background: C.paperDeep, borderRadius: 9, padding: "8px 10px", marginBottom: 10 }}>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>Hace {hrs < 1 ? `${Math.max(1, Math.round(hrs * 60))} min` : `${Math.floor(hrs)} h`}{left !== null ? ` · si no paga, se cancela sola en ${left < 1 ? `${Math.max(1, Math.round(left * 60))} min` : `${Math.ceil(left)} h`}` : ""}</span>
+                    {onCancelUnpaid && <button title="La clienta no pagó: anula el pedido y la prenda vuelve al stock" onClick={() => { const why = prompt("¿Por qué se cancela? (ej. no pagó, desistió)", "No pagó"); if (why !== null) onCancelUnpaid(o.id, why); }} style={{ padding: "7px 11px", borderRadius: 8, border: `1px solid ${C.accent}`, background: C.paper, color: C.accent, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Cancelar: no pagó</button>}
+                  </div>
+                );
+              })()}
               {!validated && !canValidate && <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginBottom: 10, fontStyle: "italic" }}>Esperando que un Administrador valide el pago antes de preparar el pedido.</div>}
               {validated && o.deliveryMethod !== "recojo" && (
                 <TrackingEditor order={o} onSave={(num, agency) => onUpdateFulfillment(o.id, o.fulfillment === "entregado" ? "entregado" : "enviado", num, agency)} />
@@ -6321,6 +6344,7 @@ const STAFF_GUIDES = {
   onlineorders: { title: "Pedidos de la web", steps: [
     ["Package", "Cada pedido nuevo suena y aparece aquí."],
     ["Check", "Administración confirma el pago cuando llega el dinero (Yape, Plin, transferencia)."],
+    ["X", "Si la clienta no pagó, toca «Cancelar: no pagó»: la prenda vuelve al stock. Si nadie lo hace, se cancela sola pasadas las horas configuradas."],
     ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento."],
   ] },
   stock: { title: "Stock", steps: [
@@ -6475,6 +6499,14 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     refreshData && refreshData();
   };
 
+  // Pedido web que no se pagó: se anula y la prenda vuelve al stock (lo hace el servidor)
+  const cancelUnpaid = async (saleId, reason) => {
+    const { data, error } = await supabase.rpc("cancel_unpaid_order", { p_sale_id: saleId, p_reason: reason || "No pagó" });
+    if (error || !data) { alert("No se pudo cancelar: " + (error?.code === "PGRST202" ? "falta correr el archivo 12-pedidos-sin-pago.sql en Supabase." : error?.message?.includes("SOLO_PEDIDOS_SIN_PAGO") ? "este pedido ya está pagado (usa Anular en Comprobantes)." : error?.message || "")); return; }
+    patchCatalog((c) => ({ ...c, sales: c.sales.map((x) => (x.id === saleId ? data : x)) }));
+    refreshData && refreshData();
+  };
+  const saveUnpaidHours = (h) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, unpaidOrderHours: h } }));
   const savePromo = (record) => updateCatalog((c) => { const exists = c.promoCodes.some((p) => p.id === record.id); return { ...c, promoCodes: exists ? c.promoCodes.map((p) => (p.id === record.id ? record : p)) : [...c.promoCodes, record] }; });
   const deletePromo = (id) => { if (confirm("¿Eliminar este código?")) updateCatalog((c) => ({ ...c, promoCodes: c.promoCodes.filter((p) => p.id !== id) })); };
   const updateFulfillment = async (saleId, fulfillment, tracking = null, agency = null) => {
@@ -6564,7 +6596,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {role === "superadmin" && screen === "users" && <AdminUsersScreen currentUserId={currentUserId} />}
         {(role === "administrador" || role === "superadmin") && screen === "complaints" && <AdminComplaintsScreen staffName={staffName} />}
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
-        {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} />}
+        {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} onCancelUnpaid={role !== "almacen" ? cancelUnpaid : null} onSaveUnpaidHours={isAdminRole ? saveUnpaidHours : null} />}
       </div>
       <StaffHelp screen={screen} />
       <AdminNav screen={screen} setScreen={setScreen} role={role} />
