@@ -96,6 +96,7 @@ const groupOfCategory = (cat) => (CATEGORY_GROUPS.find(([, cats]) => cats.includ
 const genId = (p = "id") => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 const slugify = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const money = (n) => `S/ ${Number(n || 0).toFixed(0)}`;
+const money2 = (n) => `S/ ${Number(n || 0).toFixed(2)}`;
 // Igual que money(), pero muestra céntimos si el monto no es entero (ej. valor de los puntos S/ 2.50)
 const moneyExact = (n) => (Number.isInteger(Number(n || 0)) ? money(n) : `S/ ${Number(n).toFixed(2)}`);
 
@@ -3711,6 +3712,12 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
         <Field label="RUC"><input style={inputStyle} inputMode="numeric" value={company.ruc} onChange={(e) => setCompany({ ...company, ruc: e.target.value.replace(/\D/g, "").slice(0, 11) })} placeholder="20xxxxxxxxx" /></Field>
         <Field label="Dirección fiscal"><input style={inputStyle} value={company.address} onChange={(e) => setCompany({ ...company, address: e.target.value })} /></Field>
         <Field label="Correo de atención"><input style={inputStyle} value={company.email} onChange={(e) => setCompany({ ...company, email: e.target.value })} /></Field>
+        <Field label="Régimen tributario (para el comprobante)">
+          <select style={inputStyle} value={company.taxRegime || "general"} onChange={(e) => setCompany({ ...company, taxRegime: e.target.value })}>
+            <option value="general">Afecto a IGV 18% (Régimen General, MYPE o Especial): el comprobante desglosa el IGV</option>
+            <option value="nrus">Nuevo RUS: el comprobante no desglosa IGV</option>
+          </select>
+        </Field>
         <button onClick={saveCompany} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
       </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}>
@@ -4782,49 +4789,135 @@ const PosVariantPicker = ({ product, onClose, onAdd }) => {
   );
 };
 
-const ReceiptView = ({ sale, onNewSale, onSendWhatsApp }) => (
-  <div style={{ padding: "18px 18px 90px" }}>
-    <div style={{ background: C.accentSoft, borderRadius: 10, padding: "12px 14px", display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 18 }}>
-      <AlertCircle size={15} color={C.accent} style={{ flexShrink: 0, marginTop: 1 }} />
-      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, lineHeight: 1.6 }}>Comprobante interno — no es una boleta/factura válida ante SUNAT. Sirve para tu control diario mientras conectas un proveedor autorizado.</div>
-    </div>
-    <div style={{ textAlign: "center", marginBottom: 18 }}>
-      <BadgeLogo size={40} />
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink, marginTop: 10 }}>{sale.tipo === "factura" ? "Factura" : "Boleta"} interna</div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>{sale.serie}-{String(sale.numero).padStart(6, "0")}</div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 2 }}>{new Date(sale.createdAt).toLocaleString("es-PE")}</div>
-    </div>
-    <AdminCard style={{ marginBottom: 16 }}>
-      {sale.customerName && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 4 }}>Cliente: {sale.customerName}</div>}
-      {sale.customerDoc && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 10 }}>Doc: {sale.customerDoc}</div>}
-      {sale.items.map((it, i) => (
-        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < sale.items.length - 1 ? `1px solid ${C.paperDeep}` : "none" }}>
-          <div><div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{it.name}</div><div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>{it.size} · {it.colorName} × {it.qty}</div></div>
-          <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, fontWeight: 600 }}>{money(it.unitPrice * it.qty)}</span>
+// ------------------------------------------------------------------
+// COMPROBANTE (nota de venta interna) con todos los datos: empresa, RUC, cliente, detalle con
+// cantidades, operación gravada, IGV 18%, total en letras, pagos, vendedora y cajero.
+// Mientras no se conecte un proveedor SUNAT (ej. Nubefact) NO es boleta/factura electrónica y lo dice.
+// Formatos: ticket 80 mm, ticket 58 mm o A4 (se recuerda por equipo, porque depende de la impresora).
+// ------------------------------------------------------------------
+const IGV_RATE = 0.18;
+const RECEIPT_FORMAT_KEY = "flyboutique:formato-comprobante";
+const RECEIPT_FORMATS = { "80": { label: "Ticket 80 mm", width: "72mm", page: "80mm auto", font: 11 }, "58": { label: "Ticket 58 mm", width: "48mm", page: "58mm auto", font: 9.5 }, a4: { label: "Hoja A4", width: "180mm", page: "A4", font: 12 } };
+const UNITS = ["", "UNO", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO", "NUEVE", "DIEZ", "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE", "DIECISÉIS", "DIECISIETE", "DIECIOCHO", "DIECINUEVE", "VEINTE", "VEINTIUNO", "VEINTIDÓS", "VEINTITRÉS", "VEINTICUATRO", "VEINTICINCO", "VEINTISÉIS", "VEINTISIETE", "VEINTIOCHO", "VEINTINUEVE"];
+const TENS = ["", "", "", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA", "SETENTA", "OCHENTA", "NOVENTA"];
+const HUNDREDS = ["", "CIENTO", "DOSCIENTOS", "TRESCIENTOS", "CUATROCIENTOS", "QUINIENTOS", "SEISCIENTOS", "SETECIENTOS", "OCHOCIENTOS", "NOVECIENTOS"];
+const words999 = (n) => {
+  if (n === 0) return "";
+  if (n === 100) return "CIEN";
+  const h = Math.floor(n / 100), r = n % 100;
+  const rest = r < 30 ? UNITS[r] : TENS[Math.floor(r / 10)] + (r % 10 ? " Y " + UNITS[r % 10] : "");
+  return [HUNDREDS[h], rest].filter(Boolean).join(" ");
+};
+// 1250.5 → "MIL DOSCIENTOS CINCUENTA CON 50/100 SOLES"
+const amountInWords = (amount) => {
+  const total = Math.round(Number(amount || 0) * 100);
+  let n = Math.floor(total / 100); const cents = String(total % 100).padStart(2, "0");
+  if (n === 0) return `CERO CON ${cents}/100 SOLES`;
+  const millions = Math.floor(n / 1e6), thousands = Math.floor((n % 1e6) / 1000), units = n % 1000;
+  const parts = [];
+  if (millions) parts.push(millions === 1 ? "UN MILLÓN" : `${words999(millions).replace(/UNO$/, "UN")} MILLONES`);
+  if (thousands) parts.push(thousands === 1 ? "MIL" : `${words999(thousands).replace(/UNO$/, "UN")} MIL`);
+  if (units) parts.push(words999(units));
+  return `${parts.join(" ")} CON ${cents}/100 SOLES`;
+};
+const docTypeOf = (doc) => { const d = String(doc || ""); return /^\d{11}$/.test(d) ? "RUC" : /^\d{8}$/.test(d) ? "DNI" : d ? "Doc." : ""; };
+
+const ReceiptDocument = ({ sale, settings, format = "80" }) => {
+  const company = companyOf(settings);
+  const fmt = RECEIPT_FORMATS[format] || RECEIPT_FORMATS["80"];
+  const withIgv = company.taxRegime !== "nrus";
+  const total = Number(sale.total || 0);
+  const gravada = Math.round((total / (1 + IGV_RATE)) * 100) / 100;
+  const igv = Math.round((total - gravada) * 100) / 100;
+  const subtotal = Number(sale.subtotal ?? (sale.items || []).reduce((a, i) => a + i.unitPrice * i.qty, 0));
+  const units = (sale.items || []).reduce((a, i) => a + Number(i.qty || 0), 0);
+  const label = `${sale.serie}-${String(sale.numero).padStart(6, "0")}`;
+  const dt = new Date(sale.createdAt || Date.now());
+  const store = (storesOf(settings).find((x) => x.id === sale.storeId) || {});
+  const payments = sale.payments?.length ? sale.payments : [{ method: sale.paymentMethod, amount: total }];
+  const small = { fontSize: fmt.font - 1.5, color: "#333" };
+  const line = <div style={{ borderTop: "1px dashed #999", margin: "6px 0" }} />;
+  const R = ({ l, v, b }) => <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontWeight: b ? 700 : 400 }}><span>{l}</span><span style={{ whiteSpace: "nowrap" }}>{v}</span></div>;
+  return (
+    <div className="print-area receipt-doc" style={{ width: fmt.width, maxWidth: "100%", margin: "0 auto", background: "#fff", color: "#000", fontFamily: "'Jost', Arial, sans-serif", fontSize: fmt.font, lineHeight: 1.4, padding: format === "a4" ? "10mm" : "3mm 2mm" }}>
+      <style>{`@media print { @page { size: ${fmt.page}; margin: ${format === "a4" ? "10mm" : "2mm"}; } }`}</style>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: fmt.font * 2.2, letterSpacing: "0.04em" }}>FLY</div>
+        <div style={{ fontWeight: 700 }}>{company.legalName}</div>
+        {company.ruc ? <div>RUC {company.ruc}</div> : <div style={small}>(RUC no configurado: Panel → Datos de la empresa)</div>}
+        <div style={small}>{store.address || company.address}</div>
+        <div style={small}>{company.phone ? `Tel. +${company.phone}` : ""}{company.email ? ` · ${company.email}` : ""}</div>
+        {line}
+        <div style={{ fontWeight: 800 }}>NOTA DE VENTA{sale.tipo === "factura" ? " (DATOS PARA FACTURA)" : ""}</div>
+        <div style={{ fontWeight: 700 }}>{label}</div>
+        {sale.status === "anulado" && <div style={{ fontWeight: 800 }}>*** ANULADA ***{sale.voidReason ? ` (${sale.voidReason})` : ""}</div>}
+      </div>
+      {line}
+      <R l="Fecha de emisión" v={dt.toLocaleDateString("es-PE")} />
+      <R l="Hora" v={dt.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })} />
+      {(store.name || sale.storeName) && <R l="Tienda" v={store.name || sale.storeName} />}
+      <R l="Moneda" v="Soles (PEN)" />
+      {line}
+      <div><strong>Cliente:</strong> {sale.customerName || "Cliente varios"}</div>
+      {sale.customerDoc && sale.customerDoc !== "00000000" && <div>{({ DNI: "DNI", RUC: "RUC", CE: "Carné de extranjería", PAS: "Pasaporte" })[sale.customerDocType] || docTypeOf(sale.customerDoc)}: {sale.customerDoc}</div>}
+      {sale.customerAddress && <div style={small}>Dirección: {sale.customerAddress}</div>}
+      {line}
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", columnGap: 6, fontWeight: 700 }}><span>Cant.</span><span>Descripción</span><span>Importe</span></div>
+      {(sale.items || []).map((it, i) => (
+        <div key={i} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", columnGap: 6, marginTop: 3 }}>
+          <span>{it.qty}</span>
+          <span>{it.name}<br /><span style={small}>{[it.size, it.colorName].filter(Boolean).join(" / ")} · P.U. {money2(it.unitPrice)}</span></span>
+          <span style={{ textAlign: "right" }}>{money2(it.unitPrice * it.qty)}</span>
         </div>
       ))}
-      <div style={{ height: 1, background: C.line, margin: "10px 0" }} />
-      {sale.discount > 0 && (
-        <Row label={`Descuento${sale.promoCode ? ` (${sale.promoCode})` : ""}${sale.manualDiscountLabel ? `${sale.promoCode ? " +" : ""} manual ${sale.manualDiscountLabel}` : ""}`} value={`-${money(sale.discount)}`} />
-      )}
-      <Row label="Total" value={money(sale.total)} bold />
-      {sale.paymentMethod === "Efectivo" && sale.amountReceived > 0 && (
-        <>
-          <Row label="Recibido" value={money(sale.amountReceived)} />
-          <Row label="Vuelto" value={money(sale.vuelto || 0)} />
-        </>
-      )}
-      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 6 }}>Pago: {sale.paymentMethod} · Atendido por {sale.staffName}</div>
-      {sale.deliveryMethod && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 2 }}>{DELIVERY_LABELS[sale.deliveryMethod] || sale.deliveryMethod}{sale.deliveryMethod !== "recojo" ? ` — ${sale.deliveryAddress || "—"}` : ""}</div>}
-      {sale.notaExterna && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginTop: 8, fontStyle: "italic" }}>"{sale.notaExterna}"</div>}
-      {sale.notaInterna && <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 6 }}>Nota interna: {sale.notaInterna}</div>}
-    </AdminCard>
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <button onClick={onSendWhatsApp} style={{ ...quickLinkStyle, justifyContent: "center", background: "#25D366", color: C.ink, border: "none", fontWeight: 600 }}><MessageCircle size={15} /> Enviar comprobante por WhatsApp</button>
+      {line}
+      <R l={`Total de prendas`} v={units} />
+      <R l="Subtotal" v={money2(subtotal)} />
+      {Number(sale.discount) > 0 && <R l={`Descuentos${sale.promoCode ? ` (${sale.promoCode})` : ""}${sale.pointsDiscount ? " incl. puntos" : ""}`} v={`-${money2(sale.discount)}`} />}
+      {Number(sale.shipping) > 0 && <R l="Envío" v={money2(sale.shipping)} />}
+      {withIgv ? (<><R l="Op. gravada" v={money2(gravada)} /><R l="IGV (18%)" v={money2(igv)} /></>) : <R l="Op. no gravada (Nuevo RUS)" v={money2(total)} />}
+      <div style={{ fontSize: fmt.font + 2 }}><R l="IMPORTE TOTAL" v={money2(total)} b /></div>
+      <div style={{ ...small, marginTop: 3 }}>SON: {amountInWords(total)}</div>
+      {line}
+      {payments.map((p, i) => <R key={i} l={`Pago ${p.method}`} v={money2(p.amount)} />)}
+      {Number(sale.amountReceived) > 0 && <><R l="Efectivo recibido" v={money2(sale.amountReceived)} /><R l="Vuelto" v={money2(sale.vuelto || 0)} /></>}
+      {line}
+      <div style={small}>Atendió: {sale.staffName || "—"}{sale.sellerCode ? ` (${sale.sellerCode})` : ""}{sale.cashierName && sale.cashierName !== sale.staffName ? ` · Cajero(a): ${sale.cashierName}` : ""}</div>
+      {sale.earnedPoints > 0 && <div style={small}>Puntos Club Fly ganados: {sale.earnedPoints}</div>}
+      {sale.notaExterna && <div style={{ marginTop: 4, fontStyle: "italic" }}>{sale.notaExterna}</div>}
+      {line}
+      <div style={{ ...small, textAlign: "center" }}>Cambios de talla o color hasta 7 días con etiquetas y este documento.</div>
+      <div style={{ ...small, textAlign: "center" }}>Libro de Reclamaciones virtual disponible en nuestra web.</div>
+      <div style={{ ...small, textAlign: "center", fontWeight: 700, marginTop: 4 }}>Documento interno de control. No es boleta ni factura electrónica (SUNAT).</div>
+      <div style={{ textAlign: "center", marginTop: 6 }}>¡Gracias por tu compra!</div>
+    </div>
+  );
+};
+
+const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp }) => {
+  const [format, setFormat] = useState(() => { try { return localStorage.getItem(RECEIPT_FORMAT_KEY) || "80"; } catch (e) { return "80"; } });
+  const choose = (f) => { setFormat(f); try { localStorage.setItem(RECEIPT_FORMAT_KEY, f); } catch (e) { /* nada */ } };
+  return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.paperDeep, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+        <span style={{ width: 34, height: 34, borderRadius: "50%", background: C.ink, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Check size={18} color={C.paper} /></span>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}><strong>Venta registrada</strong> · {sale.serie}-{String(sale.numero).padStart(6, "0")} · {money2(sale.total)}</div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {Object.entries(RECEIPT_FORMATS).map(([k, f]) => <Chip key={k} active={format === k} onClick={() => choose(k)}>{f.label}</Chip>)}
+      </div>
+      <div style={{ background: "#e9e9e9", borderRadius: 12, padding: "16px 8px", marginBottom: 16, overflowX: "auto" }}>
+        <div style={{ boxShadow: "0 4px 18px rgba(0,0,0,0.12)", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}><ReceiptDocument sale={sale} settings={settings} format={format} /></div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <button onClick={() => window.print()} style={{ ...quickLinkStyle, justifyContent: "center", fontWeight: 600 }}><Receipt size={16} /> Imprimir</button>
+        <button onClick={onSendWhatsApp} style={{ ...quickLinkStyle, justifyContent: "center", background: "#25D366", color: C.ink, border: "none", fontWeight: 600 }}><MessageCircle size={15} /> WhatsApp</button>
+      </div>
+      {sale.notaInterna && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 10 }}>Nota interna (no se imprime): {sale.notaInterna}</div>}
       <PrimaryButton onClick={onNewSale}>Nueva venta</PrimaryButton>
     </div>
-  </div>
-);
+  );
+};
 
 // Buscar o registrar al cliente de la tienda física (para su boleta y sus puntos)
 const PosClientPicker = ({ customers, onPick, onCreate, onClose }) => {
@@ -4926,8 +5019,13 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
 
   // Buscar cliente por documento (exacto) o por nombre (sugerencias)
   const byDoc = (d) => customers.find((c) => c.doc && c.doc === d);
+  // Tipo de documento: DNI, carné de extranjería, pasaporte o RUC (la factura siempre pide RUC)
+  const [docTypeSel, setDocTypeSel] = useState("DNI");
+  const docType = isFactura ? "RUC" : docTypeSel;
+  const [customerAddress, setCustomerAddress] = useState("");
   const onDoc = (v) => {
-    const d = v.replace(/[^0-9A-Za-z]/g, "").slice(0, isFactura ? 11 : 12);
+    const max = { DNI: 8, RUC: 11, CE: 12, PAS: 12 }[docType] || 12;
+    const d = (docType === "DNI" || docType === "RUC" ? v.replace(/\D/g, "") : v.replace(/[^0-9A-Za-z]/g, "").toUpperCase()).slice(0, max);
     setDoc(d); setAnon(false);
     const hit = d.length >= 8 ? byDoc(d) : null;
     setMatched(hit || null);
@@ -4937,7 +5035,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const pick = (c) => { setMatched(c); setName(c.name); setDoc(c.doc || ""); setPhone(c.phone || "51"); setEmail(c.email || ""); setShowSug(false); };
   const toggleAnon = (on) => { setAnon(on); setMatched(null); if (on) { setDoc(GENERIC_DOC); setName("Cliente varios"); setPhone("51"); setEmail("sincorreo@flyboutique.pe"); } else { setDoc(""); setName(""); setEmail(""); } };
 
-  const docOk = anon ? !isFactura : isFactura ? /^\d{11}$/.test(doc) : doc.length >= 8;
+  const docOk = anon ? !isFactura : docType === "RUC" ? /^\d{11}$/.test(doc) : docType === "DNI" ? /^\d{8}$/.test(doc) : doc.length >= (docType === "CE" ? 9 : 6);
   const nameOk = name.trim().length >= 3;
   const emailOk = anon || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const customerOk = docOk && nameOk && emailOk;
@@ -4958,7 +5056,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
     const cleanPhone = phoneIsValid(phone) ? phone : "";
     if (!anon && cleanPhone && !matched && onSaveCustomer) onSaveCustomer({ name: name.trim(), doc, phone: cleanPhone, email: email.trim() });
     onConfirm({
-      customerName: name.trim(), customerDoc: doc, customerPhone: anon ? "" : cleanPhone, customerEmail: anon ? "" : email.trim(),
+      customerName: name.trim(), customerDoc: doc, customerDocType: anon ? "" : docType, customerAddress: docType === "RUC" ? customerAddress.trim() : "", customerPhone: anon ? "" : cleanPhone, customerEmail: anon ? "" : email.trim(),
       payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount) })),
       paymentMethod: payments.length > 1 ? "Mixto" : payments[0].method,
       amountReceived: cash && received ? Number(received) : null, vuelto: change && change > 0 ? change : 0,
@@ -4987,8 +5085,13 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             {[["boleta", "Boleta / Nota de venta"], ["factura", "Factura"]].map(([k, l]) => <Chip key={k} active={comprobanteTipo === k} onClick={() => { setComprobanteTipo(k); if (k === "factura") toggleAnon(false); }}>{l}</Chip>)}
           </div>
           {step(1, "Cliente", customerOk, isFactura ? "Escribe el RUC: si ya compró antes, se completa solo." : "Escribe el DNI: si ya es cliente, se completa solo y suma sus puntos.")}
+          {!anon && !isFactura && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              {[["DNI", "DNI"], ["CE", "Carné ext."], ["PAS", "Pasaporte"], ["RUC", "RUC"]].map(([k, l]) => <Chip key={k} active={docType === k} onClick={() => { setDocTypeSel(k); setDoc(""); setMatched(null); }}>{l}</Chip>)}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input autoFocus value={anon ? GENERIC_DOC : doc} disabled={anon} onChange={(e) => onDoc(e.target.value)} inputMode="numeric" placeholder={isFactura ? "RUC (11 dígitos)" : "DNI / CE / Pasaporte"} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
+            <input autoFocus value={anon ? GENERIC_DOC : doc} disabled={anon} onChange={(e) => onDoc(e.target.value)} inputMode={docType === "DNI" || docType === "RUC" ? "numeric" : "text"} placeholder={{ DNI: "DNI (8 dígitos)", RUC: "RUC (11 dígitos)", CE: "Carné de extranjería", PAS: "Pasaporte" }[docType]} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
           </div>
           {matched && <div style={{ background: C.paperDeep, borderRadius: 9, padding: "9px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>✓ Cliente registrado: <strong>{matched.name}</strong> · {matched.points || 0} puntos</div>}
           <div style={{ position: "relative", marginBottom: 8 }}>
@@ -5000,6 +5103,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
               </div>
             )}
           </div>
+          {!anon && docType === "RUC" && <input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="Dirección fiscal de la empresa (para la factura)" style={{ ...inputStyle, marginBottom: 8 }} />}
           {!anon && (
             <>
               <PhoneInput value={phone} onChange={setPhone} placeholder="Celular (para sus puntos)" style={{ marginBottom: 8 }} />
@@ -5034,7 +5138,17 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
 
         <div className="checkout-right">
           <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
-            {saleItems.map((i) => <div key={i.saleItemId} style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, padding: "3px 0" }}><span>{i.name} · {i.size}/{i.colorName} × {i.qty}</span><span>{money(i.unitPrice * i.qty)}</span></div>)}
+            {saleItems.map((i) => {
+              const prod = catalog.products.find((p) => p.id === i.productId);
+              const img = prod ? (colorPhotos(prod, i.colorName)[0]?.url || mainImageUrl(prod)) : null;
+              return (
+                <div key={i.saleItemId} style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, padding: "5px 0" }}>
+                  <div style={{ width: 38, height: 50, borderRadius: 6, overflow: "hidden", background: C.paperDeep, flexShrink: 0 }}>{img && <ProductImg src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>
+                  <span style={{ flex: 1 }}>{i.name}<br /><span style={{ color: C.stone, fontSize: 11.5 }}>{i.size} / {i.colorName} × {i.qty}</span></span>
+                  <span style={{ fontWeight: 600 }}>{money(i.unitPrice * i.qty)}</span>
+                </div>
+              );
+            })}
             <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 8, paddingTop: 8 }}>
               <Row label="Subtotal" value={money(subtotal)} />
               {promoDiscount > 0 && <Row label={`Código ${promo.code}`} value={`-${money(promoDiscount)}`} />}
@@ -5045,8 +5159,20 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
           </div>
           {useCodes ? (
             <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 6 }}>¿Quién atendió? Toca su nombre o escribe su código</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                {sellerCodes.map((x) => {
+                  const on = codeMatch?.code === x.code;
+                  return (
+                    <button key={x.code} onClick={() => setSellerCode(x.code)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px 7px 7px", borderRadius: 999, border: `1.5px solid ${on ? C.ink : C.line}`, background: on ? C.ink : C.paper, color: on ? C.paper : C.ink, cursor: "pointer" }}>
+                      <span style={{ width: 28, height: 28, borderRadius: "50%", background: on ? C.paper : C.paperDeep, color: C.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontSize: 11, fontWeight: 800 }}>{x.code.slice(0, 2)}</span>
+                      <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600 }}>{x.name.split(" ")[0]}</span>
+                    </button>
+                  );
+                })}
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Código de quien atendió:</span>
+                <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Código:</span>
                 <input value={sellerCode} onChange={(e) => setSellerCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5))} placeholder="Ej. MA01" autoCapitalize="characters" style={{ ...inputStyle, flex: 1, fontSize: 15, letterSpacing: "0.08em", borderColor: sellerCode && !codeMatch ? C.accent : undefined }} />
               </div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, marginTop: 4, color: codeMatch ? C.ink : C.stone }}>{codeMatch ? `✓ ${codeMatch.name}` : sellerCode ? "Código no encontrado" : "Obligatorio para registrar la venta"}</div>
@@ -5084,6 +5210,13 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
                 <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, width: 140 }}>Efectivo recibido S/</span>
                 <input inputMode="decimal" value={received} onChange={(e) => setReceived(e.target.value.replace(/[^0-9.]/g, ""))} placeholder={Number(cash.amount || 0).toFixed(2)} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
               </div>
+              {/* Billetes rápidos: un toque y calcula el vuelto */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                <button onClick={() => setReceived(Number(cash.amount || 0).toFixed(2))} style={{ padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Exacto</button>
+                {[10, 20, 50, 100, 200].filter((b) => b >= Number(cash.amount || 0) * 0.2).map((b) => (
+                  <button key={b} onClick={() => setReceived(String(b))} style={{ padding: "9px 12px", borderRadius: 8, border: `1px solid ${Number(received) === b ? C.ink : C.line}`, background: Number(received) === b ? C.ink : C.paper, color: Number(received) === b ? C.paper : C.ink, fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 800, cursor: "pointer", minWidth: 58 }}>S/ {b}</button>
+                ))}
+              </div>
               {change !== null && (change >= 0
                 ? <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.ink, marginTop: 8 }}>Vuelto: <strong style={{ fontSize: 18 }}>{money(change)}</strong>{Math.abs(change * 10 - Math.round(change * 10)) > 1e-6 && <span style={{ fontSize: 11.5, color: C.stone }}> · sin céntimos, entrega {money(ceil10(change))} (redondeo a favor del cliente)</span>}</div>
                 : <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginTop: 8 }}>El efectivo recibido es menor al monto en efectivo.</div>)}
@@ -5094,7 +5227,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: Math.abs(pending) < 0.005 ? C.ink : C.accent }}>{money(Math.abs(pending))}</span>
           </div>
           {!canConfirm && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8, lineHeight: 1.5 }}>Para emitir falta: {[!docOk && (isFactura ? "RUC de 11 dígitos" : "documento del cliente"), !nameOk && "nombre del cliente", !emailOk && "correo del cliente", !paymentsOk && "completar el pago"].filter(Boolean).join(", ")}.</div>}
-          <PrimaryButton disabled={!canConfirm} onClick={confirm}>{busy ? "Registrando…" : `Emitir ${isFactura ? "factura" : "boleta"} · ${money(total)}`}</PrimaryButton>
+          <PrimaryButton disabled={!canConfirm} onClick={confirm}>{busy ? "Registrando…" : `Registrar venta · ${money2(total)}`}</PrimaryButton>
           <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 8, lineHeight: 1.5 }}>Comprobante interno hasta activar la facturación electrónica SUNAT.</div>
         </div>
       </div>
@@ -5219,7 +5352,7 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
     window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
   };
 
-  if (lastSale) return <ReceiptView sale={lastSale} onNewSale={() => setLastSale(null)} onSendWhatsApp={sendReceiptWhatsApp} />;
+  if (lastSale) return <ReceiptView sale={lastSale} settings={catalog.settings} onNewSale={() => setLastSale(null)} onSendWhatsApp={sendReceiptWhatsApp} />;
 
   const posCategories = ["Todo", ...new Set(catalog.products.map((p) => p.category))];
   const tiles = (q.trim() ? suggestions : catalog.products.filter((p) => posCategory === "Todo" || p.category === posCategory)).filter((p) => p.status !== "inactivo");
@@ -5369,7 +5502,7 @@ const AdminInvoicesScreen = ({ sales, onVoid, storesSettings }) => {
     return (
       <div style={{ padding: "18px 18px 90px" }}>
         <button onClick={() => setSelected(null)} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver</button>
-        <ReceiptView sale={selected} onNewSale={() => setSelected(null)} onSendWhatsApp={() => {
+        <ReceiptView sale={selected} settings={storesSettings} onNewSale={() => setSelected(null)} onSendWhatsApp={() => {
           const lines = [`Comprobante Fly Boutique ${selected.serie}-${String(selected.numero).padStart(6, "0")}`, "", ...selected.items.map((i) => `• ${i.name} — ${i.size}/${i.colorName} × ${i.qty} — ${money(i.unitPrice * i.qty)}`), "", `Total: ${money(selected.total)}`];
           window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
         }} />
@@ -5865,7 +5998,6 @@ const cashErrorText = (e) => {
   return k ? CASH_ERRORS[k] : "No se pudo completar. Revisa tu conexión e intenta de nuevo.";
 };
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
-const money2 = (n) => `S/ ${Number(n || 0).toFixed(2)}`;
 
 const useStoreChoice = (settings) => {
   const stores = storesOf(settings);
@@ -5891,7 +6023,16 @@ const CashReport = ({ s, storeName }) => (
   </div>
 );
 
-const CashScreen = ({ catalog, role }) => {
+// Botón grande con ícono (pantallas de caja: fáciles de tocar en el mostrador)
+const BigAction = ({ icon: Icon, title, hint, onClick, dark = false, disabled = false }) => (
+  <button onClick={onClick} disabled={disabled} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, padding: "16px 14px", borderRadius: 14, border: `1.5px solid ${C.ink}`, background: dark ? C.ink : C.paper, color: dark ? C.paper : C.ink, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, textAlign: "left", minHeight: 108 }}>
+    <span style={{ width: 40, height: 40, borderRadius: 12, background: dark ? "rgba(255,255,255,0.12)" : C.paperDeep, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon size={21} /></span>
+    <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, fontWeight: 800 }}>{title}</span>
+    {hint && <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.75, lineHeight: 1.4 }}>{hint}</span>}
+  </button>
+);
+
+const CashScreen = ({ catalog, role, onGoSell }) => {
   const canManage = ["superadmin", "administrador", "cajero"].includes(role);
   const isAdmin = role === "superadmin" || role === "administrador";
   const { stores, store, choose } = useStoreChoice(catalog.settings);
@@ -5963,11 +6104,15 @@ const CashScreen = ({ catalog, role }) => {
         <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Cargando…</div>
       ) : !cash ? (
         <AdminCard>
+          <div style={{ width: 54, height: 54, borderRadius: 16, background: C.ink, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}><Banknote size={26} color={C.paper} /></div>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>La caja de {store.name} está cerrada</div>
           {canManage ? (
             <>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 12, lineHeight: 1.6 }}>Cuenta el dinero con el que empiezas el día (fondo para dar vuelto) y abre la caja. Quedará abierta todo el turno, aunque cambie la vendedora.</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                {[0, 50, 100, 150, 200].map((v) => <Chip key={v} active={openAmount === String(v)} onClick={() => setOpenAmount(String(v))}>{v === 0 ? "Sin fondo" : `S/ ${v}`}</Chip>)}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Fondo inicial S/</span>
                 <input inputMode="decimal" value={openAmount} onChange={(e) => setOpenAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ ...inputStyle, width: 120, fontSize: 15 }} />
                 <button disabled={busy} onClick={openCash} style={btn(true)}>{busy ? "Abriendo…" : "Abrir caja"}</button>
@@ -5996,10 +6141,11 @@ const CashScreen = ({ catalog, role }) => {
 
           {canManage && (
             <>
-              <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-                <button onClick={() => { setMove({ type: "entrada", amount: "", reason: "" }); setClosing(null); }} style={btn(false)}>+ Entrada de efectivo</button>
-                <button onClick={() => { setMove({ type: "salida", amount: "", reason: "" }); setClosing(null); }} style={btn(false)}>− Salida de efectivo</button>
-                <button onClick={() => { setClosing({ counted: "", notes: "" }); setMove(null); }} style={{ ...btn(true), marginLeft: "auto" }}>Cerrar caja</button>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
+                {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint="Ir al punto de venta" onClick={onGoSell} dark />}
+                <BigAction icon={Plus} title="Entrada" hint="Meter efectivo (ej. sencillo)" onClick={() => { setMove({ type: "entrada", amount: "", reason: "" }); setClosing(null); }} />
+                <BigAction icon={Minus} title="Salida" hint="Sacar efectivo (ej. compras)" onClick={() => { setMove({ type: "salida", amount: "", reason: "" }); setClosing(null); }} />
+                <BigAction icon={Banknote} title="Cerrar caja" hint="Contar el dinero y cerrar el turno" onClick={() => { setClosing({ counted: "", notes: "" }); setMove(null); }} />
               </div>
               {move && (
                 <AdminCard style={{ marginBottom: 14 }}>
@@ -6296,7 +6442,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" role={role} onGoCash={() => setScreen("caja")} />}
         {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
-        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} />}
+        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
