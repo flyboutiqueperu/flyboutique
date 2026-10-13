@@ -5,7 +5,7 @@ import {
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
-  MessageCircle, Download, FileSpreadsheet, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup,
+  MessageCircle, Download, FileSpreadsheet, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { createPortal } from "react-dom";
@@ -1409,6 +1409,16 @@ const PhotoViewer = ({ items, start = 0, alt, onClose }) => {
     </div>, document.body);
 };
 
+// Miniatura de un video: primer cuadro del video con el botón de reproducir encima
+const VideoThumb = ({ url }) => (
+  <div style={{ position: "relative", width: "100%", height: "100%" }}>
+    <video src={`${url}#t=0.1`} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", pointerEvents: "none" }} />
+    <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <span style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center" }}><Play size={14} color={C.ink} fill={C.ink} style={{ marginLeft: 2 }} /></span>
+    </span>
+  </div>
+);
+
 const ProductGallery = ({ items, alt, dim }) => {
   const [viewer, setViewer] = useState(null);
   const trackRef = useRef(null);
@@ -1459,7 +1469,7 @@ const ProductGallery = ({ items, alt, dim }) => {
           {items.map((m, i) => (
             <button key={m.id || i} onClick={() => go(i)} style={{ width: 62, height: 78, padding: 0, borderRadius: 6, overflow: "hidden", border: `2px solid ${i === idx ? C.ink : "transparent"}`, background: C.paperDeep, cursor: "pointer" }}>
               {m.type === "video"
-                ? <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_BODY, fontSize: 10, color: C.ink }}>Video</div>
+                ? <VideoThumb url={m.url} />
                 : <ProductImg src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
             </button>
           ))}
@@ -1681,11 +1691,21 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                     {colors.map((c) => {
                       const outOfStock = colorTotalStock(product, c.n) === 0;
                       const active = color?.n === c.n;
+                      const tilePhoto = hasColorPhoto(product, c.n) ? colorPhotos(product, c.n)[0]?.url : null;
                       return (
+                        // Con foto de ese color: miniatura de la prenda (como Zalando). Sin foto: círculo del color.
+                        tilePhoto ? (
+                          <button key={c.n} onClick={() => setColor(c)} onMouseEnter={() => setHoverColor(c.n)} onFocus={() => setHoverColor(c.n)} title={outOfStock ? `${c.n} (agotado)` : c.n} aria-label={c.n} aria-pressed={active}
+                            style={{ position: "relative", width: 60, height: 80, borderRadius: 8, overflow: "hidden", background: C.paperDeep, cursor: "pointer", border: `2px solid ${active ? C.ink : C.line}`, opacity: outOfStock ? 0.45 : 1, transition: "border-color .15s ease", padding: 0 }}>
+                            <ProductImg src={tilePhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                            {outOfStock && <span style={{ position: "absolute", inset: 0, background: `linear-gradient(to top right, transparent calc(50% - 1px), ${C.ink} calc(50% - 1px), ${C.ink} calc(50% + 1px), transparent calc(50% + 1px))` }} />}
+                          </button>
+                        ) : (
                         <button key={c.n} onClick={() => setColor(c)} onMouseEnter={() => setHoverColor(c.n)} title={outOfStock ? `${c.n} (agotado)` : c.n} aria-label={c.n}
-                          style={{ position: "relative", width: active ? 42 : 36, height: active ? 42 : 36, borderRadius: "50%", background: c.h, cursor: "pointer", border: `1px solid ${C.line}`, boxShadow: active ? `0 0 0 3px ${C.paper}, 0 0 0 4px ${C.ink}` : "none", opacity: outOfStock ? 0.4 : 1, transition: "all .15s ease", padding: 0 }}>
+                          style={{ position: "relative", width: active ? 42 : 36, height: active ? 42 : 36, borderRadius: "50%", background: c.h, cursor: "pointer", border: `1px solid ${C.line}`, boxShadow: active ? `0 0 0 3px ${C.paper}, 0 0 0 4px ${C.ink}` : "none", opacity: outOfStock ? 0.4 : 1, transition: "all .15s ease", padding: 0, alignSelf: "center" }}>
                           {outOfStock && <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: `linear-gradient(to top right, transparent calc(50% - 1px), ${C.ink} calc(50% - 1px), ${C.ink} calc(50% + 1px), transparent calc(50% + 1px))` }} />}
                         </button>
+                        )
                       );
                     })}
                   </div>
@@ -6192,7 +6212,7 @@ export default function FlyBoutiqueApp() {
         @media (max-width: 899px) {
           .app-page { padding: 0 !important; background: ${C.paper} !important; }
           .app-frame { max-width: none !important; height: 100vh !important; height: 100dvh !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
-          .pdp-slide { max-height: 64vh; }
+          .pdp-slide { max-height: 76vh; }
         }
         @media (min-width: 600px) and (max-width: 899px) {
           .product-grid { grid-template-columns: repeat(3, 1fr) !important; }
@@ -6289,12 +6309,14 @@ export default function FlyBoutiqueApp() {
           .sheet-small { width: 400px; }
           /* Ficha de producto en PC: página propia (como Zalando) */
           .pdp-topbar { top: 113px !important; }
-          .pdp-wrap { display: grid !important; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 48px; padding: 18px 28px 40px; align-items: start; max-width: 1240px !important; }
+          .pdp-wrap { display: grid !important; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 48px; padding: 18px 28px 40px; align-items: start; max-width: 1240px !important; }
           .pdp-info { padding: 0 !important; position: sticky; top: 70px; }
           .pdp-gal.has-thumbs { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; }
           .pdp-gal .pdp-thumbs { display: flex !important; flex-direction: column; order: -1; margin-top: 0 !important; max-height: calc(100vh - 230px); overflow-y: auto; flex-wrap: nowrap !important; }
           .pdp-gal .pdp-thumbs button { width: 72px !important; height: 92px !important; flex-shrink: 0; }
-          .pdp-slide { aspect-ratio: auto !important; height: min(calc(100vh - 210px), 760px); border-radius: 12px; }
+          /* Foto vertical 3:4 (como Zalando). Antes tomaba el alto de la pantalla y en laptop quedaba casi cuadrada */
+          .pdp-slide { aspect-ratio: 3 / 4 !important; height: auto !important; border-radius: 12px; }
+          .pdp-gal .pdp-gal-main { width: 100%; max-width: max(440px, calc((100vh - 190px) * 0.75)); }
           .pdp-buybar { display: none !important; }
           .pdp-inline-buy { display: block !important; }
           .pdp-arrow { display: flex !important; }
