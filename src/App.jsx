@@ -10,7 +10,7 @@ import {
 import * as XLSX from "xlsx";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
-import { supabase } from "./supabaseClient.js";
+import { supabase, setStaffSessionMode, clearStaffSessionMode } from "./supabaseClient.js";
 
 /* ------------------------------------------------------------------ */
 /*  DESIGN TOKENS — monochrome editorial, one burgundy accent          */
@@ -3324,6 +3324,7 @@ const StaffAccess = ({ onDone, onCancel }) => {
   const [lockedUntil, setLockedUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [copied, setCopied] = useState(false);
+  const [remember, setRemember] = useState(false);
 
   useEffect(() => {
     try { const raw = localStorage.getItem(LOGIN_LOCK_KEY); if (raw) { const { attempts: a, lockedUntil: l } = JSON.parse(raw); setAttempts(a || 0); setLockedUntil(l || 0); } } catch (e) { /* sin datos previos */ }
@@ -3355,6 +3356,7 @@ const StaffAccess = ({ onDone, onCancel }) => {
   const login = async () => {
     if (isLocked || busy || !username.trim() || !password) return;
     setBusy(true); setErr("");
+    setStaffSessionMode(remember); // sin marcar: la sesión se cierra al cerrar la página
     const { error } = await supabase.auth.signInWithPassword({ email: staffEmail(username), password });
     if (error) {
       setBusy(false);
@@ -3458,6 +3460,10 @@ const StaffAccess = ({ onDone, onCancel }) => {
           <input value={username} onChange={(e) => { setUsername(e.target.value); setErr(""); }} placeholder="Usuario" autoCapitalize="none" autoComplete="username" style={{ ...darkInput(!!err), marginBottom: 10 }} />
           <PasswordInput dark value={password} onChange={(e) => { setPassword(e.target.value); setErr(""); }} placeholder="Contraseña" autoComplete="current-password"
             onKeyDown={(e) => e.key === "Enter" && login()} style={darkInput(!!err)} />
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, fontFamily: FONT_BODY, fontSize: 11.5, color: `${C.paper}CC`, cursor: "pointer", lineHeight: 1.45 }}>
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>Mantener la sesión iniciada en este equipo<br /><span style={{ opacity: 0.7 }}>Solo en un equipo de confianza. Si no lo marcas, la sesión se cierra al cerrar la página.</span></span>
+          </label>
           {err && <div style={errText}>{err}</div>}
         </div>
       )}
@@ -3477,11 +3483,13 @@ const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
     </div>
     <div style={{ display: "flex", gap: 8 }}>
     {onHome && <button onClick={onHome} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.25)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer" }}><Home size={12} /> Inicio del panel</button>}
-    <button onClick={onExit} style={{ fontFamily: FONT_BODY, fontSize: 11, color: `${C.paper}AA`, background: "none", border: `1px solid rgba(255,255,255,0.25)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer" }}>Ir a la tienda</button>
+    <button onClick={onExit} title="Cierra tu sesión. La caja sigue abierta para el siguiente turno." style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer" }}><LogOut size={12} /> Cerrar sesión</button>
     </div>
   </div>
 );
 
+// Lo que hace cada sección (aparece al dejar el mouse encima)
+const NAV_HINTS = { caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
 const AdminNav = ({ screen, setScreen, role }) => {
   const items = (role === "administrador" || role === "superadmin")
     ? [["dashboard", "Panel", LayoutDashboard], ["pos", "Ventas", ShoppingCart], ["stock", "Stock", Package], ["products", "Productos", LayoutGrid], ["more", "Más", Menu]]
@@ -3498,7 +3506,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
       {items.map(([key, label, Icon]) => {
         const active = screen === key || (key === "products" && screen === "productEditor") || (key === "more" && moreScreens.includes(screen));
         return (
-          <button key={key} className={`nav-item${active ? " is-active" : ""}`} onClick={() => setScreen(key)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
+          <button key={key} className={`nav-item${active ? " is-active" : ""}`} onClick={() => setScreen(key)} title={NAV_HINTS[key] || label} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
             <Icon size={19} strokeWidth={active ? 2.1 : 1.5} color={active ? C.ink : C.stone} />
             <span className="nav-label" style={{ fontFamily: FONT_BODY, fontSize: 9.5, color: active ? C.ink : C.stone, fontWeight: active ? 600 : 400 }}>{label}</span>
           </button>
@@ -5164,7 +5172,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
                 {sellerCodes.map((x) => {
                   const on = codeMatch?.code === x.code;
                   return (
-                    <button key={x.code} onClick={() => setSellerCode(x.code)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px 7px 7px", borderRadius: 999, border: `1.5px solid ${on ? C.ink : C.line}`, background: on ? C.ink : C.paper, color: on ? C.paper : C.ink, cursor: "pointer" }}>
+                    <button key={x.code} onClick={() => setSellerCode(x.code)} title={`Atendió ${x.name} (${x.code})`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px 7px 7px", borderRadius: 999, border: `1.5px solid ${on ? C.ink : C.line}`, background: on ? C.ink : C.paper, color: on ? C.paper : C.ink, cursor: "pointer" }}>
                       <span style={{ width: 28, height: 28, borderRadius: "50%", background: on ? C.paper : C.paperDeep, color: C.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontSize: 11, fontWeight: 800 }}>{x.code.slice(0, 2)}</span>
                       <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600 }}>{x.name.split(" ")[0]}</span>
                     </button>
@@ -5190,7 +5198,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             {POS_PAY_OPTIONS.map(([m, Icon]) => {
               const used = payments.some((p) => p.method === m);
               return (
-                <button key={m} onClick={() => addPayment(m)} title={used ? "Tocar para quitar" : ""} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px", borderRadius: 10, border: `1.5px solid ${used ? C.ink : C.line}`, background: used ? C.ink : C.paper, color: used ? C.paper : C.ink, cursor: "pointer" }}>
+                <button key={m} onClick={() => addPayment(m)} title={used ? `Quitar pago con ${m}` : `Cobrar con ${m}. Puedes combinar varios medios.`} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px", borderRadius: 10, border: `1.5px solid ${used ? C.ink : C.line}`, background: used ? C.ink : C.paper, color: used ? C.paper : C.ink, cursor: "pointer" }}>
                   <Icon size={20} /><span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 600 }}>{m}</span>
                 </button>
               );
@@ -5212,9 +5220,9 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
               </div>
               {/* Billetes rápidos: un toque y calcula el vuelto */}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                <button onClick={() => setReceived(Number(cash.amount || 0).toFixed(2))} style={{ padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Exacto</button>
+                <button onClick={() => setReceived(Number(cash.amount || 0).toFixed(2))} title="La clienta pagó con el monto justo" style={{ padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Exacto</button>
                 {[10, 20, 50, 100, 200].filter((b) => b >= Number(cash.amount || 0) * 0.2).map((b) => (
-                  <button key={b} onClick={() => setReceived(String(b))} style={{ padding: "9px 12px", borderRadius: 8, border: `1px solid ${Number(received) === b ? C.ink : C.line}`, background: Number(received) === b ? C.ink : C.paper, color: Number(received) === b ? C.paper : C.ink, fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 800, cursor: "pointer", minWidth: 58 }}>S/ {b}</button>
+                  <button key={b} onClick={() => setReceived(String(b))} title={`La clienta pagó con S/ ${b}: calcula el vuelto`} style={{ padding: "9px 12px", borderRadius: 8, border: `1px solid ${Number(received) === b ? C.ink : C.line}`, background: Number(received) === b ? C.ink : C.paper, color: Number(received) === b ? C.paper : C.ink, fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 800, cursor: "pointer", minWidth: 58 }}>S/ {b}</button>
                 ))}
               </div>
               {change !== null && (change >= 0
@@ -6025,7 +6033,7 @@ const CashReport = ({ s, storeName }) => (
 
 // Botón grande con ícono (pantallas de caja: fáciles de tocar en el mostrador)
 const BigAction = ({ icon: Icon, title, hint, onClick, dark = false, disabled = false }) => (
-  <button onClick={onClick} disabled={disabled} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, padding: "16px 14px", borderRadius: 14, border: `1.5px solid ${C.ink}`, background: dark ? C.ink : C.paper, color: dark ? C.paper : C.ink, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, textAlign: "left", minHeight: 108 }}>
+  <button onClick={onClick} disabled={disabled} title={hint ? `${title}: ${hint}` : title} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, padding: "16px 14px", borderRadius: 14, border: `1.5px solid ${C.ink}`, background: dark ? C.ink : C.paper, color: dark ? C.paper : C.ink, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, textAlign: "left", minHeight: 108 }}>
     <span style={{ width: 40, height: 40, borderRadius: 12, background: dark ? "rgba(255,255,255,0.12)" : C.paperDeep, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon size={21} /></span>
     <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, fontWeight: 800 }}>{title}</span>
     {hint && <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.75, lineHeight: 1.4 }}>{hint}</span>}
@@ -6283,6 +6291,104 @@ const SellersScreen = ({ catalog }) => {
   );
 };
 
+// ------------------------------------------------------------------
+// AYUDA DEL PANEL: botón "? Ayuda" en cada pantalla con los pasos explicados.
+// La primera vez que alguien abre una pantalla en este equipo, la guía aparece sola.
+// ------------------------------------------------------------------
+const STAFF_GUIDES = {
+  caja: { title: "Cómo usar la caja", steps: [
+    ["Banknote", "Al empezar el día, cuenta el dinero con el que abres (el fondo para dar vuelto)."],
+    ["Plus", "Escribe ese monto o toca un botón rápido (S/ 50, S/ 100…) y toca «Abrir caja»."],
+    ["ShoppingCart", "Para vender, toca «Vender». La caja queda abierta todo el turno, aunque cambie la vendedora."],
+    ["Minus", "Si metes o sacas efectivo (sencillo, compras), usa «Entrada» o «Salida» y escribe el motivo."],
+    ["Receipt", "Al final del día toca «Cerrar caja», cuenta todo el efectivo y escríbelo. Si no cuadra, explica por qué. Imprime el informe."],
+  ] },
+  pos: { title: "Cómo hacer una venta", steps: [
+    ["Scan", "Escanea la etiqueta o toca la prenda. Elige talla y color."],
+    ["ShoppingBag", "Revisa la venta a la derecha. Cambia la cantidad con + y −."],
+    ["Banknote", "Toca «Cobrar»."],
+    ["User", "Escribe el DNI de la clienta: si ya compró antes, sus datos se completan solos y suma puntos."],
+    ["Star", "Toca tu nombre en «¿Quién atendió?» (o escribe tu código, ej. MA01)."],
+    ["CreditCard", "Elige cómo paga. Si es efectivo, toca el billete que te dio y verás el vuelto."],
+    ["Check", "Toca «Registrar venta». Luego imprime el comprobante o envíalo por WhatsApp."],
+  ] },
+  onlinesales: { title: "Registrar una venta online", steps: [
+    ["ShoppingBag", "Agrega las prendas que la clienta pidió por WhatsApp o redes."],
+    ["User", "Completa sus datos y la forma de pago."],
+    ["Check", "Registra la venta: el stock se descuenta al instante."],
+  ] },
+  mysales: { title: "Mis ventas", steps: [["BarChart3", "Aquí ves las ventas registradas a tu nombre y el total."]] },
+  onlineorders: { title: "Pedidos de la web", steps: [
+    ["Package", "Cada pedido nuevo suena y aparece aquí."],
+    ["Check", "Administración confirma el pago cuando llega el dinero (Yape, Plin, transferencia)."],
+    ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento."],
+  ] },
+  stock: { title: "Stock", steps: [
+    ["Package", "Busca la prenda y mira cuántas unidades hay por talla y color."],
+    ["Pencil", "Para corregir, cambia la cantidad y escribe el motivo (ingreso, merma, ajuste). Queda registrado quién lo hizo."],
+  ] },
+  dashboard: { title: "Panel", steps: [
+    ["LayoutDashboard", "Resumen de ventas, pedidos y stock bajo."],
+    ["Menu", "En «Más» están la caja, los vendedores, comprobantes, reportes y la configuración."],
+  ] },
+  sellers: { title: "Códigos de vendedor", steps: [
+    ["User", "Crea un código por vendedora (ej. MA01). Se sugiere solo con sus iniciales."],
+    ["ShieldCheck", "El código solo dice quién vendió: no es contraseña ni da acceso al panel."],
+    ["X", "Si alguien deja de trabajar, desactívalo. No se borra, para no perder sus ventas en los reportes."],
+  ] },
+  invoices: { title: "Comprobantes", steps: [
+    ["Receipt", "Busca una venta para verla, reimprimirla o enviarla. Reimprimir no crea otra venta."],
+    ["Undo2", "Anular devuelve el stock y los puntos. Pide un motivo y queda registrado."],
+  ] },
+};
+const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2 };
+const GUIDE_SEEN_KEY = "flyboutique:guia-vista:";
+
+const StaffHelp = ({ screen }) => {
+  const guide = STAFF_GUIDES[screen];
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!guide) { setOpen(false); return; }
+    try { if (!localStorage.getItem(GUIDE_SEEN_KEY + screen)) { setOpen(true); localStorage.setItem(GUIDE_SEEN_KEY + screen, "1"); } } catch (e) { /* nada */ }
+  }, [screen]);
+  if (!guide) return null;
+  return (
+    <>
+      <button onClick={() => setOpen(true)} title="¿Cómo se hace? Ver los pasos de esta pantalla" className="staff-help-btn"
+        style={{ position: "fixed", right: 18, bottom: 96, zIndex: 40, display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 999, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,0.22)" }}>
+        <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.paper, color: C.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: 13 }}>?</span> Ayuda
+      </button>
+      {open && (
+        <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 75, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div onClick={() => setOpen(false)} style={{ position: "absolute", inset: 0, background: `${C.scrim}66` }} />
+          <div className="sheet-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: "20px 20px 26px", maxHeight: "86vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>{guide.title}</div>
+              <button onClick={() => setOpen(false)} aria-label="Cerrar ayuda" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={18} /></button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {guide.steps.map(([icon, text], i) => {
+                const Icon = GUIDE_ICONS[icon] || Check;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, background: C.paperDeep, borderRadius: 12, padding: "12px 14px" }}>
+                    <span style={{ position: "relative", width: 36, height: 36, borderRadius: 10, background: C.ink, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Icon size={17} color={C.paper} />
+                      <span style={{ position: "absolute", top: -6, left: -6, width: 18, height: 18, borderRadius: "50%", background: C.paper, border: `1.5px solid ${C.ink}`, fontFamily: FONT_DISPLAY, fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", color: C.ink }}>{i + 1}</span>
+                    </span>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, lineHeight: 1.5, paddingTop: 2 }}>{text}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "12px 0 14px" }}>Consejo: en la computadora, deja el mouse quieto sobre un botón para ver qué hace.</div>
+            <PrimaryButton onClick={() => setOpen(false)}>Entendido</PrimaryButton>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, staffName, staffUsername, currentUserId, reserveNumber, onExit, initialScreen }) => {
   const homeScreen = (role === "administrador" || role === "superadmin") ? "dashboard" : role === "cajero" ? "caja" : role === "vendedora_tienda" ? "pos" : role === "almacen" ? "stock" : "onlinesales";
   // Cada pantalla de venta solo se abre con el rol que corresponde (aunque se cambie la dirección a mano)
@@ -6460,6 +6566,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
         {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} />}
       </div>
+      <StaffHelp screen={screen} />
       <AdminNav screen={screen} setScreen={setScreen} role={role} />
     </div>
   );
@@ -6595,10 +6702,12 @@ export default function FlyBoutiqueApp() {
     isStaffRef.current = false;
     STAFF_CAN_WRITE = false;
     try { await supabase.auth.signOut(); } catch (e) { /* sin conexión */ }
+    clearStaffSessionMode();
     setSession(null);
-    setMode("store");
     setCatalog((c) => (c ? { ...c, sales: [], customers: [], stockMovements: [], staff: [] } : c));
-    clearStaffHash();
+    // Vuelve a la pantalla de acceso del staff (para que entre la siguiente persona); desde ahí se puede ir a la tienda
+    setMode("staffLogin");
+    try { window.history.replaceState(null, "", "#staff"); } catch (e) { /* sin historial */ }
     if (reason) showToast(reason);
   };
   const reserveNumber = async (serie) => {
