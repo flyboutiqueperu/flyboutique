@@ -234,21 +234,30 @@ const ROLE_LABELS = { superadmin: "Super Administrador", administrador: "Adminis
 const PUBLIC_KEYS = ["products", "collections", "banners", "settings", "promoCodes"];
 const pickPublic = (c) => Object.fromEntries(PUBLIC_KEYS.map((k) => [k, c[k]]));
 
+// Unidades apartadas en carritos de OTRAS clientas (el servidor no muestra los códigos de carrito ajenos).
+async function loadReservations() {
+  let mySession = "";
+  try { mySession = localStorage.getItem(SESSION_KEY) || ""; } catch (e) { /* sin sesión guardada */ }
+  const { data, error } = await supabase.rpc("reserved_stock", { p_session: mySession });
+  if (!error) return (data || []).map((r) => ({ sessionId: "otras", variantId: r.variant_id, qty: Number(r.qty) || 0, expiresAt: Number.MAX_SAFE_INTEGER }));
+  // Si aún no se corrió el SQL de la Fase 2a, se usa la lectura anterior
+  const old = await supabase.from("reservations").select("session_id,variant_id,qty,expires_at").gt("expires_at", new Date().toISOString());
+  return (old.data || []).map((r) => ({ sessionId: r.session_id, variantId: r.variant_id, qty: r.qty, expiresAt: new Date(r.expires_at).getTime() }));
+}
+
+// Devuelve el catálogo, o null si la tienda aún no tiene catálogo guardado.
+// Si falla la conexión, lanza un error: nunca se muestra (ni se guarda) el catálogo de muestra en su lugar.
 async function loadCatalog() {
-  try {
-    const [main, rev, resv] = await Promise.all([
-      supabase.from("store_data").select("data").eq("id", "main").maybeSingle(),
-      supabase.from("product_reviews").select("product_id,data").order("created_at"),
-      supabase.from("reservations").select("session_id,variant_id,qty,expires_at").gt("expires_at", new Date().toISOString()),
-    ]);
-    if (main.error) throw main.error;
-    if (!main.data?.data) return null;
-    const reviews = {};
-    (rev.data || []).forEach((r) => { (reviews[r.product_id] = reviews[r.product_id] || []).push(r.data); });
-    const reservations = (resv.data || []).map((r) => ({ sessionId: r.session_id, variantId: r.variant_id, qty: r.qty, expiresAt: new Date(r.expires_at).getTime() }));
-    return normalizeCatalog({ ...main.data.data, reviews, reservations, staff: [], sales: [], customers: [], stockMovements: [] });
-  } catch (e) { console.warn("No se pudo leer el catálogo de Supabase:", e); }
-  return null;
+  const [main, rev, reservations] = await Promise.all([
+    supabase.from("store_data").select("data").eq("id", "main").maybeSingle(),
+    supabase.from("product_reviews").select("product_id,data").order("created_at"),
+    loadReservations().catch(() => []),
+  ]);
+  if (main.error) throw main.error;
+  if (!main.data?.data) return null;
+  const reviews = {};
+  (rev.data || []).forEach((r) => { (reviews[r.product_id] = reviews[r.product_id] || []).push(r.data); });
+  return normalizeCatalog({ ...main.data.data, reviews, reservations, staff: [], sales: [], customers: [], stockMovements: [] });
 }
 
 async function loadPrivateData() {
@@ -265,14 +274,29 @@ async function loadPrivateData() {
   };
 }
 
+// Guarda el catálogo sin pisar el stock real: el servidor conserva el stock actual de cada variante
+// y solo aplica los cambios de stock hechos a propósito en este cambio (diferencia entre antes y después).
+async function saveCatalogSafely(next, prev) {
+  const prevStock = new Map();
+  (prev?.products || []).forEach((p) => (p.variants || []).forEach((v) => prevStock.set(v.id, Number(v.stock) || 0)));
+  const deltas = {};
+  (next.products || []).forEach((p) => (p.variants || []).forEach((v) => {
+    if (!prevStock.has(v.id)) return;
+    const diff = (Number(v.stock) || 0) - prevStock.get(v.id);
+    if (diff) deltas[v.id] = diff;
+  }));
+  const res = await supabase.rpc("save_catalog", { p_data: pickPublic(next), p_stock_deltas: deltas });
+  // Si aún no se corrió el SQL de la Fase 2a, se guarda como antes
+  if (res.error?.code === "PGRST202") return supabase.from("store_data").upsert({ id: "main", data: pickPublic(next), updated_at: new Date().toISOString() });
+  return res;
+}
+
 // Guarda solo lo que cambió (y solo si quien guarda es staff).
 let STAFF_CAN_WRITE = false; // solo Super Admin y Administrador guardan cambios directos
 async function persistStaffChanges(next, prev) {
   if (!STAFF_CAN_WRITE) return;
   const tasks = [];
-  if (!prev || JSON.stringify(pickPublic(next)) !== JSON.stringify(pickPublic(prev))) {
-    tasks.push(supabase.from("store_data").upsert({ id: "main", data: pickPublic(next), updated_at: new Date().toISOString() }));
-  }
+  if (!prev || JSON.stringify(pickPublic(next)) !== JSON.stringify(pickPublic(prev))) tasks.push(saveCatalogSafely(next, prev));
   const prevSales = new Map((prev?.sales || []).map((s) => [s.id, s]));
   const changedSales = (next.sales || []).filter((s) => s.id && prevSales.get(s.id) !== s);
   if (changedSales.length) tasks.push(supabase.from("sales").upsert(changedSales.map((s) => ({ id: s.id, data: s, created_at: new Date(s.createdAt || Date.now()).toISOString() }))));
@@ -2000,9 +2024,13 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
   };
 
   const [placing, setPlacing] = useState(false);
+  // Identificador de este pedido: si se corta internet y se reintenta, no se crea un pedido doble
+  const requestIdRef = useRef(null);
+  useEffect(() => { requestIdRef.current = null; }, [cart]);
   const placeOrder = async (extraNote, method) => {
     if (placing) return;
     setPlacing(true);
+    if (!requestIdRef.current) requestIdRef.current = genId("req");
     // La pestaña de WhatsApp se abre ya (si se espera al servidor, el celular la bloquea)
     let popup = null;
     try { popup = window.open("", "_blank"); } catch (e) { popup = null; }
@@ -2011,7 +2039,7 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
       cart: orderCart, subtotal, shipping, discount, promoCode: appliedPromo?.code || null, total,
       deliveryMethod, deliveryAddress: deliveryAddress.trim(), customerName: customerName.trim(), customerPhone: customerPhone.replace(/\D/g, ""), paymentMethod: method,
       paymentRef: method === "Tarjeta" ? "" : opNumber.trim(),
-      pointsUsed, pointsDiscount,
+      pointsUsed, pointsDiscount, clientRequestId: requestIdRef.current,
       deliveryDetails: deliveryMethod === "recojo" ? null : { ...(addr || {}), type: deliveryMethod, ...(deliveryMethod === "internacional" ? { carrier: INTL_CARRIERS[intlCarrier].name, toQuote: intlToQuote } : {}) },
     });
     setPlacing(false);
@@ -3599,15 +3627,6 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           </div>
         </div>
       </AdminCard>
-      {role === "superadmin" && (
-        <AdminCard style={{ marginBottom: 14 }}>
-          <span style={labelStyle}>Contenido de muestra</span>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>
-            Reemplaza todo el catálogo actual por el catálogo de muestra más reciente (productos, fotos y video de referencia). Útil para ver siempre la última demostración, o para volver a empezar limpio. <strong>Esto borra los productos/ventas que hayas cargado — no lo uses una vez que subas tu catálogo real.</strong>
-          </div>
-          <button onClick={() => { if (confirm("¿Reemplazar todo el catálogo actual por el de muestra? Esto no se puede deshacer.")) updateCatalog(() => seedCatalog()); }} style={{ padding: "10px 16px", borderRadius: 8, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Restaurar catálogo de muestra</button>
-        </AdminCard>
-      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
         <button onClick={() => setAdminScreen("products")} style={quickLinkStyle}><Package size={16} color={C.ink} /> Gestionar productos y stock <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
         <button onClick={() => setAdminScreen("banners")} style={quickLinkStyle}><ImageIcon size={16} color={C.ink} /> Editar banners de inicio <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -4297,7 +4316,7 @@ const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, can
                 );
               })()}
               {!validated && canValidate && (
-                <button onClick={() => { if (confirm("¿Confirmas que el pago (Yape/Plin/transferencia/tarjeta) sí llegó? Esto descuenta el stock.")) onValidatePayment(o.id); }} style={{ width: "100%", marginBottom: 10, padding: "10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                <button onClick={() => { if (confirm("¿Confirmas que el pago (Yape/Plin/transferencia/tarjeta) sí llegó? El pedido queda como pagado y la clienta suma sus puntos.")) onValidatePayment(o.id); }} style={{ width: "100%", marginBottom: 10, padding: "10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   ✓ Validar pago recibido
                 </button>
               )}
@@ -4895,6 +4914,9 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
   const [notaInterna, setNotaInterna] = useState("");
   const [notaExterna, setNotaExterna] = useState("");
   const [lastSale, setLastSale] = useState(null);
+  // Identificador de este cobro: si se corta internet y se reintenta, el servidor no duplica la venta
+  const requestIdRef = useRef(null);
+  useEffect(() => { requestIdRef.current = null; }, [saleItems]);
 
   const suggestions = q.trim() ? catalog.products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()) || p.variants.some((v) => v.sku?.toLowerCase().includes(q.toLowerCase()))).slice(0, 6) : [];
 
@@ -4953,10 +4975,13 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
       staffName, channel, source: "pos", status: "emitido", createdAt: Date.now(),
       ...(extra || {}),
     };
+    if (!requestIdRef.current) requestIdRef.current = genId("req");
+    sale.clientRequestId = requestIdRef.current;
     setConfirmingSale(true);
     const saved = await onCompleteSale(sale);
     setConfirmingSale(false);
     if (!saved) return;
+    requestIdRef.current = null;
     setLastSale(saved);
     setSaleItems([]); setShowCheckout(false); setCustomerName(""); setCustomerDoc(""); setCustomerPhone(""); setAppliedPromo(null); setPromoInput(""); setPromoMsg(null);
     setManualDiscountType("none"); setManualDiscountValue(""); setAmountReceived(""); setNotaInterna(""); setNotaExterna("");
@@ -5557,6 +5582,9 @@ const MySalesScreen = ({ sales, staffName }) => {
 
 const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, staffName, staffUsername, currentUserId, reserveNumber, onExit, initialScreen }) => {
   const homeScreen = (role === "administrador" || role === "superadmin") ? "dashboard" : role === "vendedora_tienda" ? "pos" : role === "almacen" ? "stock" : "onlinesales";
+  // Cada pantalla de venta solo se abre con el rol que corresponde (aunque se cambie la dirección a mano)
+  const canSellStore = ["superadmin", "administrador", "vendedora_tienda"].includes(role);
+  const canSellOnline = ["superadmin", "administrador", "vendedora_online"].includes(role);
   const [screen, setScreenRaw] = useState(initialScreen || homeScreen);
   // Historial dentro del panel: la flecha atrás del navegador vuelve a la pantalla anterior del panel
   const setScreen = (sc) => { setScreenRaw(sc); try { if (window.location.hash !== `#staff/${sc}`) window.history.pushState({ staff: sc }, "", `#staff/${sc}`); } catch (e) { /* sin historial */ } };
@@ -5598,6 +5626,8 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const completeSale = async (sale) => {
     const { data, error } = await supabase.rpc("pos_sale", { p_sale: sale });
     if (error || !data) { alert(saleErrorText(error?.message || "")); return null; }
+    // Reintento de una venta que ya se había guardado: no se vuelve a descontar nada
+    if (data.duplicate) { refreshData && refreshData(); return data; }
     // Reflejar al instante en pantalla (sin volver a guardar: ya lo hizo el servidor)
     patchCatalog((c) => ({
       ...c,
@@ -5609,24 +5639,22 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     return data;
   };
 
-  const voidSale = (saleId) => {
-    if (!confirm("¿Anular esta venta? Se generará una nota de crédito interna y se devolverá el stock.")) return;
-    updateCatalog((c) => {
-      const sale = c.sales.find((s) => s.id === saleId);
-      if (!sale) return c;
-      const products = c.products.map((p) => ({
-        ...p,
-        variants: p.variants.map((v) => {
-          const item = sale.items.find((i) => i.variantId === v.id);
-          return item ? { ...v, stock: v.stock + item.qty } : v;
-        }),
-      }));
-      const movements = sale.items.map((it) => ({
-        id: genId("mov"), productId: it.productId, productName: it.name, variantId: it.variantId, size: it.size, colorName: it.colorName,
-        type: "ajuste", qty: it.qty, note: `Nota de crédito — anulación de ${sale.serie}-${String(sale.numero).padStart(6, "0")}`, staffName, createdAt: Date.now(),
-      }));
-      return { ...c, products, sales: c.sales.map((s) => (s.id === saleId ? { ...s, status: "anulado" } : s)), stockMovements: [...movements, ...c.stockMovements] };
-    });
+  // Anular y validar se hacen en el servidor: stock, puntos e historial quedan consistentes.
+  const missingSql = (e) => e?.code === "PGRST202" ? "Falta correr el archivo 08-fase2a-parches.sql en Supabase." : "";
+  const voidSale = async (saleId) => {
+    const reason = prompt("Motivo de la anulación (obligatorio). Se devolverá el stock y se generará una nota de crédito interna:");
+    if (!reason || !reason.trim()) return;
+    const { data, error } = await supabase.rpc("void_sale", { p_sale_id: saleId, p_reason: reason.trim() });
+    if (error || !data) { alert("No se pudo anular: " + (missingSql(error) || (error?.message?.includes("SIN_PERMISO") ? "no tienes permiso." : error?.message || ""))); return; }
+    patchCatalog((c) => ({ ...c, sales: c.sales.map((s) => (s.id === saleId ? data : s)) }));
+    refreshData && refreshData();
+  };
+
+  const validateOnlinePayment = async (saleId) => {
+    const { data, error } = await supabase.rpc("validate_online_payment", { p_sale_id: saleId });
+    if (error || !data) { alert("No se pudo validar el pago: " + (missingSql(error) || (error?.message?.includes("ANULADO") ? "el pedido está anulado." : error?.message || ""))); return; }
+    patchCatalog((c) => ({ ...c, sales: c.sales.map((s) => (s.id === saleId ? data : s)) }));
+    refreshData && refreshData();
   };
 
   const savePromo = (record) => updateCatalog((c) => { const exists = c.promoCodes.some((p) => p.id === record.id); return { ...c, promoCodes: exists ? c.promoCodes.map((p) => (p.id === record.id ? record : p)) : [...c.promoCodes, record] }; });
@@ -5636,33 +5664,6 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     if (error || !data) { alert("No se pudo actualizar el pedido: " + (error?.message || "")); return; }
     patchCatalog((c) => ({ ...c, sales: c.sales.map((x) => (x.id === saleId ? data : x)) }));
   };
-  const validateOnlinePayment = (saleId) => {
-    updateCatalog((c) => {
-      const sale = c.sales.find((s) => s.id === saleId);
-      if (!sale || sale.paymentStatus === "confirmado") return c;
-      const products = c.products.map((p) => ({
-        ...p,
-        variants: p.variants.map((v) => {
-          const item = sale.items.find((i) => i.productId === p.id && i.size === v.size && i.colorName === v.colorName);
-          return item ? { ...v, stock: Math.max(0, v.stock - item.qty) } : v;
-        }),
-      }));
-      const movements = sale.items.map((it) => ({
-        id: genId("mov"), productId: it.productId, productName: it.name, size: it.size, colorName: it.colorName,
-        type: "venta", qty: it.qty, note: `Pago validado — pedido web ${sale.serie}-${String(sale.numero).padStart(6, "0")}`, staffName, createdAt: Date.now(),
-      }));
-      const earned = pointsEarned((sale.subtotal || 0) - (sale.discount || 0) - (sale.pointsDiscount || 0), c.settings);
-      const used = Number(sale.pointsUsed) || 0;
-      const customers = sale.customerPhone && (earned > 0 || used > 0)
-        ? c.customers.map((cu) => (cu.phone === sale.customerPhone ? { ...cu, points: Math.max(0, (cu.points || 0) + earned - used) } : cu))
-        : c.customers;
-      return {
-        ...c, products, customers, stockMovements: [...movements, ...c.stockMovements],
-        sales: c.sales.map((s) => (s.id === saleId ? { ...s, paymentStatus: "confirmado" } : s)),
-      };
-    });
-  };
-
   const saveProduct = (record) => {
     updateCatalog((c) => { const exists = c.products.some((p) => p.id === record.id); return { ...c, products: exists ? c.products.map((p) => (p.id === record.id ? record : p)) : [record, ...c.products] }; });
     setScreen("products");
@@ -5726,8 +5727,8 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "bannerEditor" && <AdminTopBar title={editingBannerId ? "Editar banner" : "Nuevo banner"} onBack={() => setScreen("banners")} onExit={onExit} />}
         {screen === "collectionEditor" && <AdminTopBar title={editingCollectionId ? "Editar colección" : "Nueva colección"} onBack={() => setScreen("collections")} onExit={onExit} />}
 
-        {screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" />}
-        {screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" />}
+        {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" />}
+        {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
@@ -5755,6 +5756,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
 /* ==================================================================== */
 export default function FlyBoutiqueApp() {
   const [catalog, setCatalog] = useState(null);
+  const [catalogError, setCatalogError] = useState(false);
   const [screen, setScreen] = useState("home");
   const [activeCategory, setActiveCategory] = useState("Todo");
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -5811,11 +5813,19 @@ export default function FlyBoutiqueApp() {
   const toastTimer = useRef(null);
 
   useEffect(() => {
-    (async () => { const loaded = await loadCatalog(); setCatalog(loaded || seedCatalog()); })();
+    loadInitialCatalog();
     (async () => { try { const res = await window.storage.get(WISHLIST_KEY, false); if (res?.value) setFavs(new Set(JSON.parse(res.value))); } catch (e) { /* no wishlist saved yet */ } })();
     (async () => { try { const res = await window.storage.get(CLUB_KEY, false); if (res?.value) setClubMember(JSON.parse(res.value)); } catch (e) { /* not registered yet */ } })();
     (async () => { try { const res = await window.storage.get(VIEWED_KEY, false); if (res?.value) setViewedIds(JSON.parse(res.value)); } catch (e) { /* sin historial aún */ } })();
   }, []);
+
+  // Catálogo de muestra solo si la tienda todavía no tiene catálogo guardado (instalación nueva).
+  // Si falla la conexión se muestra "Reintentar": así nunca se ven ni se guardan productos de muestra.
+  async function loadInitialCatalog() {
+    setCatalogError(false);
+    try { const loaded = await loadCatalog(); setCatalog(loaded || seedCatalog()); }
+    catch (e) { console.warn("No se pudo leer el catálogo de Supabase:", e); setCatalogError(true); }
+  }
 
   // Solo el staff guarda en Supabase; lo que hace una clienta va por funciones del servidor.
   const updateCatalog = (updater) => setCatalog((prev) => { const next = updater(prev); if (isStaffRef.current) persistStaffChanges(next, prev); return next; });
@@ -5850,7 +5860,7 @@ export default function FlyBoutiqueApp() {
   };
   const refreshPrivate = async () => {
     try {
-      const [priv, pub] = await Promise.all([loadPrivateData(), loadCatalog()]);
+      const [priv, pub] = await Promise.all([loadPrivateData(), loadCatalog().catch(() => null)]);
       setCatalog((c) => (c ? { ...c, ...priv, ...(pub ? pickPublic(pub) : {}) } : c));
       alertNewOrders(priv.sales);
     }
@@ -5968,7 +5978,7 @@ export default function FlyBoutiqueApp() {
     setCatalog((c) => ({ ...c, reviews: { ...c.reviews, [productId]: [...(c.reviews[productId] || []), data] } }));
     showToast("Gracias, tu reseña ya está publicada");
   };
-  const confirmOnlineOrder = async ({ cart: orderCart, subtotal, shipping, discount, promoCode, total, deliveryMethod, deliveryAddress, customerName, customerPhone, paymentMethod, paymentRef, deliveryDetails, pointsUsed = 0, pointsDiscount = 0 }) => {
+  const confirmOnlineOrder = async ({ cart: orderCart, subtotal, shipping, discount, promoCode, total, deliveryMethod, deliveryAddress, customerName, customerPhone, paymentMethod, paymentRef, deliveryDetails, pointsUsed = 0, pointsDiscount = 0, clientRequestId = null }) => {
     // Primera revisión rápida en el navegador; la definitiva la hace el servidor (stock y precios reales).
     for (const item of orderCart) {
       const product = catalog.products.find((p) => p.id === item.productId);
@@ -5984,14 +5994,19 @@ export default function FlyBoutiqueApp() {
       subtotal, discount, promoCode, shipping, total, paymentMethod, customerName, customerPhone, deliveryMethod, deliveryAddress,
       paymentRef: paymentRef || "", deliveryDetails: deliveryDetails || null,
       pointsUsed: pointsUsed || 0, pointsDiscount: pointsDiscount || 0,
+      ...(clientRequestId ? { clientRequestId } : {}),
     };
-    // El servidor asigna el número, revisa stock y precios, y marca el pago como "por validar".
-    // El stock se descuenta recién cuando Administración valida que el pago llegó.
+    // El servidor asigna el número, revisa stock, precios, descuentos y envío, recalcula el total,
+    // aparta el stock al instante (nadie más puede comprar esa unidad) y marca el pago como "por validar".
     const { data, error } = await supabase.rpc("place_order", { p_sale: payload, p_session: cartSessionId || "" });
     if (error) {
       const m = error.message || "";
       if (m.includes("SIN_STOCK")) alert(`Lo sentimos, "${m.split("SIN_STOCK:")[1] || "una prenda"}" ya no tiene stock suficiente. Ajusta tu cesta.`);
       else if (m.includes("PRECIO_CAMBIO")) alert("El precio de una prenda cambió. Recarga la página para ver el precio actualizado.");
+      else if (m.includes("TOTAL_CAMBIO")) alert("El total de tu pedido cambió (precio, descuento o envío). Recarga la página e intenta de nuevo.");
+      else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para miembras del Club Fly. Quítalo o regístrate en el Club Fly.");
+      else if (m.includes("PROMO_INVALIDA")) alert("Ese código promocional ya no está activo. Quítalo e intenta de nuevo.");
+      else if (m.includes("PUNTOS")) alert("No pudimos aplicar tus puntos (no alcanzan o cambiaron). Desactiva \"usar puntos\" e intenta de nuevo.");
       else alert("No se pudo registrar tu pedido. Revisa tu conexión e intenta de nuevo.");
       return null;
     }
@@ -5999,6 +6014,8 @@ export default function FlyBoutiqueApp() {
       items: orderCart.map((i) => ({ item_id: i.productId, item_name: i.name, item_variant: `${i.size} / ${i.color?.n || ""}`, price: i.price, quantity: i.qty })) });
     setCatalog((c) => ({ ...c, reservations: (c.reservations || []).filter((r) => r.sessionId !== cartSessionId) }));
     setCart([]);
+    // Los puntos usados ya se descontaron: se actualiza el saldo en pantalla
+    if (pointsUsed > 0 && clubMember?.phone) supabase.rpc("customer_points", { p_phone: clubMember.phone }).then(({ data: pts }) => setClubPoints(Number(pts) || 0)).catch(() => {});
     if (clubMember?.google && !clubMember.phone && customerPhone) {
       const member = { ...clubMember, phone: customerPhone };
       setClubMember(member);
@@ -6306,7 +6323,14 @@ export default function FlyBoutiqueApp() {
         {!catalog ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, background: C.paper }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 52, fontWeight: 900, color: C.ink, letterSpacing: "0.04em" }}>FLY</div>
-            <div className="spin" style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${C.line}`, borderTopColor: C.ink }} />
+            {catalogError ? (
+              <>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, textAlign: "center", maxWidth: 260 }}>No pudimos cargar la tienda. Revisa tu conexión e intenta de nuevo.</div>
+                <button onClick={loadInitialCatalog} style={{ padding: "11px 22px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Reintentar</button>
+              </>
+            ) : (
+              <div className="spin" style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${C.line}`, borderTopColor: C.ink }} />
+            )}
           </div>
         ) : mode === "staffLogin" ? (
           <StaffAccess onDone={enterStaff} onCancel={() => { setMode("store"); clearStaffHash(); }} />
