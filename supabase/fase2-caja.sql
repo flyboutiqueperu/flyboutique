@@ -2,7 +2,9 @@
 --  FLY BOUTIQUE — FASE 2: CAJA, CÓDIGOS DE VENDEDOR, AUDITORÍA
 --  y STOCK SIN SOBREVENTA (web + tienda)
 --  Pegar TODO en Supabase → SQL Editor → New query → Run.
---  Requiere haber corrido antes: ventas-servidor.sql
+--  BORRADOR — NO CORRER TODAVÍA: falta adaptar App.jsx (caja, código de vendedor, rol cajero).
+--  Requiere haber corrido antes: 08-fase2a-parches.sql (que ya trae: auditoría, pedido web con
+--  reserva de stock y total calculado en el servidor, validar pago y anular venta en el servidor).
 --  No borra datos. Antes de correrlo: Panel → Más → "Descargar copia de seguridad".
 -- =====================================================================
 
@@ -31,32 +33,17 @@ create table if not exists public.cash_movements (
   type text not null check (type in ('entrada', 'salida')), amount numeric not null check (amount > 0),
   reason text not null, created_by uuid, created_by_name text, created_at timestamptz default now()
 );
-create table if not exists public.audit_log (
-  id bigint generated always as identity primary key, at timestamptz default now(),
-  user_id uuid, user_name text, action text not null, details jsonb
-);
 
 alter table public.sellers enable row level security;
 alter table public.cash_sessions enable row level security;
 alter table public.cash_movements enable row level security;
-alter table public.audit_log enable row level security;
 drop policy if exists "vendedores_ver" on public.sellers;
 drop policy if exists "caja_ver" on public.cash_sessions;
 drop policy if exists "caja_mov_ver" on public.cash_movements;
-drop policy if exists "auditoria_ver" on public.audit_log;
 create policy "vendedores_ver" on public.sellers for select using (public.staff_role() is not null);
 create policy "caja_ver" on public.cash_sessions for select using (public.has_role('superadmin', 'administrador', 'cajero'));
 create policy "caja_mov_ver" on public.cash_movements for select using (public.has_role('superadmin', 'administrador', 'cajero'));
-create policy "auditoria_ver" on public.audit_log for select using (public.has_role('superadmin', 'administrador'));
 -- (las escrituras de estas tablas van SOLO por las funciones de abajo)
-
-create or replace function public.my_staff_name() returns text
-language sql stable security definer set search_path = public as $$ select name from public.staff_profiles where user_id = auth.uid() $$;
-create or replace function public.audit(p_action text, p_details jsonb) returns void
-language sql security definer set search_path = public as $$
-  insert into public.audit_log (user_id, user_name, action, details) values (auth.uid(), public.my_staff_name(), p_action, p_details)
-$$;
-revoke execute on function public.audit(text, jsonb) from public, anon, authenticated;
 
 -- ---------- Vendedores (códigos) ----------
 create or replace function public.upsert_seller(p_code text, p_name text, p_store text, p_active boolean) returns void
@@ -231,130 +218,13 @@ begin
   return sale;
 end $$;
 
--- ---------- Pedido web: ahora RESERVA el stock al instante (no se puede vender dos veces) ----------
-create or replace function public.place_order(p_sale jsonb, p_session text)
-returns jsonb language plpgsql security definer set search_path = public as $$
-declare d jsonb; it jsonb; pidx int; vidx int; st int; pr numeric; qty int; n int; sale jsonb; sid text;
-        em text; gkey text; ph text; gpts int;
-begin
-  if pg_column_size(p_sale) > 60000 then raise exception 'PEDIDO_INVALIDO'; end if;
-  if jsonb_typeof(p_sale->'items') <> 'array' or jsonb_array_length(p_sale->'items') = 0 then raise exception 'PEDIDO_VACIO'; end if;
-  select data into d from public.store_data where id = 'main' for update;
-  for it in select * from jsonb_array_elements(p_sale->'items') loop
-    qty := coalesce((it->>'qty')::int, 0);
-    if qty <= 0 then raise exception 'PEDIDO_INVALIDO'; end if;
-    pidx := null; vidx := null; st := null; pr := null;
-    select (p.ord - 1)::int, (v.ord - 1)::int, coalesce((v.val->>'stock')::int, 0), (p.val->>'price')::numeric into pidx, vidx, st, pr
-      from jsonb_array_elements(d->'products') with ordinality p(val, ord), jsonb_array_elements(p.val->'variants') with ordinality v(val, ord)
-     where v.val->>'id' = it->>'variantId' limit 1;
-    if pidx is null or st < qty then raise exception 'SIN_STOCK:%', it->>'name'; end if;
-    if pr is distinct from (it->>'unitPrice')::numeric then raise exception 'PRECIO_CAMBIO:%', it->>'name'; end if;
-    d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stock'], to_jsonb(st - qty));
-  end loop;
-  update public.store_data set data = d, updated_at = now() where id = 'main';
-
-  update public.doc_counters set next_number = next_number + 1 where serie = 'B001' returning next_number - 1 into n;
-  sid := 'sale_' || substr(md5(random()::text || clock_timestamp()::text), 1, 14);
-  sale := p_sale || jsonb_build_object('id', sid, 'tipo', 'boleta', 'serie', 'B001', 'numero', n, 'channel', 'online', 'source', 'web',
-    'status', 'emitido', 'paymentStatus', 'pendiente_validacion', 'fulfillment', 'pendiente', 'stockReserved', true,
-    'staffName', 'Tienda Online (autoservicio web)', 'createdAt', (extract(epoch from now()) * 1000)::bigint);
-  insert into public.sales (id, data) values (sid, sale);
-  delete from public.reservations where session_id = p_session;
-
-  em := lower(coalesce(auth.jwt()->>'email', ''));
-  ph := coalesce(p_sale->>'customerPhone', '');
-  if auth.uid() is not null and em <> '' and coalesce(auth.jwt()->'app_metadata'->>'provider', '') = 'google' and length(ph) >= 7 then
-    gkey := 'g:' || em;
-    select coalesce((data->>'points')::int, 0) into gpts from public.customers where phone = gkey;
-    if found then
-      if exists (select 1 from public.customers where phone = ph) then
-        update public.customers set data = jsonb_set(data, '{points}', to_jsonb(coalesce((data->>'points')::int, 0) + gpts)) || jsonb_build_object('email', em) where phone = ph;
-        delete from public.customers where phone = gkey;
-      else
-        update public.customers set phone = ph, data = data || jsonb_build_object('phone', ph) where phone = gkey;
-      end if;
-    end if;
-  end if;
-  return sale;
-end $$;
-
--- ---------- Validar pago web (administración) ----------
-create or replace function public.validate_online_payment(p_sale_id text) returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare s jsonb; d jsonb; it jsonb; pidx int; vidx int; st int; earned int := 0; used int; l jsonb; sps numeric; pps numeric; ph text;
-begin
-  if not public.has_role('superadmin', 'administrador') then raise exception 'SIN_PERMISO'; end if;
-  select data into s from public.sales where id = p_sale_id for update;
-  if s is null then raise exception 'PEDIDO_NO_EXISTE'; end if;
-  if s->>'paymentStatus' = 'confirmado' then return s; end if;
-  if s->>'status' = 'anulado' then raise exception 'PEDIDO_ANULADO'; end if;
-  select data into d from public.store_data where id = 'main' for update;
-  if not coalesce((s->>'stockReserved')::boolean, false) then  -- pedidos antiguos: el stock aún no se había descontado
-    for it in select * from jsonb_array_elements(s->'items') loop
-      pidx := null;
-      select (p.ord - 1)::int, (v.ord - 1)::int, coalesce((v.val->>'stock')::int, 0) into pidx, vidx, st
-        from jsonb_array_elements(d->'products') with ordinality p(val, ord), jsonb_array_elements(p.val->'variants') with ordinality v(val, ord)
-       where v.val->>'id' = it->>'variantId' limit 1;
-      if pidx is not null then d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stock'], to_jsonb(greatest(st - (it->>'qty')::int, 0))); end if;
-    end loop;
-    update public.store_data set data = d, updated_at = now() where id = 'main';
-  end if;
-  ph := regexp_replace(coalesce(s->>'customerPhone', ''), '\D', '', 'g');
-  if length(ph) >= 7 then
-    l := coalesce(d->'settings'->'loyalty', '{}'::jsonb);
-    if l ? 'solesPerStep' then sps := greatest(0.01, coalesce((l->>'solesPerStep')::numeric, 1)); pps := coalesce((l->>'pointsPerStep')::numeric, 1);
-    else sps := 1; pps := coalesce((l->>'pointsPerSol')::numeric, 1); end if;
-    earned := (floor(greatest(coalesce((s->>'subtotal')::numeric, 0) - coalesce((s->>'discount')::numeric, 0) - coalesce((s->>'pointsDiscount')::numeric, 0), 0) / sps) * pps)::int;
-    used := coalesce((s->>'pointsUsed')::int, 0);
-    update public.customers set data = data || jsonb_build_object('points', greatest(coalesce((data->>'points')::int, 0) + earned - used, 0)) where phone = ph;
-  end if;
-  update public.sales set data = data || jsonb_build_object('paymentStatus', 'confirmado', 'stockReserved', true, 'earnedPoints', earned,
-         'validatedBy', public.my_staff_name(), 'validatedAt', (extract(epoch from now()) * 1000)::bigint)
-   where id = p_sale_id returning data into s;
-  perform public.audit('pago_validado', jsonb_build_object('sale', p_sale_id, 'total', s->'total'));
-  return s;
-end $$;
-
--- ---------- Anular venta o pedido (administración): devuelve stock y puntos ----------
-create or replace function public.void_sale(p_sale_id text, p_reason text) returns jsonb
-language plpgsql security definer set search_path = public as $$
-declare s jsonb; d jsonb; it jsonb; pidx int; vidx int; st int; ph text; returned boolean;
-begin
-  if not public.has_role('superadmin', 'administrador') then raise exception 'SIN_PERMISO'; end if;
-  if coalesce(trim(p_reason), '') = '' then raise exception 'MOTIVO_REQUERIDO'; end if;
-  select data into s from public.sales where id = p_sale_id for update;
-  if s is null then raise exception 'VENTA_NO_EXISTE'; end if;
-  if s->>'status' = 'anulado' then return s; end if;
-  returned := coalesce((s->>'stockReserved')::boolean, false) or s->>'source' = 'pos' or s->>'paymentStatus' = 'confirmado';
-  if returned then
-    select data into d from public.store_data where id = 'main' for update;
-    for it in select * from jsonb_array_elements(s->'items') loop
-      pidx := null;
-      select (p.ord - 1)::int, (v.ord - 1)::int, coalesce((v.val->>'stock')::int, 0) into pidx, vidx, st
-        from jsonb_array_elements(d->'products') with ordinality p(val, ord), jsonb_array_elements(p.val->'variants') with ordinality v(val, ord)
-       where v.val->>'id' = it->>'variantId' limit 1;
-      if pidx is not null then d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stock'], to_jsonb(st + (it->>'qty')::int)); end if;
-    end loop;
-    update public.store_data set data = d, updated_at = now() where id = 'main';
-  end if;
-  ph := regexp_replace(coalesce(s->>'customerPhone', ''), '\D', '', 'g');
-  if length(ph) >= 7 and coalesce((s->>'earnedPoints')::int, 0) > 0 then
-    update public.customers set data = data || jsonb_build_object('points', greatest(coalesce((data->>'points')::int, 0) - (s->>'earnedPoints')::int + coalesce((s->>'pointsUsed')::int, 0), 0)) where phone = ph;
-  end if;
-  update public.sales set data = data || jsonb_build_object('status', 'anulado', 'voidReason', trim(p_reason), 'voidedBy', public.my_staff_name(),
-         'voidedAt', (extract(epoch from now()) * 1000)::bigint, 'stockReturned', returned) where id = p_sale_id returning data into s;
-  perform public.audit('venta_anulada', jsonb_build_object('sale', p_sale_id, 'motivo', p_reason, 'total', s->'total'));
-  return s;
-end $$;
-
 -- ---------- Permisos de ejecución ----------
 revoke execute on function public.upsert_seller(text, text, text, boolean), public.open_cash(text, numeric, text), public.cash_summary(uuid),
   public.current_cash(text, text), public.cash_move(uuid, text, numeric, text), public.close_cash(uuid, numeric, text),
-  public.validate_online_payment(text), public.void_sale(text, text), public.pos_sale(jsonb) from public, anon;
+  public.pos_sale(jsonb) from public, anon;
 grant execute on function public.upsert_seller(text, text, text, boolean), public.open_cash(text, numeric, text), public.cash_summary(uuid),
   public.current_cash(text, text), public.cash_move(uuid, text, numeric, text), public.close_cash(uuid, numeric, text),
-  public.validate_online_payment(text), public.void_sale(text, text), public.pos_sale(jsonb), public.my_staff_name() to authenticated;
-grant execute on function public.place_order(jsonb, text) to anon, authenticated;
+  public.pos_sale(jsonb) to authenticated;
 
 -- El cajero ve ventas como una vendedora (las suyas y los pedidos web) y puede buscar clientas
 drop policy if exists "ventas_ver" on public.sales;
@@ -367,6 +237,6 @@ create policy "clientas_ver" on public.customers for select using (public.has_ro
 
 -- =====================================================================
 --  LISTO. Ahora sube el App.jsx nuevo.
---  Para volver atrás: corre de nuevo ventas-servidor.sql y sube el App.jsx anterior
+--  Para volver atrás: corre la función pos_sale de 08-fase2a-parches.sql y sube el App.jsx anterior
 --  (las tablas nuevas pueden quedarse: no afectan a la versión anterior).
 -- =====================================================================
