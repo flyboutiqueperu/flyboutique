@@ -96,6 +96,8 @@ const groupOfCategory = (cat) => (CATEGORY_GROUPS.find(([, cats]) => cats.includ
 const genId = (p = "id") => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 const slugify = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const money = (n) => `S/ ${Number(n || 0).toFixed(0)}`;
+// Igual que money(), pero muestra céntimos si el monto no es entero (ej. valor de los puntos S/ 2.50)
+const moneyExact = (n) => (Number.isInteger(Number(n || 0)) ? money(n) : `S/ ${Number(n).toFixed(2)}`);
 
 const seedProduct = (id, name, price, oldPrice, category, tag, img, sizes, colors, stockPattern, minStock = 3) => ({
   id, name, slug: slugify(name), category, collectionIds: [],
@@ -223,7 +225,7 @@ const availableStock = (catalog, variant, mySessionId) => Math.max(0, (variant?.
 /*  STAFF / ROLES                                                       */
 /* ------------------------------------------------------------------ */
 // Las cuentas del staff viven en Supabase Auth (contraseñas cifradas) + tabla staff_profiles.
-const ROLE_LABELS = { superadmin: "Super Administrador", administrador: "Administrador", vendedora_tienda: "Vendedora Tienda", vendedora_online: "Vendedora Online", almacen: "Almacén" };
+const ROLE_LABELS = { superadmin: "Super Administrador", administrador: "Administrador", cajero: "Cajero(a)", vendedora_tienda: "Vendedora Tienda", vendedora_online: "Vendedora Online", almacen: "Almacén" };
 
 /* ------------------------------------------------------------------ */
 /*  STORAGE — Supabase con permisos separados                            */
@@ -771,7 +773,7 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
 // Ajustes de la tienda a mano para textos fijos (la cinta de arriba); se actualiza al cargar el catálogo
 let SHOP_SETTINGS = {};
 const Marquee = () => {
-  const text = `ENVÍO GRATIS EN TRUJILLO DESDE S/ ${localShippingOf(SHOP_SETTINGS).freeFrom}  ·  CLUB FLY: GANA PUNTOS EN CADA COMPRA  ·  NUEVA COLECCIÓN DISPONIBLE  ·  `;
+  const text = `ENVÍO GRATIS EN TRUJILLO DESDE S/ ${localShippingOf(SHOP_SETTINGS).freeFrom}  ·  ${clubOn(SHOP_SETTINGS) ? "CLUB FLY: GANA PUNTOS EN CADA COMPRA  ·  " : ""}NUEVA COLECCIÓN DISPONIBLE  ·  `;
   return (
     <div style={{ background: C.ink, overflow: "hidden", height: 28, display: "flex", alignItems: "center" }}>
       <div style={{ display: "flex", animation: "marquee 22s linear infinite" }}>
@@ -1919,6 +1921,9 @@ const loyaltyOf = (settings) => {
   return { solesPerStep, pointsPerStep, pointsPerSol: pointsPerStep / solesPerStep, blockPoints: Math.max(1, Number(l.blockPoints) || 100), blockValue: Number(l.blockValue) || 0 };
 };
 const pointsEarned = (amount, settings) => { const l = loyaltyOf(settings); return Math.floor(Math.max(0, amount) / l.solesPerStep) * l.pointsPerStep; };
+// El Club Fly se puede apagar desde el Panel (para probar si es rentable). Apagado: no se ganan ni se usan puntos
+// (también lo revisa el servidor) y los puntos de cada clienta se conservan.
+const clubOn = (settings) => settings?.clubEnabled !== false;
 const pointsValue = (pts, settings) => { const l = loyaltyOf(settings); return Math.floor(Math.max(0, pts) / l.blockPoints) * l.blockValue; };
 
 // ---- Datos de la empresa (para comprobantes y Libro de Reclamaciones) ----
@@ -2042,8 +2047,9 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
   const loyalty = loyaltyOf(payAccounts);
   const [usePoints, setUsePoints] = useState(false);
   // Usar puntos online requiere entrar con Google (así nadie usa los puntos de otra persona con solo su celular)
-  const maxBlocks = clubMember?.phone && clubMember?.google ? Math.floor(points / loyalty.blockPoints) : 0;
-  const pointsNeedGoogle = !!clubMember?.phone && !clubMember?.google && points >= loyalty.blockPoints && loyalty.blockValue > 0;
+  const clubActive = clubOn(payAccounts);
+  const maxBlocks = clubActive && clubMember?.phone && clubMember?.google ? Math.floor(points / loyalty.blockPoints) : 0;
+  const pointsNeedGoogle = clubActive && !!clubMember?.phone && !clubMember?.google && points >= loyalty.blockPoints && loyalty.blockValue > 0;
   const blocksAllowed = Math.min(maxBlocks, loyalty.blockValue > 0 ? Math.floor(Math.max(0, subtotal - discount) / loyalty.blockValue) : 0);
   const pointsUsed = usePoints ? blocksAllowed * loyalty.blockPoints : 0;
   const pointsDiscount = usePoints ? blocksAllowed * loyalty.blockValue : 0;
@@ -2260,7 +2266,7 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
         <Row label="Envío" value={intlToQuote ? "Por cotizar" : shipping === 0 ? "Gratis" : money(shipping)} />
         <div style={{ height: 1, background: C.line, margin: "10px 0" }} />
         <Row label="Total" value={money(total)} bold />
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}><Star size={12} fill={C.brass} color={C.brass} /> Ganarás {earned} puntos Fly con esta compra</div>
+        {clubActive && earned > 0 && (<div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}><Star size={12} fill={C.brass} color={C.brass} /> Ganarás {earned} puntos Fly con esta compra</div>)}
       </div>
       {shipping > 0 && deliveryMethod === "local" && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 16, textAlign: "center" }}>Agrega {money(200 - subtotal)} más para envío gratis en Trujillo</div>}
 
@@ -2316,6 +2322,15 @@ const REWARDS = [{ n: "Envío gratis", cost: 150, icon: Package }, { n: "S/ 20 d
 
 const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub, onGoogleSignIn, googlePrefill, turnstileSiteKey, settings }) => {
   const loyalty = loyaltyOf(settings);
+  if (!clubOn(settings)) {
+    return (
+      <div style={{ padding: "40px 24px", textAlign: "center" }}>
+        <Award size={30} color={C.line} style={{ marginBottom: 14 }} />
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Club Fly en pausa</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 280, margin: "0 auto", lineHeight: 1.6 }}>Por ahora no se suman ni se canjean puntos.{clubMember ? ` Tus ${points} puntos están guardados y seguirán ahí cuando el club vuelva.` : ""}</div>
+      </div>
+    );
+  }
   if (!clubMember) return <ClubFlySignup onRegister={onRegister} onGoogleSignIn={onGoogleSignIn} googlePrefill={googlePrefill} turnstileSiteKey={turnstileSiteKey} />;
   const tierIdx = points >= 1200 ? 2 : points >= 500 ? 1 : 0;
   const nextTier = TIERS[tierIdx + 1];
@@ -2338,8 +2353,8 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         {[
           [`Ganas ${loyalty.pointsPerStep} punto${loyalty.pointsPerStep === 1 ? "" : "s"} por cada S/ ${loyalty.solesPerStep} en compras (web y tienda)`, Sparkles],
           [`Cada ${loyalty.blockPoints} puntos valen ${money(loyalty.blockValue)} de descuento`, Gift],
-          ["Los usas en la cesta al pagar, marcando \"Usar mis puntos\"", ShoppingBag],
-          ["En la tienda física, da tu celular al pagar para sumar tus puntos", Store],
+          ["En la web los usas en la cesta al pagar (entrando al Club Fly con Google)", ShoppingBag],
+          ["En la tienda física, da tu DNI o celular al pagar para sumar y usar tus puntos", Store],
         ].map(([text, Icon], i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, background: C.paperDeep, borderRadius: 10, padding: "12px 14px" }}>
             <Icon size={16} color={C.ink} style={{ flexShrink: 0 }} />
@@ -2348,8 +2363,22 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         ))}
       </div>
       <div style={{ margin: "0 20px", border: `1px solid ${C.ink}`, borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Tus {points} puntos valen hoy</div>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 800, color: C.ink }}>{money(pointsValue(points, settings))}</div>
+        {/* Los puntos se canjean en bloques: se muestra cuánto ya puede usar y cuánto le falta para el siguiente descuento
+            (no se muestran céntimos porque no se pueden canjear fracciones de un bloque) */}
+        {(() => {
+          const usable = pointsValue(points, settings);
+          const rest = loyalty.blockPoints - (points % loyalty.blockPoints);
+          const pct = Math.round(((points % loyalty.blockPoints) / loyalty.blockPoints) * 100);
+          if (loyalty.blockValue <= 0) return <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>Tienes {points} puntos.</div>;
+          return (
+            <>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{usable > 0 ? "Ya puedes usar" : "Tu primer descuento"}</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 800, color: C.ink }}>{usable > 0 ? `${moneyExact(usable)} de descuento` : moneyExact(loyalty.blockValue)}</div>
+              <div style={{ height: 6, borderRadius: 999, background: C.paperDeep, overflow: "hidden", margin: "10px 0 6px" }}><div style={{ height: "100%", width: `${pct}%`, background: C.ink, borderRadius: 999 }} /></div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>Te faltan <strong>{rest} puntos</strong> para {usable > 0 ? "sumar otros" : "ganar"} {moneyExact(loyalty.blockValue)} de descuento.</div>
+            </>
+          );
+        })()}
         {!clubMember.phone && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>Tu cuenta se activa para puntos con tu primera compra (al dar tu celular).</div>}
       </div>
     </div>
@@ -3234,6 +3263,8 @@ const STAFF_EMAIL_DOMAIN = "staff.flyboutique.pe";
 const staffEmail = (username) => `${String(username || "").trim().toLowerCase()}@${STAFF_EMAIL_DOMAIN}`;
 const ROLES_WITH_MFA = ["superadmin", "administrador"];
 const STAFF_IDLE_MINUTES = 30;
+// En el mostrador (cajero y vendedoras de tienda) el panel aguanta más sin uso. La caja sigue abierta aunque se cierre la sesión.
+const idleMinutesFor = (role) => (role === "cajero" || role === "vendedora_tienda" ? 180 : STAFF_IDLE_MINUTES);
 
 const LOGIN_LOCK_KEY = "flyboutique:loginlock:v1";
 const MAX_ATTEMPTS = 5;
@@ -3453,12 +3484,14 @@ const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
 const AdminNav = ({ screen, setScreen, role }) => {
   const items = (role === "administrador" || role === "superadmin")
     ? [["dashboard", "Panel", LayoutDashboard], ["pos", "Ventas", ShoppingCart], ["stock", "Stock", Package], ["products", "Productos", LayoutGrid], ["more", "Más", Menu]]
+    : role === "cajero"
+    ? [["caja", "Caja", Banknote], ["pos", "Vender", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
     : role === "vendedora_tienda"
     ? [["pos", "Caja", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
     : role === "almacen"
     ? [["stock", "Stock", Package], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders"];
+  const moreScreens = ["banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -3612,6 +3645,14 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
       </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}>
         <span style={labelStyle}>Programa de puntos (Club Fly)</span>
+        <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+          <Switch on={clubOn(catalog.settings)} label={clubOn(catalog.settings) ? "Club Fly activo" : "Club Fly en pausa"} onClick={() => {
+            const turnOff = clubOn(catalog.settings);
+            if (!confirm(turnOff ? "¿Pausar el Club Fly? Nadie ganará ni usará puntos (web y tienda) hasta que lo vuelvas a activar. Los puntos de cada clienta se conservan." : "¿Activar el Club Fly? Se vuelven a ganar y usar puntos.")) return;
+            updateCatalog((c) => ({ ...c, settings: { ...c.settings, clubEnabled: !turnOff } }));
+          }} />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 4 }}>Puedes pausarlo para probar si el programa es rentable. Los puntos ganados no se borran.</div>
+        </div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Cambia los valores y mira abajo cuánto devuelves. Lo recomendable para una boutique es entre 2% y 5%.</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 10 }}>
           Por cada S/
@@ -4834,9 +4875,15 @@ const GENERIC_DOC = "00000000";
 // Tope del descuento manual para vendedoras (Panel → ajustes). Si no se configuró: 20%. Igual que en el servidor.
 const posDiscountCap = (settings) => { const v = settings?.posMaxDiscountPct; return v === undefined || v === null || v === "" || isNaN(Number(v)) ? 20 : Number(v); };
 
-const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprobanteTipo, onSaveCustomer, onConfirm, onClose, busy, staffName, role }) => {
+const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprobanteTipo, onSaveCustomer, onConfirm, onClose, busy, staffName, role, channel = "tienda" }) => {
   const [sellers, setSellers] = useState([]);
   const [seller, setSeller] = useState(staffName || "");
+  // Códigos de vendedor (MA01): si existen, en tienda cada venta pide el código de quien atendió
+  const [sellerCodes, setSellerCodes] = useState([]);
+  const [sellerCode, setSellerCode] = useState("");
+  useEffect(() => { if (channel === "tienda") supabase.from("sellers").select("code,name").eq("active", true).then(({ data }) => setSellerCodes(data || [])).catch(() => {}); }, [channel]);
+  const useCodes = channel === "tienda" && sellerCodes.length > 0;
+  const codeMatch = sellerCodes.find((x) => x.code === sellerCode.trim().toUpperCase());
   useEffect(() => { supabase.rpc("staff_sellers").then(({ data }) => setSellers((data || []).map((x) => x.name))).catch(() => {}); }, []);
   const customers = (catalog.customers || []).filter((c) => !String(c.phone || "").startsWith("g:"));
   const [doc, setDoc] = useState("");
@@ -4867,7 +4914,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const [usePts, setUsePts] = useState(false);
   const loyalty = loyaltyOf(catalog.settings);
   const ptsAvailable = matched && !anon && phone === matched.phone ? Number(matched.points) || 0 : 0;
-  const ptsBlocks = loyalty.blockValue > 0 ? Math.min(Math.floor(ptsAvailable / loyalty.blockPoints), Math.floor(Math.max(0, subtotal - promoDiscount) / loyalty.blockValue)) : 0;
+  const ptsBlocks = clubOn(catalog.settings) && loyalty.blockValue > 0 ? Math.min(Math.floor(ptsAvailable / loyalty.blockPoints), Math.floor(Math.max(0, subtotal - promoDiscount) / loyalty.blockValue)) : 0;
   const pointsUsed = usePts ? ptsBlocks * loyalty.blockPoints : 0;
   const pointsDiscount = usePts ? ptsBlocks * loyalty.blockValue : 0;
   useEffect(() => { setUsePts(false); }, [matched?.phone, anon]);
@@ -4895,7 +4942,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const emailOk = anon || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const customerOk = docOk && nameOk && emailOk;
   const paymentsOk = payments.length > 0 && Math.abs(pending) < 0.005 && (!cash || !received || Number(received) >= Number(cash.amount));
-  const canConfirm = customerOk && paymentsOk && saleItems.length > 0 && !busy && !manualOverCap;
+  const canConfirm = customerOk && paymentsOk && saleItems.length > 0 && !busy && !manualOverCap && (!useCodes || !!codeMatch);
 
   // Tocar un medio: si ya está, se quita; si no falta nada por cobrar, reemplaza al último; si falta, se agrega con lo pendiente
   const addPayment = (m) => {
@@ -4918,7 +4965,8 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
       promoCode: promo?.code || null, discount: round2(promoDiscount + manualDiscount + pointsDiscount), subtotal, total,
       pointsUsed, pointsDiscount,
       manualDiscountLabel: manualDiscount > 0 ? (discType === "percent" ? `${discValue}%` : money(Number(discValue))) : null,
-      notaInterna: notaInterna.trim(), notaExterna: notaExterna.trim(), anonymous: anon, staffName: seller || staffName,
+      notaInterna: notaInterna.trim(), notaExterna: notaExterna.trim(), anonymous: anon,
+      ...(useCodes ? { sellerCode: codeMatch.code, staffName: codeMatch.name } : { staffName: seller || staffName }),
     });
   };
   const step = (n, title, ok, hint) => (
@@ -4995,12 +5043,22 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
               <Row label="Total a cobrar" value={money(total)} bold />
             </div>
           </div>
+          {useCodes ? (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Código de quien atendió:</span>
+                <input value={sellerCode} onChange={(e) => setSellerCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5))} placeholder="Ej. MA01" autoCapitalize="characters" style={{ ...inputStyle, flex: 1, fontSize: 15, letterSpacing: "0.08em", borderColor: sellerCode && !codeMatch ? C.accent : undefined }} />
+              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, marginTop: 4, color: codeMatch ? C.ink : C.stone }}>{codeMatch ? `✓ ${codeMatch.name}` : sellerCode ? "Código no encontrado" : "Obligatorio para registrar la venta"}</div>
+            </div>
+          ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Atendió:</span>
             <select value={seller} onChange={(e) => setSeller(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
               {[...new Set([staffName, ...sellers].filter(Boolean))].map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
+          )}
           {step(3, "Pago", paymentsOk, "Toca uno o varios medios. Puedes dividir el pago (ej. S/ 20 tarjeta + S/ 80 efectivo).")}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 12 }}>
             {POS_PAY_OPTIONS.map(([m, Icon]) => {
@@ -5044,7 +5102,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   );
 };
 
-const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSaveCustomer, channel = "tienda", title = "Punto de Venta", role }) => {
+const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSaveCustomer, channel = "tienda", title = "Punto de Venta", role, onGoCash }) => {
   const [confirmingSale, setConfirmingSale] = useState(false);
   const [posCategory, setPosCategory] = useState("Todo");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -5052,6 +5110,18 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
   const posStores = storesOf(catalog.settings);
   const [storeId, setStoreId] = useState(() => { try { return localStorage.getItem("flyboutique:sede") || posStores[0].id; } catch (e) { return posStores[0].id; } });
   const currentStore = posStores.find((x) => x.id === storeId) || posStores[0];
+  // Venta en tienda: solo con la caja de la sede abierta (el servidor también lo exige)
+  const [cashState, setCashState] = useState("loading"); // loading | open | closed | unknown
+  const checkCash = async () => {
+    if (channel !== "tienda") { setCashState("open"); return; }
+    const { data, error } = await supabase.rpc("current_cash", { p_store: currentStore.id });
+    setCashState(error ? "unknown" : data ? "open" : "closed"); // unknown: aún no se corrió el SQL de caja → no se bloquea
+  };
+  useEffect(() => {
+    checkCash();
+    window.addEventListener("focus", checkCash);
+    return () => window.removeEventListener("focus", checkCash);
+  }, [currentStore.id, channel]);
   const [q, setQ] = useState("");
   const [picking, setPicking] = useState(null);
   const [saleItems, setSaleItems] = useState([]);
@@ -5135,7 +5205,7 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
     setConfirmingSale(true);
     const saved = await onCompleteSale(sale);
     setConfirmingSale(false);
-    if (!saved) return;
+    if (!saved) { checkCash(); return; }
     requestIdRef.current = null;
     setLastSale(saved);
     setSaleItems([]); setShowCheckout(false); setCustomerName(""); setCustomerDoc(""); setCustomerPhone(""); setAppliedPromo(null); setPromoInput(""); setPromoMsg(null);
@@ -5154,6 +5224,20 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
   const posCategories = ["Todo", ...new Set(catalog.products.map((p) => p.category))];
   const tiles = (q.trim() ? suggestions : catalog.products.filter((p) => posCategory === "Todo" || p.category === posCategory)).filter((p) => p.status !== "inactivo");
   const itemsCount = saleItems.reduce((a, i) => a + i.qty, 0);
+  if (channel === "tienda" && cashState === "closed") {
+    return (
+      <div style={{ padding: "40px 20px", textAlign: "center", maxWidth: 420, margin: "0 auto" }}>
+        <Banknote size={30} color={C.line} style={{ marginBottom: 12 }} />
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink, marginBottom: 8 }}>La caja de {currentStore.name} está cerrada</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, marginBottom: 18, lineHeight: 1.6 }}>Para vender en tienda primero hay que abrir la caja con el fondo inicial.</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+          {["superadmin", "administrador", "cajero"].includes(role) && onGoCash && <button onClick={onGoCash} style={{ padding: "12px 20px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Ir a abrir la caja</button>}
+          <button onClick={checkCash} style={{ padding: "12px 20px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Ya está abierta, revisar</button>
+        </div>
+        {posStores.length > 1 && <select value={currentStore.id} onChange={(e) => { setStoreId(e.target.value); try { localStorage.setItem("flyboutique:sede", e.target.value); } catch (err) { /* nada */ } }} style={{ ...inputStyle, width: "auto", marginTop: 16 }}>{posStores.map((x) => <option key={x.id} value={x.id}>Sede: {x.name}</option>)}</select>}
+      </div>
+    );
+  }
   return (
     <div className="pos" style={{ padding: "16px 16px 90px", position: "relative" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
@@ -5261,7 +5345,7 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
 
       {showCheckout && (
         <PosCheckout catalog={catalog} saleItems={saleItems} subtotal={subtotal} comprobanteTipo={comprobanteTipo} setComprobanteTipo={setComprobanteTipo}
-          onSaveCustomer={null} onClose={() => setShowCheckout(false)} busy={confirmingSale} staffName={staffName} role={role}
+          onSaveCustomer={null} onClose={() => setShowCheckout(false)} busy={confirmingSale} staffName={staffName} role={role} channel={channel}
           onConfirm={(extra) => confirmSale(extra)} />
       )}
     </div>
@@ -5572,6 +5656,8 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("invoices")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Comprobantes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("reports")} style={quickLinkStyle}><BarChart3 size={16} color={C.ink} /> Reportes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("sellers")} style={quickLinkStyle}><User size={16} color={C.ink} /> Vendedores (códigos MA01) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       {role === "superadmin" && <button onClick={downloadBackup} style={quickLinkStyle}><DatabaseBackup size={16} color={C.ink} /> Descargar copia de seguridad <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("promocodes")} style={quickLinkStyle}><Gift size={16} color={C.ink} /> Códigos promocionales <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
@@ -5763,10 +5849,299 @@ const MySalesScreen = ({ sales, staffName }) => {
 };
 
 
+// ------------------------------------------------------------------
+// CAJA (turno): abrir con fondo, entradas/salidas, arqueo y cierre.
+// Todo lo calcula y guarda el servidor (open_cash, cash_move, close_cash). La caja queda abierta
+// aunque cambie la vendedora o se cierre la sesión del panel; solo el cajero o Administración la cierran.
+// ------------------------------------------------------------------
+const CASH_ERRORS = {
+  SIN_PERMISO: "Tu usuario no puede manejar la caja.", CAJA_YA_ABIERTA: "Esta caja ya está abierta.", CAJA_CERRADA: "La caja ya está cerrada.",
+  MOTIVO_REQUERIDO: "Escribe el motivo.", MOTIVO_DIFERENCIA: "Hay diferencia entre lo contado y lo esperado: escribe el motivo.",
+};
+const cashErrorText = (e) => {
+  if (e?.code === "PGRST202") return "Falta correr el archivo 11-fase2-caja.sql en Supabase.";
+  const m = e?.message || String(e || "");
+  const k = Object.keys(CASH_ERRORS).find((x) => m.includes(x));
+  return k ? CASH_ERRORS[k] : "No se pudo completar. Revisa tu conexión e intenta de nuevo.";
+};
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
+const money2 = (n) => `S/ ${Number(n || 0).toFixed(2)}`;
+
+const useStoreChoice = (settings) => {
+  const stores = storesOf(settings);
+  const [storeId, setStoreId] = useState(() => { try { return localStorage.getItem("flyboutique:sede") || stores[0].id; } catch (e) { return stores[0].id; } });
+  const store = stores.find((x) => x.id === storeId) || stores[0];
+  const choose = (id) => { setStoreId(id); try { localStorage.setItem("flyboutique:sede", id); } catch (e) { /* nada */ } };
+  return { stores, store, choose };
+};
+
+const CashReport = ({ s, storeName }) => (
+  <div className="print-area" style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 16px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, marginBottom: 2 }}>Cierre de caja · {storeName}</div>
+    <div style={{ color: C.stone, fontSize: 11.5, marginBottom: 10 }}>Abrió {s.opened_by_name || "—"} ({fmtDateTime(s.opened_at)}) · Cerró {s.closed_by_name || "—"} ({fmtDateTime(s.closed_at)})</div>
+    <Row label="Fondo inicial" value={money2(s.opening_amount)} />
+    {Object.entries(s.byMethod || s.totals?.byMethod || {}).map(([m, v]) => <Row key={m} label={`Ventas ${m}`} value={money2(v)} />)}
+    <Row label="Entradas de efectivo" value={money2(s.entradas ?? s.totals?.entradas)} />
+    <Row label="Salidas de efectivo" value={`-${money2(s.salidas ?? s.totals?.salidas)}`} />
+    <Row label="Efectivo esperado" value={money2(s.expected_cash ?? s.expectedCash)} bold />
+    <Row label="Efectivo contado" value={money2(s.counted_cash)} />
+    <Row label="Diferencia" value={money2(s.difference)} bold />
+    {s.notes && <div style={{ marginTop: 6, color: C.inkSoft }}>Motivo: {s.notes}</div>}
+    <div style={{ marginTop: 6, color: C.stone, fontSize: 11 }}>{s.salesCount ?? s.totals?.salesCount ?? 0} ventas · Documento interno de control</div>
+  </div>
+);
+
+const CashScreen = ({ catalog, role }) => {
+  const canManage = ["superadmin", "administrador", "cajero"].includes(role);
+  const isAdmin = role === "superadmin" || role === "administrador";
+  const { stores, store, choose } = useStoreChoice(catalog.settings);
+  const [cash, setCash] = useState(undefined); // undefined = cargando, null = cerrada
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [openAmount, setOpenAmount] = useState("");
+  const [move, setMove] = useState(null); // { type, amount, reason }
+  const [closing, setClosing] = useState(null); // { counted, notes }
+  const [closedReport, setClosedReport] = useState(null);
+  const [history, setHistory] = useState([]);
+
+  const load = async () => {
+    setMsg("");
+    const { data, error } = await supabase.rpc("current_cash", { p_store: store.id });
+    if (error) { setMsg(cashErrorText(error)); setCash(null); return; }
+    setCash(data || null);
+    if (isAdmin) {
+      const h = await supabase.from("cash_sessions").select("*").eq("status", "cerrada").order("closed_at", { ascending: false }).limit(15);
+      setHistory(h.data || []);
+    }
+  };
+  useEffect(() => { setCash(undefined); load(); }, [store.id]);
+  const run = async (fn) => { setBusy(true); setMsg(""); try { await fn(); } finally { setBusy(false); } };
+
+  const openCash = () => run(async () => {
+    const { error } = await supabase.rpc("open_cash", { p_store: store.id, p_amount: Number(openAmount) || 0 });
+    if (error) { setMsg(cashErrorText(error)); return; }
+    setOpenAmount(""); await load();
+  });
+  const saveMove = () => run(async () => {
+    const { error } = await supabase.rpc("cash_move", { p_session: cash.id, p_type: move.type, p_amount: Number(move.amount), p_reason: move.reason.trim() });
+    if (error) { setMsg(cashErrorText(error)); return; }
+    setMove(null); await load();
+  });
+  const expected = Number(cash?.expectedCash || 0);
+  const counted = closing ? Number(closing.counted || 0) : 0;
+  const diff = Math.round((counted - expected) * 100) / 100;
+  const closeCash = () => run(async () => {
+    const { data, error } = await supabase.rpc("close_cash", { p_session: cash.id, p_counted: counted, p_notes: closing.notes.trim() });
+    if (error) { setMsg(cashErrorText(error)); return; }
+    setClosing(null); setClosedReport(data); await load();
+  });
+
+  const btn = (primary) => ({ padding: "11px 16px", borderRadius: 9, border: primary ? "none" : `1px solid ${C.ink}`, background: primary ? C.ink : "transparent", color: primary ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" });
+
+  return (
+    <div style={{ padding: "18px 18px 100px", maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: 0 }}>Caja</h1>
+        <div style={{ display: "flex", gap: 8 }}>
+          {stores.length > 1 && <select value={store.id} onChange={(e) => choose(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 10px" }}>{stores.map((x) => <option key={x.id} value={x.id}>Sede: {x.name}</option>)}</select>}
+          <button onClick={load} style={btn(false)}>Actualizar</button>
+        </div>
+      </div>
+      {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginBottom: 12 }}>{msg}</div>}
+
+      {closedReport && (
+        <AdminCard style={{ marginBottom: 14 }}>
+          <CashReport s={closedReport} storeName={store.name} />
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={() => window.print()} style={btn(false)}>Imprimir</button>
+            <button onClick={() => setClosedReport(null)} style={btn(true)}>Listo</button>
+          </div>
+        </AdminCard>
+      )}
+
+      {cash === undefined ? (
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Cargando…</div>
+      ) : !cash ? (
+        <AdminCard>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>La caja de {store.name} está cerrada</div>
+          {canManage ? (
+            <>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 12, lineHeight: 1.6 }}>Cuenta el dinero con el que empiezas el día (fondo para dar vuelto) y abre la caja. Quedará abierta todo el turno, aunque cambie la vendedora.</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Fondo inicial S/</span>
+                <input inputMode="decimal" value={openAmount} onChange={(e) => setOpenAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ ...inputStyle, width: 120, fontSize: 15 }} />
+                <button disabled={busy} onClick={openCash} style={btn(true)}>{busy ? "Abriendo…" : "Abrir caja"}</button>
+              </div>
+            </>
+          ) : <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}>Pide al cajero o a Administración que la abra para poder vender.</div>}
+        </AdminCard>
+      ) : (
+        <>
+          <AdminCard style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink }}>Caja abierta · {store.name}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>Abrió {cash.opened_by_name || "—"} · {fmtDateTime(cash.opened_at)}</div>
+            </div>
+            {canManage && cash.expectedCash !== undefined && (
+              <div style={{ marginTop: 10 }}>
+                <Row label="Fondo inicial" value={money2(cash.opening_amount)} />
+                {Object.entries(cash.byMethod || {}).map(([m, v]) => <Row key={m} label={`Ventas ${m}`} value={money2(v)} />)}
+                <Row label="Entradas" value={money2(cash.entradas)} />
+                <Row label="Salidas" value={`-${money2(cash.salidas)}`} />
+                <Row label="Efectivo que debe haber" value={money2(cash.expectedCash)} bold />
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>{cash.salesCount || 0} ventas en este turno</div>
+              </div>
+            )}
+          </AdminCard>
+
+          {canManage && (
+            <>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                <button onClick={() => { setMove({ type: "entrada", amount: "", reason: "" }); setClosing(null); }} style={btn(false)}>+ Entrada de efectivo</button>
+                <button onClick={() => { setMove({ type: "salida", amount: "", reason: "" }); setClosing(null); }} style={btn(false)}>− Salida de efectivo</button>
+                <button onClick={() => { setClosing({ counted: "", notes: "" }); setMove(null); }} style={{ ...btn(true), marginLeft: "auto" }}>Cerrar caja</button>
+              </div>
+              {move && (
+                <AdminCard style={{ marginBottom: 14 }}>
+                  <span style={labelStyle}>{move.type === "entrada" ? "Entrada de efectivo" : "Salida de efectivo"}</span>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    <input inputMode="decimal" value={move.amount} onChange={(e) => setMove({ ...move, amount: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="Monto S/" style={{ ...inputStyle, width: 130 }} />
+                    <input value={move.reason} onChange={(e) => setMove({ ...move, reason: e.target.value })} placeholder={move.type === "entrada" ? "Motivo (ej. sencillo del banco)" : "Motivo (ej. compra de bolsas)"} style={inputStyle} />
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setMove(null)} style={btn(false)}>Cancelar</button>
+                    <button disabled={busy || !(Number(move.amount) > 0) || !move.reason.trim()} onClick={saveMove} style={btn(true)}>Guardar</button>
+                  </div>
+                </AdminCard>
+              )}
+              {closing && (
+                <AdminCard style={{ marginBottom: 14 }}>
+                  <span style={labelStyle}>Cierre y arqueo</span>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 10, lineHeight: 1.6 }}>Cuenta todo el efectivo de la caja (incluido el fondo) y escríbelo.</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Efectivo contado S/</span>
+                    <input autoFocus inputMode="decimal" value={closing.counted} onChange={(e) => setClosing({ ...closing, counted: e.target.value.replace(/[^0-9.]/g, "") })} style={{ ...inputStyle, width: 130, fontSize: 15 }} />
+                  </div>
+                  {closing.counted !== "" && (
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 13, marginBottom: 8, color: diff === 0 ? C.ink : C.accent }}>
+                      Esperado {money2(expected)} · {diff === 0 ? "Cuadra exacto ✓" : diff > 0 ? `Sobra ${money2(diff)}` : `Falta ${money2(-diff)}`}
+                    </div>
+                  )}
+                  {closing.counted !== "" && diff !== 0 && <input value={closing.notes} onChange={(e) => setClosing({ ...closing, notes: e.target.value })} placeholder="Motivo de la diferencia (obligatorio)" style={{ ...inputStyle, marginBottom: 8 }} />}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setClosing(null)} style={btn(false)}>Cancelar</button>
+                    <button disabled={busy || closing.counted === "" || (diff !== 0 && !closing.notes.trim())} onClick={() => { if (confirm("¿Cerrar la caja? Ya no se podrá vender en esta sede hasta abrirla de nuevo.")) closeCash(); }} style={btn(true)}>{busy ? "Cerrando…" : "Cerrar caja"}</button>
+                  </div>
+                </AdminCard>
+              )}
+              {(cash.movements || []).length > 0 && (
+                <AdminCard style={{ marginBottom: 14 }}>
+                  <span style={labelStyle}>Movimientos del turno</span>
+                  {cash.movements.map((m) => (
+                    <div key={m.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}` }}>
+                      <span>{m.type === "entrada" ? "+" : "−"} {m.reason} <span style={{ color: C.stone }}>· {m.created_by_name || ""} · {fmtDateTime(m.created_at)}</span></span>
+                      <strong>{money2(m.amount)}</strong>
+                    </div>
+                  ))}
+                </AdminCard>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {isAdmin && history.length > 0 && (
+        <AdminCard style={{ marginTop: 14 }}>
+          <span style={labelStyle}>Últimos cierres</span>
+          {history.map((h) => (
+            <div key={h.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontFamily: FONT_BODY, fontSize: 12, padding: "7px 0", borderBottom: `1px solid ${C.paperDeep}` }}>
+              <span>{fmtDateTime(h.closed_at)} · {(stores.find((x) => x.id === h.store_id) || {}).name || h.store_id} · {h.closed_by_name || "—"}</span>
+              <span>Esperado {money2(h.expected_cash)} · Contado {money2(h.counted_cash)} · <strong style={{ color: Number(h.difference) === 0 ? C.ink : C.accent }}>{Number(h.difference) === 0 ? "cuadra" : money2(h.difference)}</strong></span>
+            </div>
+          ))}
+        </AdminCard>
+      )}
+    </div>
+  );
+};
+
+// ------------------------------------------------------------------
+// VENDEDORES: códigos únicos (ej. MA01) para saber quién hizo cada venta.
+// El código NO es una contraseña ni da permisos: solo identifica a la vendedora.
+// ------------------------------------------------------------------
+const suggestSellerCode = (name, existing) => {
+  const parts = String(name || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z ]/g, "").split(" ").filter(Boolean);
+  const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : (parts[0] || "XX").slice(0, 2).padEnd(2, "X");
+  for (let i = 1; i < 100; i++) { const c = `${letters}${String(i).padStart(2, "0")}`; if (!existing.includes(c)) return c; }
+  return letters + "99";
+};
+
+const SellersScreen = ({ catalog }) => {
+  const stores = storesOf(catalog.settings);
+  const [list, setList] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const { data, error } = await supabase.from("sellers").select("*").order("code");
+    if (error) { setMsg(error.code === "42P01" || /sellers/.test(error.message || "") ? "Falta correr el archivo 11-fase2-caja.sql en Supabase." : error.message); setList([]); return; }
+    setList(data || []);
+  };
+  useEffect(() => { load(); }, []);
+  const codes = (list || []).map((s) => s.code);
+  const save = async () => {
+    const code = editing.code.trim().toUpperCase();
+    if (!/^[A-Z]{2,3}[0-9]{2}$/.test(code)) { setMsg("El código debe tener 2 o 3 letras y 2 números (ej. MA01)."); return; }
+    if (editing.isNew && codes.includes(code)) { setMsg("Ese código ya existe."); return; }
+    setBusy(true); setMsg("");
+    const { error } = await supabase.rpc("upsert_seller", { p_code: code, p_name: editing.name.trim(), p_store: editing.store_id, p_active: editing.active });
+    setBusy(false);
+    if (error) { setMsg(cashErrorText(error)); return; }
+    setEditing(null); load();
+  };
+  if (editing) {
+    return (
+      <div style={{ padding: "18px 18px 100px", maxWidth: 560, margin: "0 auto" }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: "0 0 14px" }}>{editing.isNew ? "Nuevo código de vendedor" : `Editar ${editing.code}`}</h1>
+        <AdminCard>
+          <Field label="Nombre de la vendedora"><input style={inputStyle} value={editing.name} onChange={(e) => { const name = e.target.value; setEditing((f) => ({ ...f, name, code: f.isNew && !f.codeTouched ? suggestSellerCode(name, codes) : f.code })); }} /></Field>
+          <Field label="Código (2–3 letras + 2 números)"><input style={{ ...inputStyle, opacity: editing.isNew ? 1 : 0.6, textTransform: "uppercase" }} disabled={!editing.isNew} value={editing.code} onChange={(e) => setEditing({ ...editing, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5), codeTouched: true })} /></Field>
+          {stores.length > 1 && <Field label="Sede"><select style={inputStyle} value={editing.store_id} onChange={(e) => setEditing({ ...editing, store_id: e.target.value })}>{stores.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>}
+          {!editing.isNew && <Switch on={editing.active} onClick={() => setEditing({ ...editing, active: !editing.active })} label="Código activo" />}
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "6px 0 12px", lineHeight: 1.5 }}>El código solo identifica quién vendió. No es una contraseña ni da acceso al panel. Si alguien deja de trabajar, desactívalo (no se borra, para no perder sus ventas en los reportes).</div>
+          {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginBottom: 10 }}>{msg}</div>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { setEditing(null); setMsg(""); }} style={{ flex: 1, padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Cancelar</button>
+            <button disabled={busy || !editing.name.trim() || !editing.code} onClick={save} style={{ flex: 2, padding: "12px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{busy ? "Guardando…" : "Guardar"}</button>
+          </div>
+        </AdminCard>
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: "18px 18px 100px", maxWidth: 560, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: 0 }}>Vendedores</h1>
+        <button onClick={() => { setEditing({ isNew: true, name: "", code: "", store_id: stores[0].id, active: true }); setMsg(""); }} style={{ display: "flex", alignItems: "center", gap: 6, background: C.ink, color: C.paper, border: "none", borderRadius: 8, padding: "9px 14px", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}><Plus size={14} /> Nuevo código</button>
+      </div>
+      {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginBottom: 10 }}>{msg}</div>}
+      {list === null ? <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Cargando…</div> : list.length === 0 ? (
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, lineHeight: 1.6 }}>Aún no hay códigos. Mientras no crees ninguno, en caja se elige la vendedora de la lista como antes. Cuando crees el primero, cada venta en tienda pedirá el código.</div>
+      ) : list.map((s) => (
+        <div key={s.code} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 10, border: `1px solid ${C.line}`, marginBottom: 8, opacity: s.active ? 1 : 0.5 }}>
+          <div><strong style={{ fontFamily: FONT_DISPLAY, fontSize: 15 }}>{s.code}</strong> <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>· {s.name}</span>{!s.active && <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}> (inactivo)</span>}</div>
+          <button onClick={() => { setEditing({ ...s, isNew: false }); setMsg(""); }} style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 7, padding: "6px 10px", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}><Pencil size={12} /> Editar</button>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, staffName, staffUsername, currentUserId, reserveNumber, onExit, initialScreen }) => {
-  const homeScreen = (role === "administrador" || role === "superadmin") ? "dashboard" : role === "vendedora_tienda" ? "pos" : role === "almacen" ? "stock" : "onlinesales";
+  const homeScreen = (role === "administrador" || role === "superadmin") ? "dashboard" : role === "cajero" ? "caja" : role === "vendedora_tienda" ? "pos" : role === "almacen" ? "stock" : "onlinesales";
   // Cada pantalla de venta solo se abre con el rol que corresponde (aunque se cambie la dirección a mano)
-  const canSellStore = ["superadmin", "administrador", "vendedora_tienda"].includes(role);
+  const canSellStore = ["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role);
+  const isAdminRole = role === "administrador" || role === "superadmin";
   const canSellOnline = ["superadmin", "administrador", "vendedora_online"].includes(role);
   const [screen, setScreenRaw] = useState(initialScreen || homeScreen);
   // Historial dentro del panel: la flecha atrás del navegador vuelve a la pantalla anterior del panel
@@ -5804,6 +6179,9 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const saleErrorText = (m) => m.includes("SIN_STOCK") ? `Sin stock suficiente de "${m.split("SIN_STOCK:")[1] || "una prenda"}". Revisa el stock.`
     : m.includes("PRECIO_CAMBIO") ? "El precio de una prenda cambió. Recarga la página e intenta de nuevo."
     : m.includes("PAGO_INCOMPLETO") ? "La suma de los pagos no coincide con el total."
+    : m.includes("CAJA_CERRADA") ? "La caja de esta sede está cerrada. Ábrela en Caja para poder vender."
+    : m.includes("VENDEDOR_INVALIDO") ? "El código de vendedor no es válido o está desactivado."
+    : m.includes("CLUB_DESACTIVADO") ? "El Club Fly está en pausa: no se pueden usar puntos."
     : m.includes("DESCUENTO_EXCEDE") ? `El descuento manual supera el máximo permitido (${(m.split("DESCUENTO_EXCEDE:")[1] || "").trim()}%). Pide a Administración que lo autorice.`
     : m.includes("DESCUENTO_INVALIDO") ? "El descuento no cuadra con el código o los puntos. Vuelve a aplicarlo."
     : m.includes("PROMO_INVALIDA") ? "Ese código promocional ya no está activo."
@@ -5915,9 +6293,11 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "bannerEditor" && <AdminTopBar title={editingBannerId ? "Editar banner" : "Nuevo banner"} onBack={() => setScreen("banners")} onExit={onExit} />}
         {screen === "collectionEditor" && <AdminTopBar title={editingCollectionId ? "Editar colección" : "Nueva colección"} onBack={() => setScreen("collections")} onExit={onExit} />}
 
-        {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" role={role} />}
+        {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" role={role} onGoCash={() => setScreen("caja")} />}
         {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
+        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} />}
+        {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
         {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
@@ -5932,7 +6312,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {role === "superadmin" && screen === "users" && <AdminUsersScreen currentUserId={currentUserId} />}
         {(role === "administrador" || role === "superadmin") && screen === "complaints" && <AdminComplaintsScreen staffName={staffName} />}
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
-        {(role === "administrador" || role === "superadmin" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} />}
+        {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} />}
       </div>
       <AdminNav screen={screen} setScreen={setScreen} role={role} />
     </div>
@@ -5997,6 +6377,7 @@ export default function FlyBoutiqueApp() {
   }, []);
   const [mode, setMode] = useState("store"); // store | staffLogin | staff
   const [session, setSession] = useState(null); // { staffMember } — perfil de staff_profiles
+  const sessionRef = useRef(null); sessionRef.current = session;
   const [clubPoints, setClubPoints] = useState(0);
   const isStaffRef = useRef(false);
   const toastTimer = useRef(null);
@@ -6089,7 +6470,7 @@ export default function FlyBoutiqueApp() {
     const onFocus = () => refreshPrivate();
     window.addEventListener("focus", onFocus);
     const t = setInterval(() => {
-      if (Date.now() - last > STAFF_IDLE_MINUTES * 60 * 1000) exitStaff("Sesión cerrada por inactividad");
+      if (Date.now() - last > idleMinutesFor(sessionRef.current?.staffMember?.role) * 60 * 1000) exitStaff("Sesión cerrada por inactividad");
       else refreshPrivate();
     }, 45000);
     return () => { clearInterval(t); window.removeEventListener("focus", onFocus); events.forEach((ev) => window.removeEventListener(ev, touch)); };
@@ -6195,6 +6576,7 @@ export default function FlyBoutiqueApp() {
       else if (m.includes("TOTAL_CAMBIO")) alert("El total de tu pedido cambió (precio, descuento o envío). Recarga la página e intenta de nuevo.");
       else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para miembras del Club Fly. Quítalo o regístrate en el Club Fly.");
       else if (m.includes("PROMO_INVALIDA")) alert("Ese código promocional ya no está activo. Quítalo e intenta de nuevo.");
+      else if (m.includes("CLUB_DESACTIVADO")) alert("El Club Fly está en pausa: por ahora no se pueden usar puntos. Desactiva \"usar puntos\" para seguir.");
       else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, entra al Club Fly con Google. Desactiva \"usar puntos\" para seguir sin ellos.");
       else if (m.includes("PUNTOS")) alert("No pudimos aplicar tus puntos (no alcanzan o cambiaron). Desactiva \"usar puntos\" e intenta de nuevo.");
       else alert("No se pudo registrar tu pedido. Revisa tu conexión e intenta de nuevo.");

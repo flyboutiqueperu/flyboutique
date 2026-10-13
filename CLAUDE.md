@@ -33,8 +33,9 @@ Este archivo se lee al inicio de cada sesión de Claude Code. Contiene: (1) regl
 - **Funciones del servidor existentes:** `pos_sale`, `place_order`, `set_order_status`, `track_order`, `adjust_stock`, `staff_sellers`, `submit_complaint`, `complaint_status`, `register_customer`, `register_google_customer`, `check_captcha`, `staff_role`, `has_role`, `is_staff`.
 - **Roles:** `superadmin`, `administrador`, `vendedora_tienda`, `vendedora_online`, `almacen`.
 - **SQL creados hasta hoy** (verificar con consultas de SOLO LECTURA cuáles están aplicados):
-  1. seguridad-staff · 2. captcha-turnstile · 3. registro-google · 4. storage-fotos-videos · 5. libro-reclamaciones · 6. rol-almacen · 7. ventas-servidor
-- **Borrador de Fase 2 listo para revisar:** `supabase/fase2-caja.sql` — rol cajero, turno de caja (apertura con fondo, entradas/salidas, cierre con arqueo y diferencias), códigos de vendedor (formato `MA01`), registro de auditoría, reserva de stock al crear pedidos web (evita sobreventa), validar pago y anular venta en el servidor, ventas sin duplicar en reintentos (`clientRequestId`). **Falta adaptar `src/App.jsx` para usarlo. No correrlo sin aprobación.**
+  1. seguridad-staff · 2. captcha-turnstile · 3. registro-google · 4. storage-fotos-videos · 5. libro-reclamaciones · 6. rol-almacen · 7. ventas-servidor (estos 7 no están en el repo)
+  8. `supabase/08-fase2a-parches.sql` (aplicado) · 9. `09-fase2b-club-caja.sql` · 10. `10-registro-club.sql` · 11. `11-fase2-caja.sql` (caja, rol cajero, códigos de vendedor, Club Fly activable). Cada uno tiene su `-VOLVER-ATRAS.sql`.
+- Pruebas del SQL: se hacen en un PostgreSQL local que imita las tablas/funciones de producción (no hay pruebas automáticas en el repo).
 - **Riesgos conocidos:** sobreventa web/tienda (hasta aplicar Fase 2), catálogo en un solo JSONB (ediciones simultáneas pueden pisarse), caja sin turnos, comprobantes solo internos (SUNAT pendiente: requiere proveedor tipo Nubefact y RUC), pagos online manuales (Culqi pendiente), la copia de seguridad descargable no incluye las fotos de Storage, no hay pruebas automáticas.
 - **Identidad visual:** blanco y negro estrictos; rojo solo para ofertas y errores. Logo: letras "FLY" (sin círculo). Fuentes: Archivo (títulos) + Jost (texto). Inspiración funcional: Privé by Zalando.
 
