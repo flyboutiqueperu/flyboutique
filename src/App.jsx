@@ -2102,6 +2102,7 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
   };
 
   const payWithCulqi = async () => {
+    if (!customerName.trim() || !phoneIsValid(customerPhone) || !addressOk) { alert("Completa los datos con * (nombre, celular" + (deliveryMethod !== "recojo" ? " y dirección" : "") + ") antes de pagar."); return; }
     if (!culqiPublicKey) { alert("Aún no se configuró la llave pública de Culqi. Un administrador debe agregarla en Panel → Configuración de pagos."); return; }
     setCulqiLoading(true);
     try {
@@ -2234,8 +2235,9 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
         <input value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder={deliveryMethod === "provincia" ? "Dirección completa + ciudad/provincia" : "Dirección de entrega en Trujillo"} style={{ ...inputStyle, marginBottom: 10 }} />
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-        <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Tu nombre" style={inputStyle} />
-        <PhoneInput value={customerPhone} onChange={setCustomerPhone} />
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>Los datos con * son obligatorios.</div>
+        <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Tu nombre *" style={inputStyle} />
+        <PhoneInput value={customerPhone} onChange={setCustomerPhone} placeholder="Celular (WhatsApp) *" />
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
@@ -2275,7 +2277,11 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
 
       <span style={labelStyle}>Método de pago</span>
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        {(deliveryMethod === "internacional" ? ["Transferencia", "Tarjeta"] : ["Yape", "Plin", "Transferencia", "Tarjeta"]).map((m) => <Chip key={m} active={paymentMethod === m} onClick={() => setPaymentMethod(m)}>{m}</Chip>)}
+        {(deliveryMethod === "internacional" ? ["Transferencia", "Tarjeta"] : ["Yape", "Plin", "Transferencia", "Tarjeta"]).map((m) => (
+          <button key={m} onClick={() => setPaymentMethod(m)} aria-pressed={paymentMethod === m} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px 8px 8px", borderRadius: 12, border: `1.5px solid ${paymentMethod === m ? C.ink : C.line}`, background: paymentMethod === m ? C.paperDeep : C.paper, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink }}>
+            <PayBadge method={m} size={28} /> {m}
+          </button>
+        ))}
       </div>
 
       {paymentMethod === "Yape" && payAccounts?.yapeNumber && (
@@ -2835,13 +2841,13 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
       )}
 
       <div style={{ textAlign: "left", maxWidth: 280, margin: "0 auto" }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo" style={{ ...inputStyle, marginBottom: 6 }} />
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo *" style={{ ...inputStyle, marginBottom: 6 }} />
         {fieldError(nameValid, "Escribe tu nombre completo (mínimo 3 letras).")}
 
-        <PhoneInput value={phone} onChange={setPhone} style={{ marginTop: 8, marginBottom: 6 }} />
+        <PhoneInput value={phone} onChange={setPhone} placeholder="Celular (WhatsApp) *" style={{ marginTop: 8, marginBottom: 6 }} />
         {fieldError(phoneValid, "Ingresa un número de celular válido.")}
 
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Correo" type="email" autoComplete="email" style={{ ...inputStyle, marginTop: 8, marginBottom: 6 }} />
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Correo *" type="email" autoComplete="email" style={{ ...inputStyle, marginTop: 8, marginBottom: 6 }} />
         {fieldError(emailValid, "Ingresa tu correo (ej. nombre@gmail.com).")}
 
         {turnstileSiteKey ? (
@@ -3020,10 +3026,10 @@ const AddressFields = ({ value, onChange, type }) => {
             {INTL_COUNTRIES.map(([iso, name]) => <option key={iso} value={name}>{name}</option>)}
           </select>
           <div style={grid}>
-            <input value={v.city || ""} onChange={(e) => set("city", e.target.value)} placeholder="Ciudad" style={inputStyle} />
-            <input value={v.state || ""} onChange={(e) => set("state", e.target.value)} placeholder="Estado / provincia / región" style={inputStyle} />
+            <input value={v.city || ""} onChange={(e) => set("city", e.target.value)} placeholder="Ciudad *" style={inputStyle} />
+            <input value={v.state || ""} onChange={(e) => set("state", e.target.value)} placeholder="Estado / provincia / región (opcional)" style={inputStyle} />
           </div>
-          <input value={v.zip || ""} onChange={(e) => set("zip", e.target.value.replace(/[^0-9A-Za-z -]/g, "").slice(0, 10))} placeholder="Código postal" style={{ ...inputStyle, marginBottom: 8 }} />
+          <input value={v.zip || ""} onChange={(e) => set("zip", e.target.value.replace(/[^0-9A-Za-z -]/g, "").slice(0, 10))} placeholder="Código postal *" style={{ ...inputStyle, marginBottom: 8 }} />
         </>
       ) : type === "provincia" ? (
         <>
@@ -3032,10 +3038,10 @@ const AddressFields = ({ value, onChange, type }) => {
               <option value="">Departamento</option>
               {PERU_DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
-            <input value={v.city || ""} onChange={(e) => set("city", e.target.value)} placeholder="Provincia / ciudad" style={inputStyle} />
+            <input value={v.city || ""} onChange={(e) => set("city", e.target.value)} placeholder="Provincia / ciudad *" style={inputStyle} />
           </div>
           <div style={grid}>
-            <input value={v.district || ""} onChange={(e) => set("district", e.target.value)} placeholder="Distrito" style={inputStyle} />
+            <input value={v.district || ""} onChange={(e) => set("district", e.target.value)} placeholder="Distrito *" style={inputStyle} />
             <input value={v.zip || ""} inputMode="numeric" onChange={(e) => set("zip", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="Código postal (opcional)" style={inputStyle} />
           </div>
         </>
@@ -3045,8 +3051,8 @@ const AddressFields = ({ value, onChange, type }) => {
           {TRUJILLO_DISTRICTS.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
       )}
-      <input value={v.address || ""} onChange={(e) => set("address", e.target.value)} placeholder="Dirección (calle, número, dpto.)" style={{ ...inputStyle, marginBottom: 8 }} />
-      <input value={v.reference || ""} onChange={(e) => set("reference", e.target.value)} placeholder="Referencia (ej. frente al parque, portón negro)" style={{ ...inputStyle, marginBottom: 8 }} />
+      <input value={v.address || ""} onChange={(e) => set("address", e.target.value)} placeholder="Dirección (calle, número, dpto.) *" style={{ ...inputStyle, marginBottom: 8 }} />
+      <input value={v.reference || ""} onChange={(e) => set("reference", e.target.value)} placeholder="Referencia (opcional: ej. frente al parque, portón negro)" style={{ ...inputStyle, marginBottom: 8 }} />
       {type === "provincia" && (
         <select value={v.agency || ""} onChange={(e) => set("agency", e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
           <option value="">Agencia de envío preferida</option>
@@ -3502,7 +3508,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers"];
+  const moreScreens = ["banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -4484,7 +4490,7 @@ const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, can
                 <span style={{ fontFamily: FONT_BODY, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, fontWeight: 700, background: validated ? C.ink : C.accentSoft, color: validated ? C.paper : C.accent }}>
                   {validated ? "Pago validado" : "Pendiente de validar pago"}
                 </span>
-                <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>{o.paymentMethod}</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}><PayBadge method={o.paymentMethod} size={18} />{o.paymentMethod}</span>
               </div>
               {o.customerName && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 4 }}>Cliente: {o.customerName}{o.customerPhone ? ` · ${o.customerPhone}` : ""}</div>}
               {o.deliveryAddress && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 4 }}>Dirección: {o.deliveryAddress}</div>}
@@ -4990,6 +4996,31 @@ const PosClientPicker = ({ customers, onPick, onCreate, onClose }) => {
   );
 };
 
+// Insignia de cada medio de pago (colores propios para reconocerlo de un vistazo; no son los logos oficiales)
+const PAY_BADGES = {
+  Yape: { bg: "#742284", fg: "#FFFFFF", text: "yape" },
+  Plin: { bg: "linear-gradient(135deg, #00C3B2 0%, #0A6EC2 100%)", fg: "#FFFFFF", text: "plin" },
+  Efectivo: { bg: "#2E7D32", fg: "#FFFFFF", text: "S/" },
+  Transferencia: { bg: "#1F4E8C", fg: "#FFFFFF", icon: "bank" },
+  Tarjeta: { bg: "#111111", fg: "#FFFFFF", icon: "card" },
+  "Tarjeta (Culqi)": { bg: "#111111", fg: "#FFFFFF", icon: "card" },
+  Mixto: { bg: "#8F8F8F", fg: "#FFFFFF", text: "+" },
+};
+const PayBadge = ({ method, size = 30 }) => {
+  const b = PAY_BADGES[method] || { bg: C.paperDeep, fg: C.ink, text: String(method || "?").slice(0, 2) };
+  const r = Math.round(size * 0.26);
+  return (
+    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: r, background: b.bg, color: b.fg, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 1px 2px rgba(0,0,0,0.15)" }}>
+      {b.icon === "card" ? (
+        <svg width={size * 0.66} height={size * 0.48} viewBox="0 0 22 16"><rect x="0.75" y="0.75" width="20.5" height="14.5" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><rect x="0" y="4" width="22" height="2.6" fill="currentColor" /><rect x="3" y="10" width="5" height="2" rx="0.5" fill="currentColor" /></svg>
+      ) : b.icon === "bank" ? (
+        <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 20 20"><path d="M10 2 L19 7 H1 Z" fill="currentColor" /><rect x="3" y="8" width="2" height="7" fill="currentColor" /><rect x="9" y="8" width="2" height="7" fill="currentColor" /><rect x="15" y="8" width="2" height="7" fill="currentColor" /><rect x="1" y="16" width="18" height="2" fill="currentColor" /></svg>
+      ) : (
+        <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: b.text.length > 2 ? size * 0.3 : size * 0.42, letterSpacing: "-0.02em", lineHeight: 1 }}>{b.text}</span>
+      )}
+    </span>
+  );
+};
 const POS_PAY_OPTIONS = [["Efectivo", Banknote], ["Tarjeta", CreditCard], ["Yape", Smartphone], ["Plin", Smartphone], ["Transferencia", Landmark]];
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const ceil10 = (n) => Math.ceil(round2(n) * 10 - 1e-9) / 10;
@@ -5068,8 +5099,10 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
 
   const docOk = anon ? !isFactura : docType === "RUC" ? /^\d{11}$/.test(doc) : docType === "DNI" ? /^\d{8}$/.test(doc) : doc.length >= (docType === "CE" ? 9 : 6);
   const nameOk = name.trim().length >= 3;
-  const emailOk = anon || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const customerOk = docOk && nameOk && emailOk;
+  // Correo opcional en tienda: solo se revisa si lo escriben. Para factura, la dirección fiscal es obligatoria.
+  const emailOk = anon || !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const addressOk = anon || docType !== "RUC" || customerAddress.trim().length >= 5;
+  const customerOk = docOk && nameOk && emailOk && addressOk;
   const paymentsOk = payments.length > 0 && Math.abs(pending) < 0.005 && (!cash || !received || Number(received) >= Number(cash.amount));
   const canConfirm = customerOk && paymentsOk && saleItems.length > 0 && !busy && !manualOverCap && (!useCodes || !!codeMatch);
 
@@ -5116,17 +5149,18 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             {[["boleta", "Boleta / Nota de venta"], ["factura", "Factura"]].map(([k, l]) => <Chip key={k} active={comprobanteTipo === k} onClick={() => { setComprobanteTipo(k); if (k === "factura") toggleAnon(false); }}>{l}</Chip>)}
           </div>
           {step(1, "Cliente", customerOk, isFactura ? "Escribe el RUC: si ya compró antes, se completa solo." : "Escribe el DNI: si ya es cliente, se completa solo y suma sus puntos.")}
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 6 }}>Los datos con * son obligatorios.</div>
           {!anon && !isFactura && (
             <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
               {[["DNI", "DNI"], ["CE", "Carné ext."], ["PAS", "Pasaporte"], ["RUC", "RUC"]].map(([k, l]) => <Chip key={k} active={docType === k} onClick={() => { setDocTypeSel(k); setDoc(""); setMatched(null); }}>{l}</Chip>)}
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input autoFocus value={anon ? GENERIC_DOC : doc} disabled={anon} onChange={(e) => onDoc(e.target.value)} inputMode={docType === "DNI" || docType === "RUC" ? "numeric" : "text"} placeholder={{ DNI: "DNI (8 dígitos)", RUC: "RUC (11 dígitos)", CE: "Carné de extranjería", PAS: "Pasaporte" }[docType]} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
+            <input autoFocus value={anon ? GENERIC_DOC : doc} disabled={anon} onChange={(e) => onDoc(e.target.value)} inputMode={docType === "DNI" || docType === "RUC" ? "numeric" : "text"} placeholder={{ DNI: "DNI (8 dígitos) *", RUC: "RUC (11 dígitos) *", CE: "Carné de extranjería *", PAS: "Pasaporte *" }[docType]} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
           </div>
           {matched && <div style={{ background: C.paperDeep, borderRadius: 9, padding: "9px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>✓ Cliente registrado: <strong>{matched.name}</strong> · {matched.points || 0} puntos</div>}
           <div style={{ position: "relative", marginBottom: 8 }}>
-            <input value={name} disabled={anon} onChange={(e) => { setName(e.target.value); setMatched(null); setShowSug(true); }} onFocus={() => setShowSug(true)} placeholder={isFactura ? "Razón social" : "Nombres y apellidos"} style={{ ...inputStyle, fontSize: 15 }} />
+            <input value={name} disabled={anon} onChange={(e) => { setName(e.target.value); setMatched(null); setShowSug(true); }} onFocus={() => setShowSug(true)} placeholder={isFactura || docType === "RUC" ? "Razón social *" : "Nombres y apellidos *"} style={{ ...inputStyle, fontSize: 15 }} />
             {showSug && nameSug.length > 0 && (
               <div style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 5, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 9, boxShadow: "0 10px 24px rgba(0,0,0,0.12)", marginTop: 4 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, padding: "8px 12px 2px" }}>Clientes que ya existen:</div>
@@ -5134,11 +5168,11 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
               </div>
             )}
           </div>
-          {!anon && docType === "RUC" && <input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="Dirección fiscal de la empresa (para la factura)" style={{ ...inputStyle, marginBottom: 8 }} />}
+          {!anon && docType === "RUC" && <input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="Dirección fiscal de la empresa *" style={{ ...inputStyle, marginBottom: 8 }} />}
           {!anon && (
             <>
-              <PhoneInput value={phone} onChange={setPhone} placeholder="Celular (para sus puntos)" style={{ marginBottom: 8 }} />
-              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Correo (con él la clienta podrá ver sus compras y puntos)" style={{ ...inputStyle, marginBottom: 8, borderColor: email && !emailOk ? C.accent : undefined }} />
+              <PhoneInput value={phone} onChange={setPhone} placeholder="Celular (opcional, para sus puntos)" style={{ marginBottom: 8 }} />
+              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Correo (opcional: para ver sus compras y puntos)" style={{ ...inputStyle, marginBottom: 8, borderColor: email && !emailOk ? C.accent : undefined }} />
             </>
           )}
           {!isFactura && <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 18 }}><input type="checkbox" checked={anon} onChange={(e) => toggleAnon(e.target.checked)} /> El cliente no quiere dar sus datos (se registra como "Cliente varios", sin puntos)</label>}
@@ -5190,7 +5224,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
           </div>
           {useCodes ? (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 6 }}>¿Quién atendió? Toca su nombre o escribe su código</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 6 }}>¿Quién atendió? * <span style={{ color: C.stone }}>Toca su nombre o escribe su código</span></div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                 {sellerCodes.map((x) => {
                   const on = codeMatch?.code === x.code;
@@ -5222,7 +5256,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
               const used = payments.some((p) => p.method === m);
               return (
                 <button key={m} onClick={() => addPayment(m)} title={used ? `Quitar pago con ${m}` : `Cobrar con ${m}. Puedes combinar varios medios.`} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px", borderRadius: 10, border: `1.5px solid ${used ? C.ink : C.line}`, background: used ? C.ink : C.paper, color: used ? C.paper : C.ink, cursor: "pointer" }}>
-                  <Icon size={20} /><span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 600 }}>{m}</span>
+                  <PayBadge method={m} size={32} /><span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 600 }}>{m}</span>
                 </button>
               );
             })}
@@ -5257,7 +5291,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{pending > 0.004 ? "Falta cobrar" : pending < -0.004 ? "Se cobró de más" : "Cobrado completo"}</span>
             <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: Math.abs(pending) < 0.005 ? C.ink : C.accent }}>{money(Math.abs(pending))}</span>
           </div>
-          {!canConfirm && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8, lineHeight: 1.5 }}>Para emitir falta: {[!docOk && (isFactura ? "RUC de 11 dígitos" : "documento del cliente"), !nameOk && "nombre del cliente", !emailOk && "correo del cliente", !paymentsOk && "completar el pago"].filter(Boolean).join(", ")}.</div>}
+          {!canConfirm && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8, lineHeight: 1.5 }}><span style={{ color: C.accent, fontWeight: 600 }}>Falta completar (*):</span> {[!docOk && (docType === "RUC" ? "RUC de 11 dígitos" : docType === "DNI" ? "DNI de 8 dígitos" : "documento del cliente"), !nameOk && "nombre del cliente", !addressOk && "dirección fiscal", !emailOk && "correo válido (o déjalo vacío)", useCodes && !codeMatch && "quién atendió", !paymentsOk && "completar el pago", manualOverCap && "bajar el descuento manual"].filter(Boolean).join(", ")}.</div>}
           <PrimaryButton disabled={!canConfirm} onClick={confirm}>{busy ? "Registrando…" : `Registrar venta · ${money2(total)}`}</PrimaryButton>
           <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 8, lineHeight: 1.5 }}>Comprobante interno hasta activar la facturación electrónica SUNAT.</div>
         </div>
@@ -5824,6 +5858,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("invoices")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Comprobantes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("reports")} style={quickLinkStyle}><BarChart3 size={16} color={C.ink} /> Reportes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("sellers")} style={quickLinkStyle}><User size={16} color={C.ink} /> Vendedores (códigos MA01) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -6024,7 +6059,7 @@ const MySalesScreen = ({ sales, staffName }) => {
 // ------------------------------------------------------------------
 const CASH_ERRORS = {
   SIN_PERMISO: "Tu usuario no puede manejar la caja.", CAJA_YA_ABIERTA: "Esta caja ya está abierta.", CAJA_CERRADA: "La caja ya está cerrada.",
-  MOTIVO_REQUERIDO: "Escribe el motivo.", MOTIVO_DIFERENCIA: "Hay diferencia entre lo contado y lo esperado: escribe el motivo.",
+  MOTIVO_REQUERIDO: "Escribe el motivo.", VENDEDOR_INVALIDO: "Toca quién lo hace (su código de vendedora).", MOTIVO_DIFERENCIA: "Hay diferencia entre lo contado y lo esperado: escribe el motivo.",
 };
 const cashErrorText = (e) => {
   if (e?.code === "PGRST202") return "Falta correr el archivo 11-fase2-caja.sql en Supabase.";
@@ -6042,10 +6077,56 @@ const useStoreChoice = (settings) => {
   return { stores, store, choose };
 };
 
+// Llama a una función nueva del servidor; si el SQL aún no se corrió, repite sin los datos nuevos
+const rpcWithFallback = async (fn, args, newKeys) => {
+  const res = await supabase.rpc(fn, args);
+  if (res.error?.code === "PGRST202" && newKeys.length) {
+    const old = Object.fromEntries(Object.entries(args).filter(([k]) => !newKeys.includes(k)));
+    return supabase.rpc(fn, old);
+  }
+  return res;
+};
+// Elegir quién lo hace (código de vendedora) con un toque
+const SellerPicker = ({ sellers, value, onChange, label }) => {
+  if (!sellers.length) return null;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 6 }}>{label}</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {sellers.map((x) => {
+          const on = value === x.code;
+          return (
+            <button key={x.code} onClick={() => onChange(x.code)} title={`${x.name} (${x.code})`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px 7px 7px", borderRadius: 999, border: `1.5px solid ${on ? C.ink : C.line}`, background: on ? C.ink : C.paper, color: on ? C.paper : C.ink, cursor: "pointer" }}>
+              <span style={{ width: 28, height: 28, borderRadius: "50%", background: on ? C.paper : C.paperDeep, color: C.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontSize: 11, fontWeight: 800 }}>{x.code.slice(0, 2)}</span>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600 }}>{x.name.split(" ")[0]}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+// Tabla "¿Quién cobró qué?"
+const BySellerTable = ({ bySeller }) => {
+  const rows = Object.entries(bySeller || {});
+  if (!rows.length) return null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.07em", textTransform: "uppercase", color: C.stone, fontWeight: 600, marginBottom: 6 }}>¿Quién cobró qué?</div>
+      {rows.map(([who, v]) => (
+        <div key={who} style={{ padding: "6px 0", borderBottom: `1px solid ${C.line}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 12.5 }}><strong>{who}</strong><strong>{money2(v.total)}</strong></div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>{v.ventas} venta{v.ventas === 1 ? "" : "s"} · {Object.entries(v.porMetodo || {}).map(([m, t]) => `${m} ${money2(t)}`).join(" · ")}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const CashReport = ({ s, storeName }) => (
   <div className="print-area" style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 16px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, marginBottom: 2 }}>Cierre de caja · {storeName}</div>
-    <div style={{ color: C.stone, fontSize: 11.5, marginBottom: 10 }}>Abrió {s.opened_by_name || "—"} ({fmtDateTime(s.opened_at)}) · Cerró {s.closed_by_name || "—"} ({fmtDateTime(s.closed_at)})</div>
+    <div style={{ color: C.stone, fontSize: 11.5, marginBottom: 10 }}>Abrió {s.opened_seller || s.opened_by_name || "—"} ({fmtDateTime(s.opened_at)}) · Cerró {s.closed_seller || s.closed_by_name || "—"} ({fmtDateTime(s.closed_at)})</div>
     <Row label="Fondo inicial" value={money2(s.opening_amount)} />
     {Object.entries(s.byMethod || s.totals?.byMethod || {}).map(([m, v]) => <Row key={m} label={`Ventas ${m}`} value={money2(v)} />)}
     <Row label="Entradas de efectivo" value={money2(s.entradas ?? s.totals?.entradas)} />
@@ -6053,7 +6134,8 @@ const CashReport = ({ s, storeName }) => (
     <Row label="Efectivo esperado" value={money2(s.expected_cash ?? s.expectedCash)} bold />
     <Row label="Efectivo contado" value={money2(s.counted_cash)} />
     <Row label="Diferencia" value={money2(s.difference)} bold />
-    {s.notes && <div style={{ marginTop: 6, color: C.inkSoft }}>Motivo: {s.notes}</div>}
+    {s.notes && <div style={{ marginTop: 6, color: C.inkSoft }}>Motivo / nota: {s.notes}</div>}
+    <BySellerTable bySeller={s.bySeller || s.totals?.bySeller} />
     <div style={{ marginTop: 6, color: C.stone, fontSize: 11 }}>{s.salesCount ?? s.totals?.salesCount ?? 0} ventas · Documento interno de control</div>
   </div>
 );
@@ -6079,6 +6161,11 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
   const [closing, setClosing] = useState(null); // { counted, notes }
   const [closedReport, setClosedReport] = useState(null);
   const [history, setHistory] = useState([]);
+  // Quién hace cada cosa (si hay códigos de vendedora creados)
+  const [sellers, setSellers] = useState([]);
+  useEffect(() => { supabase.from("sellers").select("code,name").eq("active", true).order("code").then(({ data }) => setSellers(data || []), () => {}); }, []);
+  const [openSeller, setOpenSeller] = useState("");
+  const needSeller = sellers.length > 0;
 
   const load = async () => {
     setMsg("");
@@ -6094,12 +6181,12 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
   const run = async (fn) => { setBusy(true); setMsg(""); try { await fn(); } finally { setBusy(false); } };
 
   const openCash = () => run(async () => {
-    const { error } = await supabase.rpc("open_cash", { p_store: store.id, p_amount: Number(openAmount) || 0 });
+    const { error } = await rpcWithFallback("open_cash", { p_store: store.id, p_amount: Number(openAmount) || 0, p_seller: openSeller || null }, ["p_seller"]);
     if (error) { setMsg(cashErrorText(error)); return; }
-    setOpenAmount(""); await load();
+    setOpenAmount(""); setOpenSeller(""); await load();
   });
   const saveMove = () => run(async () => {
-    const { error } = await supabase.rpc("cash_move", { p_session: cash.id, p_type: move.type, p_amount: Number(move.amount), p_reason: move.reason.trim() });
+    const { error } = await rpcWithFallback("cash_move", { p_session: cash.id, p_type: move.type, p_amount: Number(move.amount), p_reason: move.reason.trim(), p_seller: move.seller || null }, ["p_seller"]);
     if (error) { setMsg(cashErrorText(error)); return; }
     setMove(null); await load();
   });
@@ -6107,7 +6194,13 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
   const counted = closing ? Number(closing.counted || 0) : 0;
   const diff = Math.round((counted - expected) * 100) / 100;
   const closeCash = () => run(async () => {
-    const { data, error } = await supabase.rpc("close_cash", { p_session: cash.id, p_counted: counted, p_notes: closing.notes.trim() });
+    if (closing.shift) {
+      const next = closing.next === "" ? counted : Number(closing.next) || 0;
+      const { data, error } = await supabase.rpc("shift_change", { p_session: cash.id, p_counted: counted, p_notes: closing.notes.trim(), p_next_amount: next, p_seller_out: closing.seller || null, p_seller_in: closing.sellerIn || null });
+      if (error) { setMsg(error.code === "PGRST202" ? "Para el cambio de turno falta correr el archivo 13-caja-turnos.sql en Supabase." : error.message?.includes("FONDO_MAYOR") ? "El dinero que queda no puede ser mayor que lo contado." : cashErrorText(error)); return; }
+      setClosing(null); setClosedReport(data.closed); await load(); return;
+    }
+    const { data, error } = await rpcWithFallback("close_cash", { p_session: cash.id, p_counted: counted, p_notes: closing.notes.trim(), p_seller: closing.seller || null }, ["p_seller"]);
     if (error) { setMsg(cashErrorText(error)); return; }
     setClosing(null); setClosedReport(data); await load();
   });
@@ -6144,13 +6237,14 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
           {canManage ? (
             <>
               <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 12, lineHeight: 1.6 }}>Cuenta el dinero con el que empiezas el día (fondo para dar vuelto) y abre la caja. Quedará abierta todo el turno, aunque cambie la vendedora.</div>
+              <SellerPicker sellers={sellers} value={openSeller} onChange={setOpenSeller} label="¿Quién abre la caja?" />
               <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
                 {[0, 50, 100, 150, 200].map((v) => <Chip key={v} active={openAmount === String(v)} onClick={() => setOpenAmount(String(v))}>{v === 0 ? "Sin fondo" : `S/ ${v}`}</Chip>)}
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Fondo inicial S/</span>
                 <input inputMode="decimal" value={openAmount} onChange={(e) => setOpenAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ ...inputStyle, width: 120, fontSize: 15 }} />
-                <button disabled={busy} onClick={openCash} style={btn(true)}>{busy ? "Abriendo…" : "Abrir caja"}</button>
+                <button disabled={busy || (needSeller && !openSeller)} onClick={openCash} title={needSeller && !openSeller ? "Primero toca quién abre la caja" : "Abrir la caja con este fondo"} style={{ ...btn(true), opacity: needSeller && !openSeller ? 0.5 : 1 }}>{busy ? "Abriendo…" : "Abrir caja"}</button>
               </div>
             </>
           ) : <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}>Pide al cajero o a Administración que la abra para poder vender.</div>}
@@ -6160,7 +6254,7 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
           <AdminCard style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink }}>Caja abierta · {store.name}</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>Abrió {cash.opened_by_name || "—"} · {fmtDateTime(cash.opened_at)}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>Abrió {cash.opened_seller || cash.opened_by_name || "—"} · {fmtDateTime(cash.opened_at)}</div>
             </div>
             {canManage && cash.expectedCash !== undefined && (
               <div style={{ marginTop: 10 }}>
@@ -6170,6 +6264,7 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
                 <Row label="Salidas" value={`-${money2(cash.salidas)}`} />
                 <Row label="Efectivo que debe haber" value={money2(cash.expectedCash)} bold />
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>{cash.salesCount || 0} ventas en este turno</div>
+                <BySellerTable bySeller={cash.bySeller} />
               </div>
             )}
           </AdminCard>
@@ -6180,24 +6275,31 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
                 {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint="Ir al punto de venta" onClick={onGoSell} dark />}
                 <BigAction icon={Plus} title="Entrada" hint="Meter efectivo (ej. sencillo)" onClick={() => { setMove({ type: "entrada", amount: "", reason: "" }); setClosing(null); }} />
                 <BigAction icon={Minus} title="Salida" hint="Sacar efectivo (ej. compras)" onClick={() => { setMove({ type: "salida", amount: "", reason: "" }); setClosing(null); }} />
-                <BigAction icon={Banknote} title="Cerrar caja" hint="Contar el dinero y cerrar el turno" onClick={() => { setClosing({ counted: "", notes: "" }); setMove(null); }} />
+                <BigAction icon={RotateCcw} title="Cambio de turno" hint="Entregar la caja a otra vendedora" onClick={() => { setClosing({ counted: "", notes: "", shift: true, next: "" }); setMove(null); }} />
+                <BigAction icon={Banknote} title="Cerrar caja" hint="Contar el dinero y cerrar el día" onClick={() => { setClosing({ counted: "", notes: "", shift: false }); setMove(null); }} />
               </div>
               {move && (
                 <AdminCard style={{ marginBottom: 14 }}>
                   <span style={labelStyle}>{move.type === "entrada" ? "Entrada de efectivo" : "Salida de efectivo"}</span>
+                  <SellerPicker sellers={sellers} value={move.seller || ""} onChange={(c) => setMove({ ...move, seller: c })} label="¿Quién lo hace?" />
                   <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                     <input inputMode="decimal" value={move.amount} onChange={(e) => setMove({ ...move, amount: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="Monto S/" style={{ ...inputStyle, width: 130 }} />
                     <input value={move.reason} onChange={(e) => setMove({ ...move, reason: e.target.value })} placeholder={move.type === "entrada" ? "Motivo (ej. sencillo del banco)" : "Motivo (ej. compra de bolsas)"} style={inputStyle} />
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setMove(null)} style={btn(false)}>Cancelar</button>
-                    <button disabled={busy || !(Number(move.amount) > 0) || !move.reason.trim()} onClick={saveMove} style={btn(true)}>Guardar</button>
+                    <button disabled={busy || !(Number(move.amount) > 0) || !move.reason.trim() || (needSeller && !move.seller)} onClick={saveMove} style={btn(true)}>Guardar</button>
                   </div>
                 </AdminCard>
               )}
               {closing && (
                 <AdminCard style={{ marginBottom: 14 }}>
                   <span style={labelStyle}>Cierre y arqueo</span>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                    <Chip active={!closing.shift} onClick={() => setClosing({ ...closing, shift: false })}>Cerrar el día</Chip>
+                    <Chip active={!!closing.shift} onClick={() => setClosing({ ...closing, shift: true, next: closing.next ?? "" })}>Cambio de turno (sigue abierta)</Chip>
+                  </div>
+                  <SellerPicker sellers={sellers} value={closing.seller || ""} onChange={(c) => setClosing({ ...closing, seller: c })} label={closing.shift ? "¿Quién entrega la caja?" : "¿Quién cierra la caja?"} />
                   <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 10, lineHeight: 1.6 }}>Cuenta todo el efectivo de la caja (incluido el fondo) y escríbelo.</div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
                     <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Efectivo contado S/</span>
@@ -6209,9 +6311,20 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
                     </div>
                   )}
                   {closing.counted !== "" && diff !== 0 && <input value={closing.notes} onChange={(e) => setClosing({ ...closing, notes: e.target.value })} placeholder="Motivo de la diferencia (obligatorio)" style={{ ...inputStyle, marginBottom: 8 }} />}
+                  {closing.shift && closing.counted !== "" && (
+                    <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                        <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Dinero que queda para el siguiente turno S/</span>
+                        <input inputMode="decimal" value={closing.next} onChange={(e) => setClosing({ ...closing, next: e.target.value.replace(/[^0-9.]/g, "") })} placeholder={Number(counted).toFixed(2)} style={{ ...inputStyle, width: 120 }} />
+                      </div>
+                      {closing.next !== "" && Number(closing.next) < counted && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8 }}>Se retiran {money2(counted - Number(closing.next))} (quedará anotado en el informe).</div>}
+                      <SellerPicker sellers={sellers} value={closing.sellerIn || ""} onChange={(c) => setClosing({ ...closing, sellerIn: c })} label="¿Quién recibe la caja?" />
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setClosing(null)} style={btn(false)}>Cancelar</button>
-                    <button disabled={busy || closing.counted === "" || (diff !== 0 && !closing.notes.trim())} onClick={() => { if (confirm("¿Cerrar la caja? Ya no se podrá vender en esta sede hasta abrirla de nuevo.")) closeCash(); }} style={btn(true)}>{busy ? "Cerrando…" : "Cerrar caja"}</button>
+                    <button disabled={busy || closing.counted === "" || (diff !== 0 && !closing.notes.trim()) || (needSeller && (!closing.seller || (closing.shift && !closing.sellerIn)))}
+                      onClick={() => { if (confirm(closing.shift ? "¿Hacer el cambio de turno? Se cierra este turno con su arqueo y se abre el siguiente." : "¿Cerrar la caja? Ya no se podrá vender en esta sede hasta abrirla de nuevo.")) closeCash(); }} style={btn(true)}>{busy ? "Guardando…" : closing.shift ? "Hacer cambio de turno" : "Cerrar caja"}</button>
                   </div>
                 </AdminCard>
               )}
@@ -6220,7 +6333,7 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
                   <span style={labelStyle}>Movimientos del turno</span>
                   {cash.movements.map((m) => (
                     <div key={m.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}` }}>
-                      <span>{m.type === "entrada" ? "+" : "−"} {m.reason} <span style={{ color: C.stone }}>· {m.created_by_name || ""} · {fmtDateTime(m.created_at)}</span></span>
+                      <span>{m.type === "entrada" ? "+" : "−"} {m.reason} <span style={{ color: C.stone }}>· {m.seller || m.created_by_name || ""} · {fmtDateTime(m.created_at)}</span></span>
                       <strong>{money2(m.amount)}</strong>
                     </div>
                   ))}
@@ -6322,19 +6435,20 @@ const SellersScreen = ({ catalog }) => {
 // AYUDA DEL PANEL: botón "? Ayuda" en cada pantalla con los pasos explicados.
 // ------------------------------------------------------------------
 const STAFF_GUIDES = {
-  caja: { title: "Cómo usar la caja", steps: [
+  caja: { title: "Cómo usar la caja", img: "/guia/caja-abierta.png", steps: [
     ["Banknote", "Al empezar el día, cuenta el dinero con el que abres (el fondo para dar vuelto)."],
-    ["Plus", "Escribe ese monto o toca un botón rápido (S/ 50, S/ 100…) y toca «Abrir caja»."],
-    ["ShoppingCart", "Para vender, toca «Vender». La caja queda abierta todo el turno, aunque cambie la vendedora."],
-    ["Minus", "Si metes o sacas efectivo (sencillo, compras), usa «Entrada» o «Salida» y escribe el motivo."],
-    ["Receipt", "Al final del día toca «Cerrar caja», cuenta todo el efectivo y escríbelo. Si no cuadra, explica por qué. Imprime el informe."],
+    ["User", "Toca quién abre la caja (tu nombre) y el monto del fondo. Luego «Abrir caja»."],
+    ["ShoppingCart", "Para vender, toca «Vender». La caja queda abierta todo el día, aunque cambie la vendedora."],
+    ["Minus", "Si metes o sacas efectivo (sencillo, taxi, compras), usa «Entrada» o «Salida», toca quién lo hace y escribe el motivo."],
+    ["RotateCcw", "Si otra vendedora se queda con la caja: «Cambio de turno». Cuentas el dinero, eliges cuánto queda y quién la recibe."],
+    ["Receipt", "Al final del día: «Cerrar caja». Cuenta todo el efectivo y escríbelo. Si no cuadra, explica por qué. Imprime el informe."],
   ] },
-  pos: { title: "Cómo hacer una venta", steps: [
+  pos: { title: "Cómo hacer una venta", img: "/guia/venta.png", steps: [
     ["Scan", "Escanea la etiqueta o toca la prenda. Elige talla y color."],
     ["ShoppingBag", "Revisa la venta a la derecha. Cambia la cantidad con + y −."],
     ["Banknote", "Toca «Cobrar»."],
-    ["User", "Escribe el DNI de la clienta: si ya compró antes, sus datos se completan solos y suma puntos."],
-    ["Star", "Toca tu nombre en «¿Quién atendió?» (o escribe tu código, ej. MA01)."],
+    ["User", "Elige el documento (DNI, carné, pasaporte o RUC) y escríbelo: si la clienta ya compró, sus datos se completan solos."],
+    ["Star", "Toca tu nombre en «¿Quién atendió?»."],
     ["CreditCard", "Elige cómo paga. Si es efectivo, toca el billete que te dio y verás el vuelto."],
     ["Check", "Toca «Registrar venta». Luego imprime el comprobante o envíalo por WhatsApp."],
   ] },
@@ -6344,11 +6458,11 @@ const STAFF_GUIDES = {
     ["Check", "Registra la venta: el stock se descuenta al instante."],
   ] },
   mysales: { title: "Mis ventas", steps: [["BarChart3", "Aquí ves las ventas registradas a tu nombre y el total."]] },
-  onlineorders: { title: "Pedidos de la web", steps: [
-    ["Package", "Cada pedido nuevo suena y aparece aquí."],
+  onlineorders: { title: "Pedidos de la web", img: "/guia/pedidos.png", steps: [
+    ["Package", "Cada pedido nuevo suena y aparece aquí. La prenda queda apartada para esa clienta."],
     ["Check", "Administración confirma el pago cuando llega el dinero (Yape, Plin, transferencia)."],
     ["X", "Si la clienta no pagó, toca «Cancelar: no pagó»: la prenda vuelve al stock. Si nadie lo hace, se cancela sola pasadas las horas configuradas."],
-    ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento."],
+    ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento e imprime la etiqueta."],
   ] },
   stock: { title: "Stock", steps: [
     ["Package", "Busca la prenda y mira cuántas unidades hay por talla y color."],
@@ -6356,21 +6470,49 @@ const STAFF_GUIDES = {
   ] },
   dashboard: { title: "Panel", steps: [
     ["LayoutDashboard", "Resumen de ventas, pedidos y stock bajo."],
-    ["Menu", "En «Más» están la caja, los vendedores, comprobantes, reportes y la configuración."],
+    ["Menu", "En «Más» están la caja, los vendedores, comprobantes, reportes, usuarios y la configuración."],
+    ["BookOpen", "El «Manual del equipo» explica todo paso a paso por función."],
   ] },
+  products: { title: "Productos", steps: [
+    ["Plus", "«Nuevo producto»: nombre, categoría, precio y, si está en oferta, el precio anterior."],
+    ["Layers", "Agrega tallas y colores: cada combinación tiene su stock."],
+    ["ImageIcon", "Sube fotos verticales (ideal 1080×1440) y asigna cada foto a su color. Puedes subir un video."],
+    ["Eye", "Usa «Activo / Borrador» y «Mostrar en la web» para publicar u ocultar sin borrar."],
+  ] },
+  productEditor: { title: "Editar un producto", steps: [
+    ["Pencil", "Cambia lo que necesites y toca «Guardar». El stock real no se pisa: las ventas hechas mientras editas se respetan."],
+    ["ImageIcon", "Cada foto con su color: así, al pasar el mouse por un color, la clienta ve esa foto."],
+  ] },
+  banners: { title: "Banners", steps: [["ImageIcon", "La imagen grande de la portada. Medida 1080×1920 (vertical), menos de 500 KB. Actívalo o desactívalo sin borrarlo."]] },
+  collections: { title: "Colecciones", steps: [["Layers", "Agrupa prendas (ej. «Cena de viernes»). Elige las prendas y una portada."]] },
+  invoices: { title: "Comprobantes", steps: [
+    ["Receipt", "Busca una venta para verla, reimprimirla (80 mm, 58 mm o A4) o enviarla. Reimprimir no crea otra venta."],
+    ["Undo2", "Anular devuelve el stock y los puntos. Pide un motivo y queda registrado quién lo hizo."],
+  ] },
+  reports: { title: "Reportes", steps: [["BarChart3", "Filtra por fechas, sede, canal y vendedora. Descarga a Excel para revisar o enviar al contador."]] },
+  users: { title: "Usuarios y permisos", steps: [
+    ["User", "Cada persona con su propio usuario y contraseña. No compartan usuarios."],
+    ["ShieldCheck", "Roles: Cajero(a) = caja y ventas. Vendedora Tienda = solo vende. Administración = todo. Almacén = stock."],
+    ["X", "Para quitar el acceso, apaga «Acceso activo» (no borres: se conserva su historial)."],
+  ] },
+  promocodes: { title: "Códigos promocionales", steps: [["Gift", "Crea un código (ej. FLY10) con % o monto. Puede ser solo para el Club Fly. Desactívalo cuando termine la promoción."]] },
+  complaints: { title: "Libro de Reclamaciones", steps: [["BookOpen", "Responde cada reclamo dentro del plazo legal (15 días hábiles). La respuesta queda guardada."]] },
   sellers: { title: "Códigos de vendedor", steps: [
     ["User", "Crea un código por vendedora (ej. MA01). Se sugiere solo con sus iniciales."],
-    ["ShieldCheck", "El código solo dice quién vendió: no es contraseña ni da acceso al panel."],
+    ["ShieldCheck", "El código solo dice quién vendió o movió la caja: no es contraseña ni da acceso al panel."],
     ["X", "Si alguien deja de trabajar, desactívalo. No se borra, para no perder sus ventas en los reportes."],
   ] },
-  invoices: { title: "Comprobantes", steps: [
-    ["Receipt", "Busca una venta para verla, reimprimirla o enviarla. Reimprimir no crea otra venta."],
-    ["Undo2", "Anular devuelve el stock y los puntos. Pide un motivo y queda registrado."],
-  ] },
 };
-const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2 };
+const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2, RotateCcw, BookOpen, Layers, ImageIcon, Eye, Gift };
 
-const StaffHelp = ({ screen }) => {
+// Captura de una pantalla para las guías (si la imagen no existe, no se muestra nada)
+const GuideImage = ({ src, alt }) => {
+  const [ok, setOk] = useState(true);
+  if (!src || !ok) return null;
+  return <img src={src} alt={alt || ""} onError={() => setOk(false)} loading="lazy" style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.line}`, display: "block", background: C.paperDeep }} />;
+};
+
+const StaffHelp = ({ screen, onOpenManual }) => {
   const guide = STAFF_GUIDES[screen];
   const [open, setOpen] = useState(false);
   useEffect(() => { setOpen(false); }, [screen]); // la guía solo se abre al tocar el botón de Ayuda
@@ -6390,6 +6532,7 @@ const StaffHelp = ({ screen }) => {
               <button onClick={() => setOpen(false)} aria-label="Cerrar ayuda" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
             </div>
             <div className="help-steps" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, overflowY: "auto", minHeight: 0, flex: 1 }}>
+              {guide.img && <div style={{ gridColumn: "1 / -1" }}><GuideImage src={guide.img} alt={guide.title} /></div>}
               {guide.steps.map(([icon, text], i) => {
                 const Icon = GUIDE_ICONS[icon] || Check;
                 return (
@@ -6405,12 +6548,103 @@ const StaffHelp = ({ screen }) => {
             </div>
             <div style={{ flexShrink: 0 }}>
               <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "12px 0 12px" }}>Consejo: en la computadora, deja el mouse quieto sobre un botón para ver qué hace.</div>
-              <PrimaryButton onClick={() => setOpen(false)}>Entendido</PrimaryButton>
+              <div style={{ display: "flex", gap: 8 }}>
+                {onOpenManual && <button onClick={() => { setOpen(false); onOpenManual(); }} style={{ flex: 1, padding: "13px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Ver el manual completo</button>}
+                <div style={{ flex: 1 }}><PrimaryButton onClick={() => setOpen(false)}>Entendido</PrimaryButton></div>
+              </div>
             </div>
           </div>
         </div>
       )}
     </>
+  );
+};
+
+
+// ------------------------------------------------------------------
+// MANUAL DEL EQUIPO: qué hace cada persona, paso a paso y con capturas.
+// Cada quien ve primero lo suyo; la dueña/Administración ve todo.
+// ------------------------------------------------------------------
+const MANUAL_SECTIONS = [
+  { id: "tienda", roles: ["cajero", "vendedora_tienda", "administrador", "superadmin"], icon: "Store", title: "Vendedora / cajera: el día a día en la tienda", intro: "Una sola computadora con el usuario de la tienda (ej. «larco»). Cada vendedora se identifica tocando su nombre (su código, ej. MA01) cuando cobra, abre, mueve dinero o cierra la caja.", items: [
+    { title: "1. Abrir la caja (al llegar)", img: "/guia/caja-cerrada.png", steps: ["Entra con el usuario de la tienda.", "Caja → toca tu nombre en «¿Quién abre la caja?».", "Cuenta el dinero inicial y toca el monto (S/ 50, 100…) o escríbelo.", "Toca «Abrir caja». Ya se puede vender."] },
+    { title: "2. Vender", img: "/guia/venta.png", steps: ["Vender → escanea la etiqueta o toca la prenda.", "Elige talla y color. Revisa la venta a la derecha.", "Toca «Cobrar»."] },
+    { title: "3. Cobrar", img: "/guia/cobro.png", steps: ["Elige el documento (DNI, carné, pasaporte o RUC) y escríbelo: si ya es clienta, se completa sola.", "Toca tu nombre en «¿Quién atendió?».", "Elige cómo paga (se puede combinar: parte Yape, parte efectivo).", "Efectivo: toca el billete que te dio y mira el vuelto.", "«Registrar venta»."] },
+    { title: "4. Comprobante", img: "/guia/comprobante.png", steps: ["Elige el formato de tu impresora (80 mm, 58 mm o A4).", "«Imprimir» o «WhatsApp».", "Si hay que reimprimir después: Comprobantes (Administración). Reimprimir no crea otra venta."] },
+    { title: "5. Pedidos de la web", img: "/guia/pedidos.png", steps: ["Cuando suena, mira «Pedidos».", "Si la clienta no pagó: «Cancelar: no pagó» (la prenda vuelve al stock).", "Cuando Administración valida el pago: prepara, cambia a «listo» y luego «entregado/enviado»."] },
+    { title: "6. Meter o sacar dinero", img: "/guia/caja-abierta.png", steps: ["Caja → «Entrada» (ej. sencillo) o «Salida» (ej. taxi, bolsas).", "Toca quién lo hace, escribe el monto y el motivo.", "Nunca saques dinero sin registrarlo: si no, el arqueo no cuadra."] },
+    { title: "7. Cambio de turno", img: "/guia/cambio-turno.png", steps: ["Caja → «Cambio de turno».", "Toca quién entrega, cuenta el efectivo y escríbelo.", "Escribe cuánto queda para el siguiente turno (si se retira dinero, queda anotado).", "Toca quién recibe la caja → «Hacer cambio de turno»."] },
+    { title: "8. Cerrar la caja (al final del día)", img: "/guia/cierre.png", steps: ["Caja → «Cerrar caja» → toca quién cierra.", "Cuenta todo el efectivo (incluido el fondo) y escríbelo.", "Si sobra o falta, escribe el motivo.", "«Cerrar caja» → imprime el informe y guárdalo con el dinero.", "Cierra la sesión."] },
+  ] },
+  { id: "online", roles: ["vendedora_online", "administrador", "superadmin"], icon: "Smartphone", title: "Vendedora online", items: [
+    { title: "Venta por WhatsApp o redes", steps: ["Venta Online → agrega las prendas.", "Datos de la clienta y forma de pago.", "Registrar: el stock se descuenta al instante.", "Pedidos Web: sigue el estado hasta entregado."] },
+  ] },
+  { id: "almacen", roles: ["almacen", "administrador", "superadmin"], icon: "Package", title: "Almacén", items: [
+    { title: "Stock", steps: ["Stock → busca la prenda.", "Para un ingreso de mercadería, merma o corrección: cambia la cantidad y escribe el motivo.", "Queda registrado quién lo hizo y cuándo."] },
+  ] },
+  { id: "admin", roles: ["administrador", "superadmin"], icon: "ShieldCheck", title: "Dueña / Administración", items: [
+    { title: "Productos y fotos", steps: ["Productos → «Nuevo»: nombre, precio, categoría, tallas y colores con su stock.", "Fotos verticales (1080×1440) asignadas a su color; puede ir un video.", "Borrador = no se ve en la web. «Mostrar en la web» para publicar."] },
+    { title: "Validar pagos web", steps: ["Pedidos → revisa el N.° de operación con tu Yape/Plin/banco.", "Si llegó: «Validar pago recibido». La clienta suma puntos.", "Pedidos sin pago: se cancelan solos pasadas las horas que pongas arriba (24 por defecto)."] },
+    { title: "Caja y arqueos", steps: ["Más → Caja: ve el turno abierto, «¿Quién cobró qué?» y el historial de cierres con sus diferencias.", "Una diferencia que se repite con la misma persona es una señal para revisar."] },
+    { title: "Vendedoras y usuarios", steps: ["Más → Vendedores: un código por vendedora (MA01).", "Más → Usuarios: Cajero(a) para quien maneja la caja; Vendedora Tienda solo vende.", "Para quitar acceso: apaga «Acceso activo» (no borres).", "«Reiniciar verificación» solo sirve si alguien perdió el celular del código."] },
+    { title: "Anular una venta", steps: ["Más → Comprobantes → la venta → Anular.", "Escribe el motivo. Devuelve stock y puntos y queda registrado."] },
+    { title: "Reportes", steps: ["Más → Reportes: por fecha, sede, canal y vendedora. Descarga a Excel."] },
+    { title: "Club Fly y promociones", steps: ["Programa de puntos: cuánto se gana y cuánto vale. Interruptor para pausar el club.", "Códigos promocionales (Super Admin): % o monto, solo Club si quieres."] },
+    { title: "Configuración", steps: ["Datos de la empresa (RUC, dirección, régimen tributario): salen en el comprobante.", "Envíos: delivery en Trujillo, por departamento y por país.", "Tope de descuento manual de las vendedoras.", "Copia de seguridad (Super Admin): descárgala cada semana."] },
+  ] },
+  { id: "buenas", roles: null, icon: "Check", title: "Buenas prácticas", items: [
+    { title: "Para que todo cuadre", steps: ["Cada vendedora toca su propio nombre: nunca el de otra.", "Todo dinero que entra o sale de la caja se registra con motivo.", "No compartas tu contraseña. Cierra la sesión al irte.", "Si algo no cuadra, avisa el mismo día: es más fácil encontrarlo."] },
+  ] },
+  { id: "problemas", roles: null, icon: "AlertCircle", title: "Problemas frecuentes", items: [
+    { title: "«La caja está cerrada»", steps: ["Hay que abrirla en Caja. Solo Cajero(a) o Administración pueden abrirla."] },
+    { title: "«Código no encontrado» / «Toca quién lo hace»", steps: ["Toca tu nombre en la lista. Si no apareces, pide a Administración que cree tu código."] },
+    { title: "«Sin stock suficiente»", steps: ["Otra venta o un pedido web se llevó la última unidad. Revisa Stock."] },
+    { title: "«El precio cambió»", steps: ["Recarga la página para ver el precio actual."] },
+    { title: "La sesión se cerró sola", steps: ["Pasó mucho tiempo sin usar el panel o se cerró la página. Vuelve a entrar: la caja sigue abierta."] },
+  ] },
+];
+const MANUAL_ICONS = { Store, Smartphone, Package, ShieldCheck, Check, AlertCircle };
+
+const StaffManual = ({ role }) => {
+  const isAdmin = role === "administrador" || role === "superadmin";
+  const mine = MANUAL_SECTIONS.filter((x) => !x.roles || x.roles.includes(role));
+  const [openId, setOpenId] = useState(mine[0]?.id);
+  return (
+    <div style={{ padding: "18px 18px 110px", maxWidth: 900, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Manual del equipo</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 16 }}>{isAdmin ? "Ves todas las funciones. Cada persona ve primero lo suyo." : `Lo que necesitas como ${ROLE_LABELS[role] || role}.`} En cada pantalla también tienes el botón «? Ayuda».</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {mine.map((sec) => {
+          const Icon = MANUAL_ICONS[sec.icon] || BookOpen;
+          const open = openId === sec.id;
+          return (
+            <div key={sec.id} style={{ border: `1px solid ${open ? C.ink : C.line}`, borderRadius: 14, overflow: "hidden", background: C.paper }}>
+              <button onClick={() => setOpenId(open ? null : sec.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: open ? C.ink : C.paper, color: open ? C.paper : C.ink, border: "none", cursor: "pointer", textAlign: "left" }}>
+                <span style={{ width: 38, height: 38, borderRadius: 11, background: open ? "rgba(255,255,255,0.14)" : C.paperDeep, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon size={19} /></span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, flex: 1 }}>{sec.title}</span>
+                <ChevronDown size={18} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+              </button>
+              {open && (
+                <div style={{ padding: "14px 16px 18px" }}>
+                  {sec.intro && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12, background: C.paperDeep, borderRadius: 10, padding: "10px 12px" }}>{sec.intro}</div>}
+                  <div className="manual-grid" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
+                    {sec.items.map((it) => (
+                      <div key={it.title} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, fontWeight: 800, color: C.ink }}>{it.title}</div>
+                        {it.img && <GuideImage src={it.img} alt={it.title} />}
+                        <ol style={{ margin: 0, paddingLeft: 20, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.6 }}>
+                          {it.steps.map((st, i) => <li key={i} style={{ marginBottom: 3 }}>{st}</li>)}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 };
 
@@ -6583,6 +6817,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
+        {screen === "manual" && <StaffManual role={role} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
         {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
@@ -6599,7 +6834,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
         {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} onCancelUnpaid={role !== "almacen" ? cancelUnpaid : null} onSaveUnpaidHours={isAdminRole ? saveUnpaidHours : null} />}
       </div>
-      <StaffHelp screen={screen} />
+      {screen !== "manual" && <StaffHelp screen={screen} onOpenManual={() => setScreen("manual")} />}
       <AdminNav screen={screen} setScreen={setScreen} role={role} />
     </div>
   );
@@ -7079,7 +7314,7 @@ export default function FlyBoutiqueApp() {
         }
         .pdp-arrow { display: none !important; }
         .help-panel { max-height: 94vh !important; }
-        @media (min-width: 700px) { .help-steps { grid-template-columns: 1fr 1fr !important; } }
+        @media (min-width: 700px) { .help-steps { grid-template-columns: 1fr 1fr !important; } .manual-grid { grid-template-columns: 1fr 1fr !important; } }
         @media (hover: hover) { .hint-touch { display: none !important; } }
         @media (hover: none) { .hint-mouse { display: none !important; } }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
