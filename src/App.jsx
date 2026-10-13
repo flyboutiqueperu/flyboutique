@@ -3498,7 +3498,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "cajero"
     ? [["caja", "Caja", Banknote], ["pos", "Vender", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
     : role === "vendedora_tienda"
-    ? [["pos", "Caja", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
+    ? [["pos", "Vender", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
     : role === "almacen"
     ? [["stock", "Stock", Package], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
@@ -5393,7 +5393,11 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
       <div style={{ padding: "40px 20px", textAlign: "center", maxWidth: 420, margin: "0 auto" }}>
         <Banknote size={30} color={C.line} style={{ marginBottom: 12 }} />
         <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink, marginBottom: 8 }}>La caja de {currentStore.name} está cerrada</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, marginBottom: 18, lineHeight: 1.6 }}>Para vender en tienda primero hay que abrir la caja con el fondo inicial.</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, marginBottom: 18, lineHeight: 1.6 }}>
+          {["superadmin", "administrador", "cajero"].includes(role)
+            ? "Para vender en tienda primero hay que abrir la caja con el fondo inicial."
+            : <>Tu usuario ({ROLE_LABELS[role] || role}) puede vender, pero <strong>no abrir la caja</strong>. Pide al cajero o a Administración que la abra y luego toca «Ya está abierta, revisar».<br /><br />Si tú eres quien abre la caja, pide en Administración que a tu usuario le pongan el rol <strong>Cajero(a)</strong>.</>}
+        </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
           {["superadmin", "administrador", "cajero"].includes(role) && onGoCash && <button onClick={onGoCash} style={{ padding: "12px 20px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Ir a abrir la caja</button>}
           <button onClick={checkCash} style={{ padding: "12px 20px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Ya está abierta, revisar</button>
@@ -6316,7 +6320,6 @@ const SellersScreen = ({ catalog }) => {
 
 // ------------------------------------------------------------------
 // AYUDA DEL PANEL: botón "? Ayuda" en cada pantalla con los pasos explicados.
-// La primera vez que alguien abre una pantalla en este equipo, la guía aparece sola.
 // ------------------------------------------------------------------
 const STAFF_GUIDES = {
   caja: { title: "Cómo usar la caja", steps: [
@@ -6366,15 +6369,11 @@ const STAFF_GUIDES = {
   ] },
 };
 const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2 };
-const GUIDE_SEEN_KEY = "flyboutique:guia-vista:";
 
 const StaffHelp = ({ screen }) => {
   const guide = STAFF_GUIDES[screen];
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (!guide) { setOpen(false); return; }
-    try { if (!localStorage.getItem(GUIDE_SEEN_KEY + screen)) { setOpen(true); localStorage.setItem(GUIDE_SEEN_KEY + screen, "1"); } } catch (e) { /* nada */ }
-  }, [screen]);
+  useEffect(() => { setOpen(false); }, [screen]); // la guía solo se abre al tocar el botón de Ayuda
   if (!guide) return null;
   return (
     <>
@@ -6385,12 +6384,12 @@ const StaffHelp = ({ screen }) => {
       {open && (
         <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 75, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
           <div onClick={() => setOpen(false)} style={{ position: "absolute", inset: 0, background: `${C.scrim}66` }} />
-          <div className="sheet-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: "20px 20px 26px", maxHeight: "86vh", overflowY: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div className="sheet-panel help-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: "20px 20px 18px", width: "min(820px, 96vw)", maxWidth: "96vw", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexShrink: 0 }}>
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>{guide.title}</div>
-              <button onClick={() => setOpen(false)} aria-label="Cerrar ayuda" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={18} /></button>
+              <button onClick={() => setOpen(false)} aria-label="Cerrar ayuda" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div className="help-steps" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, overflowY: "auto", minHeight: 0, flex: 1 }}>
               {guide.steps.map(([icon, text], i) => {
                 const Icon = GUIDE_ICONS[icon] || Check;
                 return (
@@ -6404,8 +6403,10 @@ const StaffHelp = ({ screen }) => {
                 );
               })}
             </div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "12px 0 14px" }}>Consejo: en la computadora, deja el mouse quieto sobre un botón para ver qué hace.</div>
-            <PrimaryButton onClick={() => setOpen(false)}>Entendido</PrimaryButton>
+            <div style={{ flexShrink: 0 }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "12px 0 12px" }}>Consejo: en la computadora, deja el mouse quieto sobre un botón para ver qué hace.</div>
+              <PrimaryButton onClick={() => setOpen(false)}>Entendido</PrimaryButton>
+            </div>
           </div>
         </div>
       )}
@@ -7077,6 +7078,8 @@ export default function FlyBoutiqueApp() {
           .viewer-thumbs { flex-direction: row !important; width: 100% !important; overflow-x: auto; }
         }
         .pdp-arrow { display: none !important; }
+        .help-panel { max-height: 94vh !important; }
+        @media (min-width: 700px) { .help-steps { grid-template-columns: 1fr 1fr !important; } }
         @media (hover: hover) { .hint-touch { display: none !important; } }
         @media (hover: none) { .hint-mouse { display: none !important; } }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
