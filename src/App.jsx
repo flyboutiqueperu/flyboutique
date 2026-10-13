@@ -6214,7 +6214,9 @@ export default function FlyBoutiqueApp() {
     const { data: c, error } = await supabase.rpc("register_customer", { p_name: data.name, p_phone: data.phone, p_email: data.email || "", p_captcha: data.captcha || null });
     if (error || !c) {
       const m = error?.message || "";
-      alert(m.includes("CAPTCHA") ? "No pudimos confirmar la verificación. Intenta de nuevo." : m.includes("CORREO") ? "Revisa tu correo, no se ve válido." : "No se pudo completar el registro. Revisa tus datos e intenta de nuevo.");
+      // El servidor dice por qué falló la verificación (ej. invalid-input-secret): se muestra para poder corregirlo
+      const why = m.includes("CAPTCHA_INVALIDO:") ? m.split("CAPTCHA_INVALIDO:")[1].trim() : "";
+      alert(m.includes("CAPTCHA") ? `No pudimos confirmar la verificación. Intenta de nuevo.${why ? `\n(Código para soporte: ${why})` : ""}` : m.includes("CORREO") ? "Revisa tu correo, no se ve válido." : "No se pudo completar el registro. Revisa tus datos e intenta de nuevo.");
       return false;
     }
     const member = { name: c.name, phone: c.phone, email: c.email || "" };
