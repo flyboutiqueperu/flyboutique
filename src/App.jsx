@@ -5,7 +5,7 @@ import {
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
-  MessageCircle, Download, FileSpreadsheet, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play,
+  MessageCircle, Download, FileSpreadsheet, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { createPortal } from "react-dom";
@@ -768,8 +768,10 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
 /* ------------------------------------------------------------------ */
 /*  HEADER + MARQUEE                                                   */
 /* ------------------------------------------------------------------ */
+// Ajustes de la tienda a mano para textos fijos (la cinta de arriba); se actualiza al cargar el catálogo
+let SHOP_SETTINGS = {};
 const Marquee = () => {
-  const text = "ENVÍO GRATIS EN TRUJILLO DESDE S/ 200  ·  CLUB FLY: GANA PUNTOS EN CADA COMPRA  ·  NUEVA COLECCIÓN DISPONIBLE  ·  ";
+  const text = `ENVÍO GRATIS EN TRUJILLO DESDE S/ ${localShippingOf(SHOP_SETTINGS).freeFrom}  ·  CLUB FLY: GANA PUNTOS EN CADA COMPRA  ·  NUEVA COLECCIÓN DISPONIBLE  ·  `;
   return (
     <div style={{ background: C.ink, overflow: "hidden", height: 28, display: "flex", alignItems: "center" }}>
       <div style={{ display: "flex", animation: "marquee 22s linear infinite" }}>
@@ -1754,7 +1756,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Package size={15} color={C.ink} /> Envío gratis en Trujillo desde S/ 200, o recojo en tienda gratis.</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Package size={15} color={C.ink} /> Envío gratis en Trujillo desde S/ {localShippingOf(catalog?.settings).freeFrom}, o recojo en tienda gratis.</div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Undo2 size={15} color={C.ink} /> Cambios de talla o color hasta 7 días después de recibir.</div>
           </div>
           <div style={{ borderTop: `1px solid ${C.line}`, marginBottom: 22 }}>
@@ -1768,7 +1770,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
               <div style={{ marginTop: product.materials ? 6 : 0 }}><strong style={{ color: C.ink, fontWeight: 600 }}>Cuidado:</strong> {product.care || "Lavar a mano o en ciclo delicado con agua fría. No usar secadora. Planchar a baja temperatura."}</div>
             </Accordion>
             <Accordion title="Envío y devoluciones">
-              <div>Recojo en tienda gratis (Av. Larco 126, Trujillo). Delivery en Trujillo S/ 12, gratis desde S/ 200. Envío a provincia desde S/ 12 según departamento.</div>
+              <div>Recojo en tienda gratis (Av. Larco 126, Trujillo). Delivery en Trujillo S/ {localShippingOf(catalog?.settings).price}, gratis desde S/ {localShippingOf(catalog?.settings).freeFrom}. Envío a provincia desde S/ 12 según departamento.</div>
               <div style={{ marginTop: 6 }}>Tienes 7 días desde que recibes tu pedido para cambiar talla o color, con la prenda sin uso y con etiquetas.</div>
             </Accordion>
           </div>
@@ -1937,7 +1939,13 @@ const INTL_COUNTRIES = [
 const INTL_ZONES = { america: "América", europa: "Europa", resto: "Resto del mundo" };
 const INTL_CARRIERS = { serpost: { name: "Serpost (Exporta Fácil)", note: "Económico, con seguimiento" }, dhl: { name: "DHL Express", note: "Rápido, puerta a puerta" } };
 const intlZone = (countryName) => (INTL_COUNTRIES.find((c) => c[1] === countryName) || [])[2] || "resto";
-const intlRate = (settings, countryName, carrier) => { const r = settings?.intlRates?.[intlZone(countryName)]?.[carrier]; return r ? Number(r) : null; };
+// Precio por país si se configuró; si no, el de su zona (América, Europa, Resto del mundo); si tampoco, "por cotizar".
+const intlRate = (settings, countryName, carrier) => {
+  const c = settings?.intlCountryRates?.[countryName]?.[carrier];
+  if (c !== undefined && c !== "" && !isNaN(Number(c))) return Number(c);
+  const r = settings?.intlRates?.[intlZone(countryName)]?.[carrier];
+  return r ? Number(r) : null;
+};
 
 // ---- Envíos ----
 const TRUJILLO_DISTRICTS = ["Trujillo (Cercado)", "Víctor Larco Herrera", "La Esperanza", "El Porvenir", "Florencia de Mora", "Huanchaco", "Moche", "Laredo", "Salaverry", "Alto Trujillo"];
@@ -1949,7 +1957,12 @@ const PROVINCE_ZONES = {
   22: ["Loreto", "Ucayali", "Madre de Dios"],
 };
 const PERU_DEPARTMENTS = Object.values(PROVINCE_ZONES).flat().sort((a, b) => a.localeCompare(b, "es"));
-const provinceRate = (dep) => { const hit = Object.entries(PROVINCE_ZONES).find(([, deps]) => deps.includes(dep)); return hit ? Number(hit[0]) : 15; };
+// Las tarifas se pueden cambiar en Panel → Envíos. Si no se configuraron, se usan estas por defecto.
+// El servidor (place_order) usa las mismas reglas para revisar el total.
+const numOr = (v, d) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? d : Number(v));
+const defaultProvinceRate = (dep) => { const hit = Object.entries(PROVINCE_ZONES).find(([, deps]) => deps.includes(dep)); return hit ? Number(hit[0]) : 15; };
+const provinceRate = (dep, settings) => numOr(settings?.provinceRates?.[dep], defaultProvinceRate(dep));
+const localShippingOf = (settings) => ({ price: numOr(settings?.localShipping?.price, 12), freeFrom: numOr(settings?.localShipping?.freeFrom, 200) });
 const SHIPPING_AGENCIES = ["Shalom", "Olva Courier", "Marvisur", "Cualquiera (la más rápida)"];
 const ADDRESSES_KEY = "flyboutique:direcciones:v1";
 
@@ -2021,14 +2034,16 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
   const [intlCarrier, setIntlCarrier] = useState("serpost");
   const intlCost = deliveryMethod === "internacional" ? intlRate(payAccounts, addr?.country, intlCarrier) : null;
   const intlToQuote = deliveryMethod === "internacional" && intlCost === null;
-  const shipping = cart.length === 0 || deliveryMethod === "recojo" ? 0 : deliveryMethod === "internacional" ? (intlCost || 0) : deliveryMethod === "provincia" ? provinceRate(addr?.department) : subtotal >= 200 ? 0 : 12;
+  const shipping = cart.length === 0 || deliveryMethod === "recojo" ? 0 : deliveryMethod === "internacional" ? (intlCost || 0) : deliveryMethod === "provincia" ? provinceRate(addr?.department, payAccounts) : (subtotal >= localShippingOf(payAccounts).freeFrom ? 0 : localShippingOf(payAccounts).price);
   useEffect(() => { if (deliveryMethod === "internacional" && (paymentMethod === "Yape" || paymentMethod === "Plin")) setPaymentMethod("Transferencia"); }, [deliveryMethod]);
   useEffect(() => { if (deliveryMethod !== "recojo") setDeliveryAddress(addr ? formatAddress(addr) : ""); }, [addr, deliveryMethod]);
   useEffect(() => { setAddr((a) => (a && a.type === deliveryMethod ? a : (savedAddrs.find((x) => x.type === deliveryMethod) || null))); }, [deliveryMethod]);
   const discount = appliedPromo ? computeDiscount(appliedPromo, subtotal) : 0;
   const loyalty = loyaltyOf(payAccounts);
   const [usePoints, setUsePoints] = useState(false);
-  const maxBlocks = clubMember?.phone ? Math.floor(points / loyalty.blockPoints) : 0;
+  // Usar puntos online requiere entrar con Google (así nadie usa los puntos de otra persona con solo su celular)
+  const maxBlocks = clubMember?.phone && clubMember?.google ? Math.floor(points / loyalty.blockPoints) : 0;
+  const pointsNeedGoogle = !!clubMember?.phone && !clubMember?.google && points >= loyalty.blockPoints && loyalty.blockValue > 0;
   const blocksAllowed = Math.min(maxBlocks, loyalty.blockValue > 0 ? Math.floor(Math.max(0, subtotal - discount) / loyalty.blockValue) : 0);
   const pointsUsed = usePoints ? blocksAllowed * loyalty.blockPoints : 0;
   const pointsDiscount = usePoints ? blocksAllowed * loyalty.blockValue : 0;
@@ -2203,7 +2218,7 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
             </div>
           )}
           <AddressFields value={addr} type={deliveryMethod} onChange={(v) => setAddr({ ...v, id: undefined })} />
-          {deliveryMethod === "provincia" && addr?.department && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8 }}>Envío a {addr.department}: {money(provinceRate(addr.department))}. Te enviamos la clave de recojo de la agencia por WhatsApp.</div>}
+          {deliveryMethod === "provincia" && addr?.department && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8 }}>Envío a {addr.department}: {money(provinceRate(addr.department, payAccounts))}. Te enviamos la clave de recojo de la agencia por WhatsApp.</div>}
         </div>
       )}
       {false && (
@@ -2226,6 +2241,11 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
         )}
       </div>
       {promoMsg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: promoMsg.ok ? C.ink : C.accent, marginBottom: 16 }}>{promoMsg.text}</div>}
+      {pointsNeedGoogle && (
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 12px", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.5 }}>
+          <Star size={13} color={C.ink} style={{ verticalAlign: "-2px", marginRight: 6 }} />Tienes {points} puntos. Para usarlos en la web, entra al Club Fly con Google (con el mismo correo de tu cuenta), o úsalos en la tienda.
+        </div>
+      )}
       {blocksAllowed > 0 && (
         <label style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${usePoints ? C.ink : C.line}`, borderRadius: 10, padding: "11px 12px", marginBottom: 14, cursor: "pointer" }}>
           <input type="checkbox" checked={usePoints} onChange={(e) => setUsePoints(e.target.checked)} />
@@ -2826,10 +2846,11 @@ const ORDER_STATUS_LABELS = { pendiente: "Pendiente", preparando: "Preparando", 
 
 const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
   const [fetched, setFetched] = useState(null);
+  // Por privacidad, el historial solo se muestra a quien entró con Google (lo revisa también el servidor)
   useEffect(() => {
-    if (!clubMember?.phone) return;
-    supabase.rpc("my_orders", { p_phone: clubMember.phone }).then(({ data }) => setFetched(data || [])).catch(() => setFetched([]));
-  }, [clubMember?.phone]);
+    if (!clubMember?.google) return;
+    supabase.rpc("my_orders", { p_phone: clubMember.phone || "" }).then(({ data }) => setFetched(data || [])).catch(() => setFetched([]));
+  }, [clubMember?.phone, clubMember?.google]);
   const backBtn = (
     <button onClick={() => setScreen("profile")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver</button>
   );
@@ -2840,6 +2861,18 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 280, textAlign: "center" }}>
           <Package size={30} color={C.line} style={{ marginBottom: 14 }} />
           <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 240 }}>Regístrate en el Club Fly para ver tu historial de pedidos aquí.</div>
+        </div>
+      </div>
+    );
+  }
+  if (!clubMember.google) {
+    return (
+      <div style={{ padding: "18px 20px 24px" }}>
+        {backBtn}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 280, textAlign: "center", gap: 12 }}>
+          <Package size={30} color={C.line} />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 270, lineHeight: 1.6 }}>Para proteger tus datos, el historial de pedidos se ve entrando al Club Fly con Google. También puedes seguir cualquier pedido con su número.</div>
+          <button onClick={() => setScreen("track")} style={{ padding: "11px 20px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Seguir mi pedido</button>
         </div>
       </div>
     );
@@ -3064,9 +3097,9 @@ const PaymentMethodsScreen = ({ setScreen }) => (
 const ProfileScreen = ({ points, favCount, onStaffClick, clubMember, onLogoutClub, setScreen, catalog, showInstall, onInstall, onCookiePrefs }) => {
   const [orderCount, setOrderCount] = useState(0);
   useEffect(() => {
-    if (!clubMember?.phone) { setOrderCount(0); return; }
-    supabase.rpc("my_orders", { p_phone: clubMember.phone }).then(({ data }) => setOrderCount((data || []).length)).catch(() => {});
-  }, [clubMember?.phone]);
+    if (!clubMember?.google) { setOrderCount(0); return; }
+    supabase.rpc("my_orders", { p_phone: clubMember.phone || "" }).then(({ data }) => setOrderCount((data || []).length)).catch(() => {});
+  }, [clubMember?.phone, clubMember?.google]);
   const [showPolicy, setShowPolicy] = useState(false);
   const menu = [
     { label: "Mis pedidos", icon: Package, action: () => setScreen("orders") },
@@ -3227,6 +3260,20 @@ const darkBtn = { flex: 1, padding: "13px", borderRadius: 9, border: "1px solid 
 const lightBtn = { flex: 1, padding: "13px", borderRadius: 9, border: "none", background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
 const errText = { fontFamily: FONT_BODY, fontSize: 12, color: "#F0A8A8", marginTop: 8, textAlign: "center" };
 
+// Campo de contraseña con "ojito" para ver lo que se escribió
+const PasswordInput = ({ value, onChange, style, dark = false, ...rest }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <input {...rest} value={value} onChange={onChange} type={show ? "text" : "password"} autoCapitalize="none" autoCorrect="off" spellCheck={false} style={{ ...style, paddingRight: 44 }} />
+      <button type="button" onClick={() => setShow((v) => !v)} aria-label={show ? "Ocultar contraseña" : "Mostrar contraseña"} title={show ? "Ocultar contraseña" : "Mostrar contraseña"}
+        style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", color: dark ? C.paper : C.ink }}>
+        {show ? <EyeOff size={17} /> : <Eye size={17} />}
+      </button>
+    </div>
+  );
+};
+
 const StaffAccess = ({ onDone, onCancel }) => {
   const [step, setStep] = useState("checking");
   const [profile, setProfile] = useState(null);
@@ -3373,7 +3420,7 @@ const StaffAccess = ({ onDone, onCancel }) => {
       ) : (
         <div style={{ width: "100%", maxWidth: 270 }}>
           <input value={username} onChange={(e) => { setUsername(e.target.value); setErr(""); }} placeholder="Usuario" autoCapitalize="none" autoComplete="username" style={{ ...darkInput(!!err), marginBottom: 10 }} />
-          <input value={password} onChange={(e) => { setPassword(e.target.value); setErr(""); }} type="password" placeholder="Contraseña" autoComplete="current-password"
+          <PasswordInput dark value={password} onChange={(e) => { setPassword(e.target.value); setErr(""); }} placeholder="Contraseña" autoComplete="current-password"
             onKeyDown={(e) => e.key === "Enter" && login()} style={darkInput(!!err)} />
           {err && <div style={errText}>{err}</div>}
         </div>
@@ -3468,11 +3515,26 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
   const saveCompany = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, company: { ...company, ruc: company.ruc.replace(/\D/g, "").slice(0, 11) } } })); alert("Datos de la empresa guardados."); };
   const saveStores = () => { const clean = stores.filter((x) => x.name.trim()).map((x) => ({ ...x, id: x.id || genId("sede") })); if (!clean.length) return; updateCatalog((c) => ({ ...c, settings: { ...c.settings, stores: clean } })); setStores(clean); alert("Sedes guardadas."); };
   const [loyaltyCfg, setLoyaltyCfg] = useState(loyaltyOf(catalog.settings));
+  const [discountCapInput, setDiscountCapInput] = useState(String(posDiscountCap(catalog.settings)));
+  const saveDiscountCap = () => {
+    const v = Math.min(100, Math.max(0, Number(discountCapInput) || 0));
+    updateCatalog((c) => ({ ...c, settings: { ...c.settings, posMaxDiscountPct: v } }));
+    setDiscountCapInput(String(v));
+    alert(`Listo: las vendedoras podrán dar hasta ${v}% de descuento manual. Administración no tiene tope.`);
+  };
   const saveLoyalty = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, loyalty: { solesPerStep: Math.max(0.01, Number(loyaltyCfg.solesPerStep) || 1), pointsPerStep: Number(loyaltyCfg.pointsPerStep) || 0, blockPoints: Math.max(1, Number(loyaltyCfg.blockPoints) || 100), blockValue: Number(loyaltyCfg.blockValue) || 0 } } })); alert("Programa de puntos actualizado. Se aplica desde las próximas compras."); };
   const [socials, setSocials] = useState({ ...DEFAULT_SOCIALS, ...(catalog.settings?.socials || {}) });
   const [trackingUrls, setTrackingUrls] = useState(catalog.settings?.trackingUrls || {});
   const saveSocials = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, socials, trackingUrls } })); alert("Redes y enlaces guardados."); };
-  const saveIntl = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, intlRates } })); alert("Tarifas internacionales guardadas."); };
+  const [intlCountryRates, setIntlCountryRates] = useState(catalog.settings?.intlCountryRates || {});
+  const saveIntl = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, intlRates, intlCountryRates } })); alert("Tarifas internacionales guardadas."); };
+  const [localShip, setLocalShip] = useState(() => { const l = localShippingOf(catalog.settings); return { price: String(l.price), freeFrom: String(l.freeFrom) }; });
+  const [provRates, setProvRates] = useState(catalog.settings?.provinceRates || {});
+  const savePeruShipping = () => {
+    const clean = Object.fromEntries(Object.entries(provRates).filter(([, v]) => v !== "" && !isNaN(Number(v))).map(([k, v]) => [k, Number(v)]));
+    updateCatalog((c) => ({ ...c, settings: { ...c.settings, localShipping: { price: numOr(localShip.price, 12), freeFrom: numOr(localShip.freeFrom, 200) }, provinceRates: clean } }));
+    alert("Tarifas de envío en Perú guardadas. Se aplican desde ahora en la cesta.");
+  };
   const saveStatsIds = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, gaId: gaId.trim(), clarityId: clarityId.trim() } })); alert("Códigos de estadísticas guardados. Empiezan a contar desde las próximas visitas."); };
   const saveTurnstileKey = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, turnstileSiteKey: turnstileKey.trim() } })); alert(turnstileKey.trim() ? "Llave del captcha guardada. El registro del Club Fly ya usa la verificación de Cloudflare." : "Llave borrada. El registro vuelve a usar la suma."); };
   const [payAccounts, setPayAccounts] = useState({
@@ -3575,6 +3637,16 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
         <button onClick={saveLoyalty} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
       </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Descuento manual en caja</span>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Máximo que una vendedora puede descontar a mano en una venta (los códigos promocionales y los puntos no cuentan). Administración no tiene tope. El servidor también lo revisa.</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>
+          Hasta
+          <input inputMode="numeric" value={discountCapInput} onChange={(e) => setDiscountCapInput(e.target.value.replace(/\D/g, "").slice(0, 3))} style={{ ...inputStyle, width: 70, textAlign: "center" }} />
+          % del subtotal
+          <button onClick={saveDiscountCap} style={{ marginLeft: "auto", padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
+        </div>
+      </AdminCard>
+      <AdminCard style={{ marginBottom: 14 }}>
         <span style={labelStyle}>Redes sociales (pie de la tienda)</span>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 10 }}>Pega el enlace completo. Si dejas uno vacío, ese ícono no aparece.</div>
         {[["instagram", "Instagram"], ["facebook", "Facebook"], ["tiktok", "TikTok"], ["youtube", "YouTube"], ["whatsapp", "WhatsApp (https://wa.me/51…)"]].map(([k, l]) => (
@@ -3612,6 +3684,28 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
         </div>
       </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Tarifas de envío en Perú (S/ por pedido)</span>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Delivery en Trujillo y envío a cada departamento. Si dejas un departamento vacío se usa la tarifa por defecto (la que aparece en gris).</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 12 }}>
+          Delivery en Trujillo S/
+          <input inputMode="decimal" value={localShip.price} onChange={(e) => setLocalShip({ ...localShip, price: e.target.value.replace(/[^0-9.]/g, "") })} style={{ ...inputStyle, width: 70, textAlign: "center" }} />
+          · gratis desde S/
+          <input inputMode="decimal" value={localShip.freeFrom} onChange={(e) => setLocalShip({ ...localShip, freeFrom: e.target.value.replace(/[^0-9.]/g, "") })} style={{ ...inputStyle, width: 80, textAlign: "center" }} />
+        </div>
+        <details style={{ marginBottom: 10 }}>
+          <summary style={{ cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 8 }}>Envío a provincia por departamento</summary>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 6, alignItems: "center", fontFamily: FONT_BODY, fontSize: 12 }}>
+            {PERU_DEPARTMENTS.map((dep) => (
+              <React.Fragment key={dep}>
+                <div>{dep}</div>
+                <input inputMode="decimal" style={{ ...inputStyle, padding: "7px 8px" }} value={provRates?.[dep] ?? ""} onChange={(e) => setProvRates({ ...provRates, [dep]: e.target.value.replace(/[^0-9.]/g, "") })} placeholder={String(defaultProvinceRate(dep))} />
+              </React.Fragment>
+            ))}
+          </div>
+        </details>
+        <button onClick={savePeruShipping} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
+      </AdminCard>
+      <AdminCard style={{ marginBottom: 14 }}>
         <span style={labelStyle}>Tarifas de envío internacional (S/ por pedido)</span>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Pon el precio que cobras por zona después de cotizar con cada agencia. Si lo dejas vacío, la cesta dirá "Por cotizar" y coordinas el costo por WhatsApp.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "center", fontFamily: FONT_BODY, fontSize: 12 }}>
@@ -3623,6 +3717,18 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
             </React.Fragment>
           ))}
         </div>
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 8 }}>Precio por país (opcional: reemplaza al de su zona)</summary>
+          <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 6, alignItems: "center", fontFamily: FONT_BODY, fontSize: 12 }}>
+            <div /><strong>Serpost</strong><strong>DHL</strong>
+            {INTL_COUNTRIES.map(([, name, zone]) => (
+              <React.Fragment key={name}>
+                <div>{name}</div>
+                {["serpost", "dhl"].map((k) => <input key={k} inputMode="decimal" style={{ ...inputStyle, padding: "7px 8px" }} value={intlCountryRates?.[name]?.[k] || ""} onChange={(e) => setIntlCountryRates({ ...intlCountryRates, [name]: { ...(intlCountryRates?.[name] || {}), [k]: e.target.value.replace(/[^0-9.]/g, "") } })} placeholder={intlRates?.[zone]?.[k] ? String(intlRates[zone][k]) : "zona"} />)}
+              </React.Fragment>
+            ))}
+          </div>
+        </details>
         <button onClick={saveIntl} style={{ marginTop: 10, padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
       </AdminCard>
       {pendingMedia > 0 && (
@@ -4721,7 +4827,10 @@ const ceil10 = (n) => Math.ceil(round2(n) * 10 - 1e-9) / 10;
 const GENERIC_DOC = "00000000";
 
 // Cobro con guía de pasos: 1 cliente, 2 descuentos, 3 pago (se puede dividir entre varios medios)
-const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprobanteTipo, onSaveCustomer, onConfirm, onClose, busy, staffName }) => {
+// Tope del descuento manual para vendedoras (Panel → ajustes). Si no se configuró: 20%. Igual que en el servidor.
+const posDiscountCap = (settings) => { const v = settings?.posMaxDiscountPct; return v === undefined || v === null || v === "" || isNaN(Number(v)) ? 20 : Number(v); };
+
+const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprobanteTipo, onSaveCustomer, onConfirm, onClose, busy, staffName, role }) => {
   const [sellers, setSellers] = useState([]);
   const [seller, setSeller] = useState(staffName || "");
   useEffect(() => { supabase.rpc("staff_sellers").then(({ data }) => setSellers((data || []).map((x) => x.name))).catch(() => {}); }, []);
@@ -4746,7 +4855,19 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const isFactura = comprobanteTipo === "factura";
   const promoDiscount = promo ? computeDiscount(promo, subtotal) : 0;
   const manualDiscount = discType === "percent" ? round2(subtotal * Math.min(100, Number(discValue) || 0) / 100) : discType === "monto" ? Math.min(Number(discValue) || 0, subtotal) : 0;
-  const total = round2(Math.max(0, subtotal - promoDiscount - manualDiscount));
+  // Tope de descuento manual (Administración no tiene tope; el servidor también lo revisa)
+  const isAdminRole = role === "superadmin" || role === "administrador";
+  const discountCap = posDiscountCap(catalog.settings);
+  const manualOverCap = !isAdminRole && manualDiscount > round2(subtotal * discountCap / 100) + 0.01;
+  // Puntos del Club en tienda: solo con la clienta identificada (su celular registrado)
+  const [usePts, setUsePts] = useState(false);
+  const loyalty = loyaltyOf(catalog.settings);
+  const ptsAvailable = matched && !anon && phone === matched.phone ? Number(matched.points) || 0 : 0;
+  const ptsBlocks = loyalty.blockValue > 0 ? Math.min(Math.floor(ptsAvailable / loyalty.blockPoints), Math.floor(Math.max(0, subtotal - promoDiscount) / loyalty.blockValue)) : 0;
+  const pointsUsed = usePts ? ptsBlocks * loyalty.blockPoints : 0;
+  const pointsDiscount = usePts ? ptsBlocks * loyalty.blockValue : 0;
+  useEffect(() => { setUsePts(false); }, [matched?.phone, anon]);
+  const total = round2(Math.max(0, subtotal - promoDiscount - manualDiscount - pointsDiscount));
   const paid = round2(payments.reduce((a, p) => a + (Number(p.amount) || 0), 0));
   const pending = round2(total - paid);
   const cash = payments.find((p) => p.method === "Efectivo");
@@ -4770,7 +4891,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const emailOk = anon || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const customerOk = docOk && nameOk && emailOk;
   const paymentsOk = payments.length > 0 && Math.abs(pending) < 0.005 && (!cash || !received || Number(received) >= Number(cash.amount));
-  const canConfirm = customerOk && paymentsOk && saleItems.length > 0 && !busy;
+  const canConfirm = customerOk && paymentsOk && saleItems.length > 0 && !busy && !manualOverCap;
 
   // Tocar un medio: si ya está, se quita; si no falta nada por cobrar, reemplaza al último; si falta, se agrega con lo pendiente
   const addPayment = (m) => {
@@ -4790,7 +4911,8 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
       payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount) })),
       paymentMethod: payments.length > 1 ? "Mixto" : payments[0].method,
       amountReceived: cash && received ? Number(received) : null, vuelto: change && change > 0 ? change : 0,
-      promoCode: promo?.code || null, discount: round2(promoDiscount + manualDiscount), subtotal, total,
+      promoCode: promo?.code || null, discount: round2(promoDiscount + manualDiscount + pointsDiscount), subtotal, total,
+      pointsUsed, pointsDiscount,
       manualDiscountLabel: manualDiscount > 0 ? (discType === "percent" ? `${discValue}%` : money(Number(discValue))) : null,
       notaInterna: notaInterna.trim(), notaExterna: notaExterna.trim(), anonymous: anon, staffName: seller || staffName,
     });
@@ -4846,6 +4968,14 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             <button onClick={promo ? () => { setPromo(null); setPromoInput(""); setPromoMsg(""); } : applyPromo} style={{ padding: "0 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{promo ? "Quitar" : "Aplicar"}</button>
           </div>
           {promoMsg && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: promo ? C.ink : C.accent, marginBottom: 8 }}>{promoMsg}</div>}
+          {manualOverCap && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginBottom: 8 }}>El descuento manual máximo es {discountCap}% ({money(subtotal * discountCap / 100)}). Para más, pide a Administración que cobre la venta.</div>}
+          {ptsBlocks > 0 && (
+            <label style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${usePts ? C.ink : C.line}`, borderRadius: 10, padding: "10px 12px", margin: "8px 0", cursor: "pointer" }}>
+              <input type="checkbox" checked={usePts} onChange={(e) => setUsePts(e.target.checked)} />
+              <Star size={14} color={C.ink} />
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>Usar {ptsBlocks * loyalty.blockPoints} puntos de {matched.name.split(" ")[0]}: <strong>-{money(ptsBlocks * loyalty.blockValue)}</strong> <span style={{ color: C.stone }}>(tiene {ptsAvailable})</span></span>
+            </label>
+          )}
           <input value={notaInterna} onChange={(e) => setNotaInterna(e.target.value)} placeholder="Comentario interno (solo el staff lo ve)" style={{ ...inputStyle, margin: "10px 0 8px" }} />
           <input value={notaExterna} onChange={(e) => setNotaExterna(e.target.value)} placeholder="Comentario en el comprobante (ej. gracias por tu compra)" style={{ ...inputStyle, marginBottom: 18 }} />
         </div>
@@ -4857,6 +4987,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
               <Row label="Subtotal" value={money(subtotal)} />
               {promoDiscount > 0 && <Row label={`Código ${promo.code}`} value={`-${money(promoDiscount)}`} />}
               {manualDiscount > 0 && <Row label="Descuento manual" value={`-${money(manualDiscount)}`} />}
+              {pointsDiscount > 0 && <Row label={`Puntos Fly (${pointsUsed} pts)`} value={`-${money(pointsDiscount)}`} />}
               <Row label="Total a cobrar" value={money(total)} bold />
             </div>
           </div>
@@ -4909,7 +5040,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   );
 };
 
-const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSaveCustomer, channel = "tienda", title = "Punto de Venta" }) => {
+const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSaveCustomer, channel = "tienda", title = "Punto de Venta", role }) => {
   const [confirmingSale, setConfirmingSale] = useState(false);
   const [posCategory, setPosCategory] = useState("Todo");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -5126,7 +5257,7 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
 
       {showCheckout && (
         <PosCheckout catalog={catalog} saleItems={saleItems} subtotal={subtotal} comprobanteTipo={comprobanteTipo} setComprobanteTipo={setComprobanteTipo}
-          onSaveCustomer={null} onClose={() => setShowCheckout(false)} busy={confirmingSale} staffName={staffName}
+          onSaveCustomer={null} onClose={() => setShowCheckout(false)} busy={confirmingSale} staffName={staffName} role={role}
           onConfirm={(extra) => confirmSale(extra)} />
       )}
     </div>
@@ -5453,6 +5584,9 @@ const staffRpcError = (e) => {
   if (m.includes("SIN_PERMISO")) return "No tienes permiso para esto.";
   if (m.includes("CLAVE_CORTA")) return "La contraseña debe tener al menos 8 caracteres.";
   if (m.includes("NO_PUEDES")) return "No puedes quitarte tu propio acceso de Super Admin.";
+  if (m.includes("USUARIO_EXISTE")) return "Ese usuario ya lo usa otra persona. Elige otro.";
+  if (m.includes("USUARIO_INVALIDO")) return "El usuario solo puede tener letras, números, punto o guion (mínimo 3).";
+  if (m.includes("staff_set_username") || e?.code === "PGRST202") return "Para cambiar el usuario falta correr el archivo 09-fase2b-club-caja.sql en Supabase.";
   if (/already|registered|exists|duplicate/i.test(m)) return "Ese usuario ya existe. Elige otro nombre de usuario.";
   return m;
 };
@@ -5475,6 +5609,12 @@ const AdminUsersScreen = ({ currentUserId }) => {
     setBusy(true); setMsg("");
     try {
       let uid = f.user_id;
+      const uname = f.username.trim().toLowerCase();
+      if (uid && uname !== f.originalUsername) {
+        if (!/^[a-z0-9._-]{3,30}$/.test(uname)) throw new Error("El usuario solo puede tener letras, números, punto o guion (mínimo 3).");
+        const { error: e1 } = await supabase.rpc("staff_set_username", { p_user: uid, p_username: uname });
+        if (e1) throw e1;
+      }
       if (!uid) {
         if (!/^[a-z0-9._-]{3,30}$/.test(f.username.trim().toLowerCase())) throw new Error("El usuario solo puede tener letras, números, punto o guion (mínimo 3).");
         if (f.password.length < 8) throw new Error("CLAVE_CORTA");
@@ -5487,17 +5627,21 @@ const AdminUsersScreen = ({ currentUserId }) => {
         if (!data?.user?.id || (data.user.identities && data.user.identities.length === 0)) throw new Error("already exists");
         uid = data.user.id;
       }
-      const { error } = await supabase.rpc("staff_upsert_profile", { p_user: uid, p_username: f.username, p_name: f.name, p_role: f.role, p_phone: f.phone || "", p_active: f.active !== false });
+      const { error } = await supabase.rpc("staff_upsert_profile", { p_user: uid, p_username: uname, p_name: f.name, p_role: f.role, p_phone: f.phone || "", p_active: f.active !== false });
       if (error) throw error;
       setEditing(null); await load();
     } catch (e) { setMsg(staffRpcError(e)); }
     setBusy(false);
   };
-  const changePassword = async (s) => {
-    const pwd = prompt(`Nueva contraseña para @${s.username} (mínimo 8 caracteres):`);
-    if (!pwd) return;
+  const [pwdFor, setPwdFor] = useState(null); // { staff, value }
+  const changePassword = (s) => setPwdFor({ staff: s, value: "" });
+  const savePassword = async () => {
+    const { staff: s, value: pwd } = pwdFor;
+    if (pwd.length < 8) { alert("La contraseña debe tener al menos 8 caracteres."); return; }
     const { error } = await supabase.rpc("staff_set_password", { p_user: s.user_id, p_password: pwd });
-    alert(error ? staffRpcError(error) : "Contraseña cambiada. Avísale la nueva clave en persona, no por chat.");
+    if (error) { alert(staffRpcError(error)); return; }
+    setPwdFor(null);
+    alert("Contraseña cambiada. Avísale la nueva clave en persona, no por chat.");
   };
   const resetMfa = async (s) => {
     if (!confirm(`¿Reiniciar la verificación en dos pasos de ${s.name}? La próxima vez que entre tendrá que escanear un código QR nuevo.`)) return;
@@ -5520,8 +5664,9 @@ const AdminUsersScreen = ({ currentUserId }) => {
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>{isNew ? "Nuevo usuario" : `Editar a ${editing.name}`}</h1>
         <AdminCard style={{ marginBottom: 14 }}>
           <Field label="Nombre completo"><input style={inputStyle} value={editing.name} onChange={(e) => set("name", e.target.value)} /></Field>
-          <Field label="Usuario (para iniciar sesión)"><input style={{ ...inputStyle, opacity: isNew ? 1 : 0.6 }} disabled={!isNew} value={editing.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoCapitalize="none" /></Field>
-          {isNew && <Field label="Contraseña (mínimo 8 caracteres)"><input style={inputStyle} type="password" autoComplete="new-password" value={editing.password} onChange={(e) => set("password", e.target.value)} /></Field>}
+          <Field label="Usuario (para iniciar sesión)"><input style={inputStyle} value={editing.username} onChange={(e) => set("username", e.target.value.toLowerCase().replace(/\s/g, ""))} autoCapitalize="none" /></Field>
+          {!isNew && editing.username.trim() !== editing.originalUsername && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginTop: -6, marginBottom: 12, lineHeight: 1.5 }}>Al guardar, {editing.name || "esta persona"} tendrá que entrar con el usuario nuevo: <strong>{editing.username.trim()}</strong>. Su contraseña no cambia.</div>}
+          {isNew && <Field label="Contraseña (mínimo 8 caracteres)"><PasswordInput style={inputStyle} autoComplete="new-password" value={editing.password} onChange={(e) => set("password", e.target.value)} /></Field>}
           <Field label="Celular (opcional)"><input style={inputStyle} value={editing.phone || ""} onChange={(e) => set("phone", e.target.value)} placeholder="51999999999" /></Field>
           <Field label="Rol">
             <select style={inputStyle} value={editing.role} onChange={(e) => set("role", e.target.value)}>
@@ -5540,6 +5685,20 @@ const AdminUsersScreen = ({ currentUserId }) => {
   const smallBtn = { height: 30, padding: "0 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 11, color: C.ink, display: "flex", alignItems: "center", gap: 5 };
   return (
     <div style={{ padding: "18px 18px 90px" }}>
+      {pwdFor && (
+        <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 70, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div onClick={() => setPwdFor(null)} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
+          <div className="sheet-panel sheet-small" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: "20px 22px 28px" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>Nueva contraseña</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 12 }}>Para @{pwdFor.staff.username} · mínimo 8 caracteres. Toca el ojito para revisar lo que escribiste.</div>
+            <div style={{ marginBottom: 14 }}><PasswordInput autoFocus autoComplete="new-password" value={pwdFor.value} onChange={(e) => setPwdFor((x) => ({ ...x, value: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && savePassword()} style={inputStyle} /></div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setPwdFor(null)} style={{ flex: 1, padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Cancelar</button>
+              <button onClick={savePassword} disabled={pwdFor.value.length < 8} style={{ flex: 2, padding: "12px", borderRadius: 9, border: "none", background: pwdFor.value.length < 8 ? C.line : C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cambiar contraseña</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: 0 }}>Usuarios {list ? `(${list.length})` : ""}</h1>
         <button onClick={() => { setEditing(emptyStaffForm()); setMsg(""); }} style={{ display: "flex", alignItems: "center", gap: 6, background: C.ink, color: C.paper, border: "none", borderRadius: 8, padding: "9px 13px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Nuevo</button>
@@ -5560,7 +5719,7 @@ const AdminUsersScreen = ({ currentUserId }) => {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button onClick={() => setEditing({ ...emptyStaffForm(), ...s, password: "" })} style={smallBtn}><Pencil size={12} /> Editar</button>
+                <button onClick={() => setEditing({ ...emptyStaffForm(), ...s, password: "", originalUsername: s.username })} style={smallBtn}><Pencil size={12} /> Editar</button>
                 <button onClick={() => changePassword(s)} style={smallBtn}><KeyRound size={12} /> Clave</button>
                 <button onClick={() => resetMfa(s)} style={smallBtn}><ShieldCheck size={12} /> Reiniciar 2 pasos</button>
                 {s.user_id !== currentUserId && <button onClick={() => remove(s)} style={smallBtn}><Trash2 size={12} /> Eliminar</button>}
@@ -5641,6 +5800,11 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const saleErrorText = (m) => m.includes("SIN_STOCK") ? `Sin stock suficiente de "${m.split("SIN_STOCK:")[1] || "una prenda"}". Revisa el stock.`
     : m.includes("PRECIO_CAMBIO") ? "El precio de una prenda cambió. Recarga la página e intenta de nuevo."
     : m.includes("PAGO_INCOMPLETO") ? "La suma de los pagos no coincide con el total."
+    : m.includes("DESCUENTO_EXCEDE") ? `El descuento manual supera el máximo permitido (${(m.split("DESCUENTO_EXCEDE:")[1] || "").trim()}%). Pide a Administración que lo autorice.`
+    : m.includes("DESCUENTO_INVALIDO") ? "El descuento no cuadra con el código o los puntos. Vuelve a aplicarlo."
+    : m.includes("PROMO_INVALIDA") ? "Ese código promocional ya no está activo."
+    : m.includes("PUNTOS_INSUFICIENTES") ? "La clienta no tiene puntos suficientes."
+    : m.includes("PUNTOS_INVALIDOS") ? "No se pudieron aplicar los puntos. Quítalos e intenta de nuevo."
     : m.includes("SIN_PERMISO") ? "Tu usuario no tiene permiso para vender. Vuelve a iniciar sesión."
     : "No se pudo registrar la venta. Revisa tu conexión e intenta de nuevo.";
   const completeSale = async (sale) => {
@@ -5747,8 +5911,8 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "bannerEditor" && <AdminTopBar title={editingBannerId ? "Editar banner" : "Nuevo banner"} onBack={() => setScreen("banners")} onExit={onExit} />}
         {screen === "collectionEditor" && <AdminTopBar title={editingCollectionId ? "Editar colección" : "Nueva colección"} onBack={() => setScreen("collections")} onExit={onExit} />}
 
-        {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" />}
-        {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" />}
+        {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" role={role} />}
+        {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
@@ -5777,6 +5941,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
 export default function FlyBoutiqueApp() {
   const [catalog, setCatalog] = useState(null);
   const [catalogError, setCatalogError] = useState(false);
+  SHOP_SETTINGS = catalog?.settings || {};
   const [screen, setScreen] = useState("home");
   const [activeCategory, setActiveCategory] = useState("Todo");
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -6026,6 +6191,7 @@ export default function FlyBoutiqueApp() {
       else if (m.includes("TOTAL_CAMBIO")) alert("El total de tu pedido cambió (precio, descuento o envío). Recarga la página e intenta de nuevo.");
       else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para miembras del Club Fly. Quítalo o regístrate en el Club Fly.");
       else if (m.includes("PROMO_INVALIDA")) alert("Ese código promocional ya no está activo. Quítalo e intenta de nuevo.");
+      else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, entra al Club Fly con Google. Desactiva \"usar puntos\" para seguir sin ellos.");
       else if (m.includes("PUNTOS")) alert("No pudimos aplicar tus puntos (no alcanzan o cambiaron). Desactiva \"usar puntos\" e intenta de nuevo.");
       else alert("No se pudo registrar tu pedido. Revisa tu conexión e intenta de nuevo.");
       return null;
@@ -6112,9 +6278,17 @@ export default function FlyBoutiqueApp() {
     setClubPoints(Number(data) || 0);
     showToast(`Canjeaste: ${reward.n}`);
   };
+  // Al cerrar sesión se borra todo lo de esa persona en este equipo (útil en una computadora compartida):
+  // vistos, favoritos, cesta, direcciones, medidas y búsquedas.
   const logoutClub = () => {
     if (clubMember?.google) { try { supabase.auth.signOut(); } catch (e) { /* sin conexión */ } setGoogleProfile(null); }
-    setClubMember(null); try { window.storage.delete(CLUB_KEY, false); } catch (e) { /* storage unavailable */ } showToast("Cerraste sesión de Club Fly"); };
+    setClubMember(null);
+    try { window.storage.delete(CLUB_KEY, false); } catch (e) { /* storage unavailable */ }
+    [WISHLIST_KEY, VIEWED_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY].forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* nada */ } });
+    setFavs(new Set()); setViewedIds([]);
+    if (cart.length) { clearMyReservations(); setCart([]); }
+    showToast("Cerraste sesión. Borramos tu actividad de este equipo.");
+  };
 
   const cartCount = useMemo(() => cart.reduce((a, i) => a + i.qty, 0), [cart]);
 
@@ -6309,14 +6483,15 @@ export default function FlyBoutiqueApp() {
           .sheet-small { width: 400px; }
           /* Ficha de producto en PC: página propia (como Zalando) */
           .pdp-topbar { top: 113px !important; }
-          .pdp-wrap { display: grid !important; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 48px; padding: 18px 28px 40px; align-items: start; max-width: 1240px !important; }
-          .pdp-info { padding: 0 !important; position: sticky; top: 70px; }
+          /* Foto y datos juntos y centrados (como Zalando): la columna de fotos mide lo que mide la foto */
+          .pdp-wrap { display: grid !important; grid-template-columns: auto minmax(340px, 480px); justify-content: center; gap: 56px; padding: 18px 28px 40px; align-items: start; max-width: 1320px !important; }
+          .pdp-info { padding: 0 !important; }
           .pdp-gal.has-thumbs { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; }
           .pdp-gal .pdp-thumbs { display: flex !important; flex-direction: column; order: -1; margin-top: 0 !important; max-height: calc(100vh - 230px); overflow-y: auto; flex-wrap: nowrap !important; }
           .pdp-gal .pdp-thumbs button { width: 72px !important; height: 92px !important; flex-shrink: 0; }
           /* Foto vertical 3:4 (como Zalando). Antes tomaba el alto de la pantalla y en laptop quedaba casi cuadrada */
           .pdp-slide { aspect-ratio: 3 / 4 !important; height: auto !important; border-radius: 12px; }
-          .pdp-gal .pdp-gal-main { width: 100%; max-width: max(440px, calc((100vh - 190px) * 0.75)); }
+          .pdp-gallery .pdp-gal-main, .pdp-gallery > .pdp-slide { width: clamp(340px, min(calc((100vh - 190px) * 0.75), calc(100vw - 620px)), 640px); }
           .pdp-buybar { display: none !important; }
           .pdp-inline-buy { display: block !important; }
           .pdp-arrow { display: flex !important; }
