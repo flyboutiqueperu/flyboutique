@@ -2735,6 +2735,10 @@ const loadTurnstile = () => {
   }
   return turnstileScript;
 };
+// Llave PÚBLICA del widget de Cloudflare Turnstile (va en el navegador; no es secreta).
+// Se usa si en Panel → Configuración no se puso otra. La clave SECRETA vive solo en Supabase (app_secrets).
+const TURNSTILE_SITE_KEY = "0x4AAAAAAFUXHjfYE0JKDuvg";
+
 const TurnstileBox = ({ siteKey, onToken }) => {
   const boxRef = useRef(null);
   const [failed, setFailed] = useState(false);
@@ -6549,7 +6553,7 @@ export default function FlyBoutiqueApp() {
               {screen === "viewed" && <ViewedScreen catalog={catalog} viewedIds={viewedIds} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} onRemoveViewed={removeFromViewed} setScreen={setScreen} />}
               {screen === "cart" && <CartScreen cart={cart} updateQty={updateQty} removeItem={removeItem} setScreen={setScreen} culqiPublicKey={catalog.settings?.culqiPublicKey} payAccounts={catalog.settings}
                 promoCodes={catalog.promoCodes} clubMember={clubMember} onConfirmOrder={confirmOnlineOrder} points={points} />}
-              {screen === "loyalty" && <LoyaltyScreen points={points} onRedeem={redeemReward} clubMember={clubMember} onRegister={registerClub} onLogoutClub={logoutClub} onGoogleSignIn={signInWithGoogle} googlePrefill={googleProfile} turnstileSiteKey={catalog.settings?.turnstileSiteKey || ""} settings={catalog.settings} />}
+              {screen === "loyalty" && <LoyaltyScreen points={points} onRedeem={redeemReward} clubMember={clubMember} onRegister={registerClub} onLogoutClub={logoutClub} onGoogleSignIn={signInWithGoogle} googlePrefill={googleProfile} turnstileSiteKey={(catalog.settings?.turnstileSiteKey || "").trim() || TURNSTILE_SITE_KEY} settings={catalog.settings} />}
               {screen === "profile" && <ProfileScreen points={points} favCount={favs.size} clubMember={clubMember} onLogoutClub={logoutClub} setScreen={setScreen} catalog={catalog} showInstall={!isStandalone} onInstall={installApp} onCookiePrefs={() => setShowCookieConsent(true)} />}
               {screen === "orders" && <OrdersScreen catalog={catalog} clubMember={clubMember} setScreen={setScreen} />}
               {screen === "favorites" && <FavoritesScreen catalog={catalog} favs={favs} onOpen={openProduct} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} setScreen={setScreen} />}
