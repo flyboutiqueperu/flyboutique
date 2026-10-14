@@ -4235,6 +4235,24 @@ const sortSizes = (list) => [...list].sort((a, b) => {
 });
 const AdminProductEditor = ({ product, collections, allProducts, onSave, onCancel }) => {
   const [form, setForm] = useState(emptyProductForm());
+  // Costo de compra y proveedor: privados (tabla product_costs), nunca en el catálogo público
+  const [cost, setCost] = useState({ value: "", supplier: "", loaded: false, original: null, unavailable: false });
+  useEffect(() => {
+    if (!product?.id) { setCost({ value: "", supplier: "", loaded: true, original: null, unavailable: false }); return; }
+    supabase.from("product_costs").select("cost,supplier").eq("product_id", product.id).maybeSingle().then(({ data, error }) => {
+      setCost({ value: data ? String(data.cost) : "", supplier: data?.supplier || "", loaded: true, original: data || null, unavailable: !!error });
+    });
+  }, [product?.id]);
+  const saveCost = async (productId) => {
+    if (cost.unavailable || !cost.loaded) return;
+    const v = cost.value.trim();
+    if (v === "" && !cost.original) return;
+    const num = Number(v);
+    if (v === "" || !(num >= 0)) return;
+    if (cost.original && Number(cost.original.cost) === num && (cost.original.supplier || "") === cost.supplier.trim()) return;
+    const { error } = await supabase.from("product_costs").upsert({ product_id: productId, cost: num, supplier: cost.supplier.trim() || null });
+    if (error) alert("El producto se guardó, pero no el costo: " + error.message);
+  };
   const [urlInput, setUrlInput] = useState("");
   const [newSize, setNewSize] = useState("");
   const [newColorName, setNewColorName] = useState("");
@@ -4316,6 +4334,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
       status: form.status, tag: form.tag || null, minStock: form.minStock ?? 3, showOnline: form.showOnline !== false, outlet: form.outlet === true, images: form.images, collectionIds: form.collectionIds, variants,
       createdAt: product?.createdAt || Date.now(), updatedAt: Date.now(),
     };
+    saveCost(record.id);
     onSave(record);
   };
 
@@ -4336,6 +4355,17 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
           <div style={{ flex: 1 }}><Field label="Precio (S/)"><input type="number" style={inputStyle} value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="189" /></Field></div>
           <div style={{ flex: 1 }}><Field label="Precio anterior (opcional)"><input type="number" style={inputStyle} value={form.compareAtPrice} onChange={(e) => set("compareAtPrice", e.target.value)} placeholder="—" /></Field></div>
         </div>
+        {!cost.unavailable && (
+          <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginTop: 4 }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 120px" }}><Field label="Costo de compra (privado)"><input inputMode="decimal" style={inputStyle} value={cost.value} onChange={(e) => setCost((c) => ({ ...c, value: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="Ej. 45" /></Field></div>
+              <div style={{ flex: "2 1 160px" }}><Field label="Proveedor (opcional)"><input style={inputStyle} maxLength={120} value={cost.supplier} onChange={(e) => setCost((c) => ({ ...c, supplier: e.target.value }))} placeholder="Ej. Gamarra · Taller Rosa" /></Field></div>
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: -4 }}>
+              Solo lo ven Super Admin y Administración. {Number(cost.value) > 0 && Number(form.price) > 0 ? `Margen por prenda: S/ ${(Number(form.price) - Number(cost.value)).toFixed(2)} (${Math.round((1 - Number(cost.value) / Number(form.price)) * 100)}%).` : "Sirve para calcular tu ganancia real en Reportes."}
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
             <Field label="Estado">
@@ -6037,7 +6067,8 @@ function periodRange(f) {
   if (f.period === "rango") return [f.from ? new Date(f.from + "T00:00:00") : new Date(2000, 0, 1), f.to ? new Date(new Date(f.to + "T00:00:00").getTime() + 864e5) : new Date(2100, 0, 1)];
   return [new Date(2000, 0, 1), new Date(2100, 0, 1)];
 }
-const defaultSalesFilter = () => { const n = new Date(); return { period: "mes", month: n.getMonth(), year: n.getFullYear(), from: "", to: "", store: "todas", channel: "todos", tipo: "todos", estado: "emitido", seller: "todos" }; };
+const defaultSalesFilter = () => { const n = new Date(); return { period: "mes", month: n.getMonth(), year: n.getFullYear(), from: "", to: "", store: "todas", channel: "todos", tipo: "todos", estado: "emitido", seller: "todos", pay: "todos" }; };
+const payMethodsOf = (s) => (s.payments && s.payments.length ? s.payments.map((p) => p.method) : [s.paymentMethod || "—"]);
 function filterSales(sales, f) {
   const [a, b] = periodRange(f);
   return sales.filter((s) => {
@@ -6051,6 +6082,7 @@ function filterSales(sales, f) {
     if (f.estado === "emitido" && s.status === "anulado") return false;
     if (f.estado === "anulado" && s.status !== "anulado") return false;
     if (f.seller !== "todos" && (s.staffName || "Sin asignar") !== f.seller) return false;
+    if (f.pay && f.pay !== "todos" && !payMethodsOf(s).includes(f.pay)) return false;
     return true;
   });
 }
@@ -6071,10 +6103,107 @@ const SalesFilterBar = ({ f, setF, stores, sellers, showSeller = true }) => {
         <select value={f.channel} onChange={(e) => set("channel", e.target.value)} style={sel}><option value="todos">Tienda física y web</option><option value="tienda">Solo tienda física</option><option value="web">Solo web</option></select>
         <select value={f.tipo} onChange={(e) => set("tipo", e.target.value)} style={sel}><option value="todos">Boletas y facturas</option><option value="boleta">Solo boletas</option><option value="factura">Solo facturas</option></select>
         <select value={f.estado} onChange={(e) => set("estado", e.target.value)} style={sel}><option value="emitido">Emitidos</option><option value="anulado">Anulados</option><option value="todos">Todos los estados</option></select>
+        <select value={f.pay || "todos"} onChange={(e) => set("pay", e.target.value)} style={sel} aria-label="Medio de pago"><option value="todos">Todos los pagos</option>{PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select>
         {showSeller && <select value={f.seller} onChange={(e) => set("seller", e.target.value)} style={sel}><option value="todos">Todas las vendedoras</option>{sellers.map((n) => <option key={n}>{n}</option>)}</select>}
         <button onClick={() => setF(defaultSalesFilter())} style={{ background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Restablecer</button>
       </div>
     </div>
+  );
+};
+
+// ---- Rentabilidad: ventas, costo de lo vendido, gastos y ganancia (solo con datos reales; si falta algo, se dice) ----
+const EXPENSE_CATEGORIES = ["Alquiler", "Sueldos y comisiones", "Luz, agua e internet", "Publicidad", "Delivery y envíos", "Comisiones de cobro (POS, Yape)", "Bolsas y empaques", "Mantenimiento", "Impuestos y trámites", "Otros"];
+const ymd = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
+const ProfitSection = ({ catalog, sales, all, range }) => {
+  const [costs, setCosts] = useState(null); // { productId: cost } | "no" si falta el SQL 18
+  const [expenses, setExpenses] = useState([]);
+  const [form, setForm] = useState({ spent_on: ymd(Date.now()), category: EXPENSE_CATEGORIES[0], amount: "", note: "" });
+  const [busy, setBusy] = useState(false);
+  const [a, b] = range;
+  const loadExpenses = async () => {
+    const { data, error } = await supabase.from("expenses").select("*").gte("spent_on", ymd(a)).lt("spent_on", ymd(b)).order("spent_on", { ascending: false }).limit(500);
+    setExpenses(error ? [] : data || []);
+  };
+  useEffect(() => {
+    supabase.from("product_costs").select("product_id,cost").then(({ data, error }) => setCosts(error ? "no" : Object.fromEntries((data || []).map((r) => [r.product_id, Number(r.cost)]))));
+  }, []);
+  useEffect(() => { loadExpenses(); }, [a.getTime(), b.getTime()]);
+  if (costs === "no") return <AdminCard style={{ marginBottom: 14 }}><span style={labelStyle}>Rentabilidad</span><div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Falta correr el SQL 18 (costos y gastos) en Supabase.</div></AdminCard>;
+  if (!costs) return null;
+  const netSales = sales.reduce((t, s) => t + (s.total || 0) - (s.shipping || 0), 0);
+  const discounts = sales.reduce((t, s) => t + (s.discount || 0) + (s.channel === "online" ? (s.pointsDiscount || 0) : 0), 0);
+  const voided = all.filter((s) => s.status === "anulado");
+  let cogs = 0, units = 0, unitsNoCost = 0; const missing = {};
+  sales.forEach((s) => s.items.forEach((i) => {
+    units += i.qty;
+    const c = costs[i.productId];
+    if (c === undefined) { unitsNoCost += i.qty; missing[i.name] = (missing[i.name] || 0) + i.qty; } else cogs += c * i.qty;
+  }));
+  const complete = units > 0 && unitsNoCost === 0;
+  const gross = netSales - cogs;
+  const activeExp = expenses.filter((e) => !e.voided);
+  const totalExp = activeExp.reduce((t, e) => t + Number(e.amount), 0);
+  const incompleto = <span style={{ color: C.accent }}>Incompleto</span>;
+  const row = (label, value, strong, hint) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>
+      <span>{label}{hint && <span style={{ display: "block", fontSize: 11, color: C.stone }}>{hint}</span>}</span>
+      <span style={{ fontWeight: strong ? 800 : 500, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{value}</span>
+    </div>
+  );
+  const addExpense = async () => {
+    const amt = Number(form.amount);
+    if (!(amt > 0)) { alert("Escribe el monto del gasto."); return; }
+    setBusy(true);
+    const { error } = await supabase.from("expenses").insert({ spent_on: form.spent_on, category: form.category, amount: amt, note: form.note.trim() || null });
+    setBusy(false);
+    if (error) { alert("No se pudo guardar el gasto: " + error.message); return; }
+    setForm((f) => ({ ...f, amount: "", note: "" })); loadExpenses();
+  };
+  const voidExpense = async (e) => {
+    const why = prompt(`¿Por qué anulas el gasto de ${money2(e.amount)} (${e.category})?`, "Registrado por error");
+    if (!why || !why.trim()) return;
+    const { error } = await supabase.from("expenses").update({ voided: true, void_reason: why.trim() }).eq("id", e.id);
+    if (error) { alert("No se pudo anular: " + error.message); return; }
+    loadExpenses();
+  };
+  return (
+    <>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Rentabilidad del periodo</span>
+        {row("Ventas (sin envío)", money2(netSales), false, `${sales.length} ventas válidas`)}
+        {row("Descuentos dados", `− ${money2(discounts)}`, false, "Ya están restados de las ventas")}
+        {row("Anuladas / devueltas", `${voided.length} · ${money2(voided.reduce((t, s) => t + (s.total || 0), 0))}`, false, "No cuentan en las ventas")}
+        {row("Costo de lo vendido", complete ? `− ${money2(cogs)}` : incompleto, false, complete ? "Con el costo de compra de cada prenda" : `Faltan costos de ${unitsNoCost} de ${units} prendas vendidas`)}
+        {row("Margen bruto", complete ? `${money2(gross)} (${netSales > 0 ? Math.round((gross / netSales) * 100) : 0}%)` : incompleto, true)}
+        {row("Gastos registrados", `− ${money2(totalExp)}`, false, `${activeExp.length} gastos en el periodo`)}
+        {row("Ganancia estimada", complete ? money2(gross - totalExp) : incompleto, true, "Antes del impuesto a la renta. Montos con IGV incluido.")}
+        {!complete && units > 0 && (
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginTop: 10, lineHeight: 1.5 }}>
+            Para ver la ganancia real, pon el costo de compra en Productos → editar. Faltan: {Object.entries(missing).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([n, q]) => `${n} (${q})`).join(" · ")}{Object.keys(missing).length > 6 ? "…" : ""}
+          </div>
+        )}
+      </AdminCard>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Gastos del negocio</span>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 10, lineHeight: 1.5 }}>Alquiler, sueldos, luz, publicidad… La compra de mercadería no va aquí: va como costo de cada prenda.</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          <input type="date" value={form.spent_on} onChange={(e) => setForm({ ...form, spent_on: e.target.value })} style={{ ...inputStyle, flex: "1 1 140px" }} aria-label="Fecha del gasto" />
+          <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} style={{ ...inputStyle, flex: "2 1 180px" }} aria-label="Tipo de gasto">{EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
+          <input inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="Monto S/ *" style={{ ...inputStyle, flex: "1 1 110px" }} />
+          <input value={form.note} maxLength={200} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Nota (opcional)" style={{ ...inputStyle, flex: "3 1 200px" }} />
+        </div>
+        <button onClick={addExpense} disabled={busy} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.6 : 1, marginBottom: 10 }}>{busy ? "Guardando…" : "Registrar gasto"}</button>
+        {expenses.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Sin gastos en este periodo.</div> : expenses.map((e) => (
+          <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: e.voided ? C.stone : C.ink, textDecoration: e.voided ? "line-through" : "none" }}>
+            <span style={{ minWidth: 0 }}>{new Date(e.spent_on + "T12:00:00").toLocaleDateString("es-PE")} · {e.category}{e.note ? ` · ${e.note}` : ""}<span style={{ display: "block", fontSize: 10.5, color: C.stone, textDecoration: "none" }}>{e.created_by || ""}{e.voided ? ` · anulado por ${e.voided_by || ""}: ${e.void_reason || ""}` : ""}</span></span>
+            <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <strong style={{ fontVariantNumeric: "tabular-nums" }}>{money2(e.amount)}</strong>
+              {!e.voided && <button onClick={() => voidExpense(e)} style={{ padding: "5px 9px", borderRadius: 6, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer", color: C.ink }}>Anular</button>}
+            </span>
+          </div>
+        ))}
+      </AdminCard>
+    </>
   );
 };
 
@@ -6085,6 +6214,17 @@ const AdminReportsScreen = ({ catalog }) => {
   const list = filterSales(catalog.sales, f);
   const valid = list.filter((s) => s.status !== "anulado");
   const total = valid.reduce((a, s) => a + (s.total || 0), 0);
+  // Mismo periodo anterior (ej. este mes vs. el mes pasado), con los mismos filtros
+  const [ra, rb] = periodRange(f);
+  const prevTotal = f.period === "todo" ? null : catalog.sales.filter((s) => {
+    const t = new Date(s.createdAt).getTime(), len = rb - ra;
+    return t >= ra.getTime() - len && t < ra.getTime() && s.status !== "anulado";
+  }).filter((s) => filterSales([{ ...s, createdAt: ra.getTime() }], f).length).reduce((a, s) => a + (s.total || 0), 0);
+  const vsPrev = prevTotal === null ? null : prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
+  const storeName = (id) => (id === "web" ? "Tienda online" : (stores.find((x) => x.id === id)?.name || id));
+  const byStore = {}; valid.forEach((s) => { const k = storeName(s.storeId || (s.channel === "online" ? "web" : "principal")); byStore[k] = byStore[k] || { count: 0, total: 0 }; byStore[k].count++; byStore[k].total += s.total || 0; });
+  const soldIds = new Set(valid.flatMap((s) => s.items.map((i) => i.productId)));
+  const stale = catalog.products.filter((p) => productTotalStock(p) > 0 && !soldIds.has(p.id));
   const units = valid.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0);
   const web = valid.filter((s) => s.channel === "online"); const tienda = valid.filter((s) => s.channel !== "online");
   const sum = (arr) => arr.reduce((a, s) => a + (s.total || 0), 0);
@@ -6127,15 +6267,18 @@ const AdminReportsScreen = ({ catalog }) => {
       </div>
       <SalesFilterBar f={f} setF={setF} stores={stores} sellers={sellers} />
       <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        {card("Ventas", money(total), `${valid.length} comprobantes`)}
+        {card("Ventas", money(total), `${valid.length} comprobantes${vsPrev !== null ? ` · ${vsPrev >= 0 ? "+" : ""}${vsPrev}% vs. periodo anterior` : prevTotal === 0 && total > 0 ? " · sin ventas el periodo anterior" : ""}`)}
         {card("Ticket promedio", money(valid.length ? total / valid.length : 0), `${units} prendas vendidas`)}
         {card("Tienda física", money(sum(tienda)), `${tienda.length} ventas`)}
         {card("Web", money(sum(web)), `${web.length} pedidos`)}
       </div>
+      <ProfitSection catalog={catalog} sales={valid} all={list} range={periodRange(f)} />
       {table("Por vendedora", Object.entries(bySeller).sort((a, b) => b[1].total - a[1].total).map(([n, v]) => [n, v.count, v.units, money(v.total)]), ["Ventas", "Prendas", "Total"])}
+      {table("Por sede", Object.entries(byStore).sort((x, y) => y[1].total - x[1].total).map(([n, v]) => [n, v.count, money(v.total)]), ["Ventas", "Total"])}
       {table("Por día", Object.entries(byDay).sort((a, b) => { const p = (x) => x.split("/").reverse().join(""); return p(b[0]).localeCompare(p(a[0])); }).map(([d, v]) => [d, money(v)]), ["Total"])}
       {table("Por medio de pago", Object.entries(byPay).sort((a, b) => b[1] - a[1]).map(([m, v]) => [m, money(v)]), ["Total"])}
       {table("Prendas más vendidas", Object.entries(byProduct).sort((a, b) => b[1].qty - a[1].qty).slice(0, 10).map(([n, v]) => [n, v.qty, money(v.total)]), ["Unid.", "Total"])}
+      {f.period !== "todo" && table("Sin ventas en el periodo (con stock)", stale.sort((x, y) => productTotalStock(y) - productTotalStock(x)).slice(0, 12).map((p) => [`${p.name}${isOutlet(p) ? " · Outlet" : ""}`, productTotalStock(p)]), ["En stock"])}
       <AdminCard>
         <span style={labelStyle}>Inventario actual</span>
         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.8 }}>{totalUnidades} unidades en stock · {agotados} productos agotados</div>
@@ -6868,7 +7011,11 @@ const STAFF_GUIDES = {
     ["Receipt", "Busca una venta para verla, reimprimirla (80 mm, 58 mm o A4) o enviarla. Reimprimir no crea otra venta."],
     ["Undo2", "Anular devuelve el stock y los puntos. Pide un motivo y queda registrado quién lo hizo."],
   ] },
-  reports: { title: "Reportes", steps: [["BarChart3", "Filtra por fechas, sede, canal y vendedora. Descarga a Excel para revisar o enviar al contador."]] },
+  reports: { title: "Reportes", steps: [
+    ["BarChart3", "Filtra por fechas, sede, canal y vendedora. Descarga a Excel para revisar o enviar al contador."],
+    ["Banknote", "«Rentabilidad»: ventas, costo de lo vendido, margen y ganancia. Si falta el costo de alguna prenda dice «Incompleto» y cuáles faltan (se pone en Productos → editar)."],
+    ["Receipt", "«Gastos»: registra alquiler, sueldos, luz, publicidad… No se borran: se anulan con motivo y queda quién lo hizo."],
+  ] },
   users: { title: "Usuarios y permisos", steps: [
     ["User", "Cada persona con su propio usuario y contraseña. No compartan usuarios."],
     ["ShieldCheck", "Roles: Cajero(a) = caja y ventas. Vendedora Tienda = solo vende. Administración = todo. Almacén = stock."],
