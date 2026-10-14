@@ -7185,21 +7185,41 @@ const StaffManual = ({ role }) => {
   );
 };
 
+// ---- Qué pantallas puede abrir cada rol (una sola lista para el menú, los enlaces y la flecha atrás) ----
+// Si alguien escribe a mano otra dirección (ej. #staff/reports siendo cajero), vuelve a su pantalla de inicio.
+// La base de datos además rechaza cualquier dato que su rol no pueda ver o cambiar.
+const STAFF_ALL_ROLES = ["superadmin", "administrador", "cajero", "vendedora_tienda", "vendedora_online", "almacen"];
+const STAFF_ADMIN = ["superadmin", "administrador"];
+const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora_tienda"];
+const SCREEN_ACCESS = {
+  dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
+  collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, users: ["superadmin"], promocodes: ["superadmin"],
+  caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
+  mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
+};
+const canOpenScreen = (role, sc) => (SCREEN_ACCESS[sc] || []).includes(role);
+// Pantalla con la que se abre el panel según el enlace: #caja → Caja; #staff/<pantalla> → esa pantalla (si su rol puede)
+const staffScreenFromHash = (h = (typeof window !== "undefined" ? window.location.hash : "")) => (h === "#caja" ? "caja" : h.startsWith("#staff/") ? decodeURIComponent(h.slice(7)) : null);
+
 const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, staffName, staffUsername, currentUserId, reserveNumber, onExit, initialScreen }) => {
   const homeScreen = (role === "administrador" || role === "superadmin") ? "dashboard" : role === "cajero" ? "caja" : role === "vendedora_tienda" ? "pos" : role === "almacen" ? "stock" : "onlinesales";
   // Cada pantalla de venta solo se abre con el rol que corresponde (aunque se cambie la dirección a mano)
   const canSellStore = ["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role);
   const isAdminRole = role === "administrador" || role === "superadmin";
   const canSellOnline = ["superadmin", "administrador", "vendedora_online"].includes(role);
-  const [screen, setScreenRaw] = useState(initialScreen || homeScreen);
+  const safeScreen = (sc) => (sc && canOpenScreen(role, sc) ? sc : homeScreen);
+  const [screen, setScreenState] = useState(() => safeScreen(initialScreen));
+  const setScreenRaw = (sc) => setScreenState(safeScreen(sc));
   // Historial dentro del panel: la flecha atrás del navegador vuelve a la pantalla anterior del panel
-  const setScreen = (sc) => { setScreenRaw(sc); try { if (window.location.hash !== `#staff/${sc}`) window.history.pushState({ staff: sc }, "", `#staff/${sc}`); } catch (e) { /* sin historial */ } };
+  const setScreen = (sc0) => { const sc = safeScreen(sc0); setScreenState(sc); try { if (window.location.hash !== `#staff/${sc}`) window.history.pushState({ staff: sc }, "", `#staff/${sc}`); } catch (e) { /* sin historial */ } };
   useEffect(() => {
     try { window.history.replaceState({ staff: screen }, "", `#staff/${screen}`); } catch (e) { /* nada */ }
     const onPop = () => {
-      const h = window.location.hash;
-      if (h.startsWith("#staff/")) setScreenRaw(h.slice(7) || homeScreen);
-      else { try { window.history.pushState({ staff: homeScreen }, "", `#staff/${homeScreen}`); } catch (e) { /* nada */ } setScreenRaw(homeScreen); }
+      // Atrás/adelante o una dirección escrita a mano (#caja, #staff/stock…): solo pantallas permitidas para su rol
+      const target = safeScreen(staffScreenFromHash(window.location.hash));
+      setScreenRaw(target);
+      if (window.location.hash !== `#staff/${target}`) { try { window.history.replaceState({ staff: target }, "", `#staff/${target}`); } catch (e) { /* nada */ } }
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -8047,7 +8067,7 @@ export default function FlyBoutiqueApp() {
           <StaffAccess onDone={enterStaff} onCancel={() => { setMode("store"); clearStaffHash(); }} />
         ) : mode === "staff" && session ? (
           <StaffApp catalog={catalog} updateCatalog={updateCatalog} patchCatalog={setCatalog} refreshData={refreshPrivate} role={session.staffMember.role} staffName={session.staffMember.name} staffUsername={session.staffMember.username}
-            currentUserId={session.staffMember.user_id} reserveNumber={reserveNumber} onExit={() => exitStaff("Sesión cerrada")} initialScreen={window.location.hash === "#caja" ? "pos" : null} />
+            currentUserId={session.staffMember.user_id} reserveNumber={reserveNumber} onExit={() => exitStaff("Sesión cerrada")} initialScreen={staffScreenFromHash()} />
         ) : (
           <>
             <div className="app-content" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
