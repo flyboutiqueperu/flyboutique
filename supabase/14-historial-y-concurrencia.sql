@@ -575,6 +575,27 @@ begin
   end if;
   base := base || jsonb_build_object('products', prods);
 
+  -- Candados contra errores de tipeo (los revisa el servidor, no solo la pantalla)
+  if exists (select 1 from jsonb_array_elements(prods) p
+              where p_changed is null or (p->>'id') = any(p_changed) or not (cur_by_id ? (p->>'id')))
+     and exists (select 1 from jsonb_array_elements(prods) p
+              where (p_changed is null or (p->>'id') = any(p_changed) or not (cur_by_id ? (p->>'id')))
+                and (public.fly_num(p->>'price') is null or public.fly_num(p->>'price') < 0 or public.fly_num(p->>'price') > 100000
+                     or coalesce(public.fly_num(p->>'compareAtPrice'), 0) < 0)) then
+    raise exception 'PRECIO_INVALIDO';
+  end if;
+  select x.sku into k from (
+    select upper(trim(v->>'sku')) sku, count(*) n, bool_or(p_changed is null or (p->>'id') = any(p_changed) or not (cur_by_id ? (p->>'id'))) mine
+      from jsonb_array_elements(prods) p, jsonb_array_elements(coalesce(p->'variants', '[]'::jsonb)) v
+     where coalesce(trim(v->>'sku'), '') <> ''
+     group by 1) x
+   where x.n > 1 and x.mine
+     -- solo si el repetido es NUEVO (si ya estaba repetido de antes, no se bloquea editar otras cosas)
+     and x.n > (select count(*) from jsonb_array_elements(coalesce(cur->'products', '[]'::jsonb)) cp, jsonb_array_elements(coalesce(cp->'variants', '[]'::jsonb)) cv
+                 where upper(trim(cv->>'sku')) = x.sku)
+   limit 1;
+  if k is not null then raise exception 'CODIGO_REPETIDO:%', k; end if;
+
   perform public.set_stock_context(jsonb_build_object('type', 'catálogo', 'staff', public.my_staff_name(), 'note', coalesce(nullif(trim(p_note), ''), 'Cambio desde el editor de productos')));
   if cur is null then
     insert into public.store_data (id, data, updated_at) values ('main', base, now());

@@ -325,7 +325,14 @@ async function persistStaffChanges(next, prev) {
   try {
     const results = await Promise.all(tasks);
     const err = results.find((r) => r.error)?.error;
-    if (err) { console.error("No se pudo guardar:", err); alert("No se pudo guardar el cambio: " + err.message + "\nSi dice 'row-level security', vuelve a iniciar sesión."); }
+    if (err) {
+      console.error("No se pudo guardar:", err);
+      const m = err.message || "";
+      alert(m.includes("PRECIO_INVALIDO") ? "No se guardó: hay un precio vacío, negativo o demasiado alto. Revisa el precio y vuelve a guardar."
+        : m.includes("CODIGO_REPETIDO") ? `No se guardó: el código ${m.split("CODIGO_REPETIDO:")[1] || ""} ya lo tiene otra prenda. Cada talla y color necesita su propio código.`
+        : "No se pudo guardar el cambio: " + m + "\nSi dice 'row-level security', vuelve a iniciar sesión.");
+      if (/PRECIO_INVALIDO|CODIGO_REPETIDO/.test(m)) window.location.reload(); // vuelve a mostrar lo que sí está guardado
+    }
   } catch (e) { console.error(e); alert("No se pudo guardar el cambio. Revisa tu conexión."); }
 }
 
@@ -4070,6 +4077,12 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
   const handleSave = () => {
     if (dupInside) { alert(`El código ${dupInside} está repetido en dos tallas/colores. Cada talla y color debe tener su propio código.`); return; }
     if (dupOther) { alert(`El código ${dupOther} ya lo usa otro producto. Al escanearlo no sabríamos cuál es: cámbialo.`); return; }
+    const newPrice = Number(form.price);
+    if (!(newPrice > 0)) { alert("Escribe un precio mayor que 0."); return; }
+    if (form.compareAtPrice && Number(form.compareAtPrice) <= newPrice) { alert("El «precio anterior» (tachado) debe ser MAYOR que el precio de venta. Si no está en oferta, déjalo vacío."); return; }
+    // Si el precio cambia mucho, se pide confirmar (evita un cero de más o de menos)
+    if (product && product.price > 0 && (newPrice > product.price * 1.8 || newPrice < product.price * 0.5)
+        && !confirm(`El precio cambia de S/ ${product.price} a S/ ${newPrice}. ¿Es correcto?`)) return;
     const variants = [];
     form.sizes.forEach((s) => form.colors.forEach((c) => {
       const key = `${s}|${c.n}`;
@@ -6598,8 +6611,11 @@ const STAFF_GUIDES = {
     ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento e imprime la etiqueta."],
   ] },
   stock: { title: "Stock", steps: [
-    ["Package", "Busca la prenda y mira cuántas unidades hay por talla y color."],
-    ["Pencil", "Para corregir, cambia la cantidad y escribe el motivo (ingreso, merma, ajuste). Queda registrado quién lo hizo."],
+    ["Scan", "Escanea el código de la etiqueta (cada talla y color tiene el suyo) o busca por nombre."],
+    ["Plus", "Llegó mercadería: «Movimiento» → «Entrada» y la cantidad. Se SUMA a lo que hay (si alguien vende mientras tanto, no se pierde)."],
+    ["Minus", "Prenda malograda o que no se puede vender: «Dañada». Si se regaló: «Regalo» y a quién. Ambos piden motivo."],
+    ["Pencil", "Contaste las prendas: «Conteo» y el total. Si alguien vendió mientras contabas, te avisa para que vuelvas a contar."],
+    ["BarChart3", "«Historial de esta prenda»: cuántas entraron, se vendieron, se devolvieron; a quién, a qué precio, con qué comprobante y quién lo hizo."],
   ] },
   dashboard: { title: "Panel", steps: [
     ["LayoutDashboard", "Resumen de ventas, pedidos y stock bajo."],
@@ -6608,7 +6624,7 @@ const STAFF_GUIDES = {
   ] },
   products: { title: "Productos", steps: [
     ["Plus", "«Nuevo producto»: nombre, categoría, precio y, si está en oferta, el precio anterior."],
-    ["Layers", "Agrega tallas y colores: cada combinación tiene su stock."],
+    ["Layers", "Agrega tallas (botones XS a XXL) y colores: cada combinación tiene su propio stock y su propio código de barras. El sistema no deja repetir códigos."],
     ["ImageIcon", "Sube fotos verticales (ideal 1080×1440) y asigna cada foto a su color. Puedes subir un video."],
     ["Eye", "Usa «Activo / Borrador» y «Mostrar en la web» para publicar u ocultar sin borrar."],
   ] },
