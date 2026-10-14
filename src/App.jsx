@@ -291,8 +291,19 @@ async function saveCatalogSafely(next, prev) {
     const diff = (Number(v.stock) || 0) - prevStock.get(v.id);
     if (diff) deltas[v.id] = diff;
   }));
-  const res = await supabase.rpc("save_catalog", { p_data: pickPublic(next), p_stock_deltas: deltas });
-  // Si aún no se corrió el SQL de la Fase 2a, se guarda como antes
+  // Solo se mandan los productos y secciones que ESTA persona cambió: si otra persona editó otro producto
+  // al mismo tiempo, el servidor conserva su cambio (no se pisan).
+  const prevById = new Map((prev?.products || []).map((p) => [p.id, p]));
+  const nextIds = new Set((next.products || []).map((p) => p.id));
+  const changed = (next.products || []).filter((p) => prevById.get(p.id) !== p).map((p) => p.id);
+  const deleted = (prev?.products || []).filter((p) => !nextIds.has(p.id)).map((p) => p.id);
+  const keys = PUBLIC_KEYS.filter((k) => k !== "products" && prev && next[k] !== prev[k]);
+  let res = prev
+    ? await supabase.rpc("save_catalog", { p_data: pickPublic(next), p_stock_deltas: deltas, p_changed: changed, p_deleted: deleted, p_keys: keys })
+    : { error: { code: "PGRST202" } };
+  // Si aún no se corrió el SQL 14, se guarda como antes (todo el catálogo, respetando el stock)
+  if (res.error?.code === "PGRST202") res = await supabase.rpc("save_catalog", { p_data: pickPublic(next), p_stock_deltas: deltas });
+  // Si tampoco existe el de la Fase 2a
   if (res.error?.code === "PGRST202") return supabase.from("store_data").upsert({ id: "main", data: pickPublic(next), updated_at: new Date().toISOString() });
   return res;
 }
@@ -309,9 +320,7 @@ async function persistStaffChanges(next, prev) {
   const prevCust = new Map((prev?.customers || []).map((c) => [c.phone, c]));
   const changedCust = (next.customers || []).filter((c) => c.phone && prevCust.get(c.phone) !== c);
   if (changedCust.length) tasks.push(supabase.from("customers").upsert(changedCust.map((c) => ({ phone: c.phone, data: c }))));
-  if (next.stockMovements !== prev?.stockMovements) {
-    tasks.push(supabase.from("store_private").upsert({ id: "main", data: { stockMovements: (next.stockMovements || []).slice(0, 3000) }, updated_at: new Date().toISOString() }));
-  }
+  // El historial de stock ya no se sube desde aquí: lo anota la base de datos sola (SQL 14), sin que nadie lo pise.
   try {
     const results = await Promise.all(tasks);
     const err = results.find((r) => r.error)?.error;
@@ -430,6 +439,11 @@ const computeDiscount = (promo, subtotal) => !promo ? 0 : promo.type === "percen
 /* ------------------------------------------------------------------ */
 const normalizeCode = (s) => String(s || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
 
+// Encabezados del Excel → claves simples: "Código de barras" → codigo_barras, "Stock mínimo" → stock_minimo
+const normalizeRowKeys = (raw) => Object.fromEntries(Object.entries(raw || {}).map(([k, v]) => [
+  String(k).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").trim().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").replace(/^codigo_de_barras$/, "codigo_barras"),
+  v,
+]));
 function parseImportRows(rawRows) {
   const grouped = new Map();
   const deleteSlugs = new Set();
@@ -3984,7 +3998,14 @@ const emptyProductForm = () => ({
   status: "active", tag: "", minStock: 3, showOnline: true, images: [], collectionIds: [], sizes: [], colors: [], stock: {}, skus: {},
 });
 
-const AdminProductEditor = ({ product, collections, onSave, onCancel }) => {
+const QUICK_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "Única"];
+const sortSizes = (list) => [...list].sort((a, b) => {
+  const ia = QUICK_SIZES.indexOf(a), ib = QUICK_SIZES.indexOf(b);
+  if (ia >= 0 && ib >= 0) return ia - ib;
+  if (ia >= 0 || ib >= 0) return ia >= 0 ? -1 : 1;
+  return (parseFloat(a) || 0) - (parseFloat(b) || 0) || String(a).localeCompare(String(b));
+});
+const AdminProductEditor = ({ product, collections, allProducts, onSave, onCancel }) => {
   const [form, setForm] = useState(emptyProductForm());
   const [urlInput, setUrlInput] = useState("");
   const [newSize, setNewSize] = useState("");
@@ -4008,7 +4029,7 @@ const AdminProductEditor = ({ product, collections, onSave, onCancel }) => {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const addSize = () => { const s = newSize.trim(); if (!s || form.sizes.includes(s)) return; set("sizes", [...form.sizes, s]); setNewSize(""); };
+  const addSize = () => { const s = newSize.trim(); if (!s || form.sizes.includes(s)) return; set("sizes", sortSizes([...form.sizes, s])); setNewSize(""); };
   const removeSize = (s) => { set("sizes", form.sizes.filter((x) => x !== s)); const st = { ...form.stock }; const sk = { ...form.skus }; Object.keys(st).forEach((k) => k.startsWith(s + "|") && delete st[k]); Object.keys(sk).forEach((k) => k.startsWith(s + "|") && delete sk[k]); setForm((f) => ({ ...f, stock: st, skus: sk })); };
   const addColor = () => { const n = newColorName.trim(); if (!n || form.colors.some((c) => c.n === n)) return; set("colors", [...form.colors, { n, h: newColorHex }]); setNewColorName(""); };
   const removeColor = (n) => { set("colors", form.colors.filter((c) => c.n !== n)); const st = { ...form.stock }; const sk = { ...form.skus }; Object.keys(st).forEach((k) => k.endsWith("|" + n) && delete st[k]); Object.keys(sk).forEach((k) => k.endsWith("|" + n) && delete sk[k]); setForm((f) => ({ ...f, stock: st, skus: sk })); };
@@ -4039,12 +4060,20 @@ const AdminProductEditor = ({ product, collections, onSave, onCancel }) => {
 
   const canSave = form.name.trim() && form.price !== "" && form.sizes.length > 0 && form.colors.length > 0;
 
+  // Cada talla+color conserva su identificador interno al editar: así el stock, las cestas abiertas
+  // y el historial siguen apuntando a la misma prenda.
+  const existingVar = new Map((product?.variants || []).map((v) => [`${v.size}|${v.colorName}`, v]));
+  const skuList = form.sizes.flatMap((s) => form.colors.map((c) => (form.skus[`${s}|${c.n}`] || "").trim().toUpperCase())).filter(Boolean);
+  const dupInside = skuList.find((x, i) => skuList.indexOf(x) !== i);
+  const dupOther = skuList.find((x) => (allProducts || []).some((p) => p.id !== form.id && p.variants.some((v) => String(v.sku || "").toUpperCase() === x)));
   const handleSave = () => {
+    if (dupInside) { alert(`El código ${dupInside} está repetido en dos tallas/colores. Cada talla y color debe tener su propio código.`); return; }
+    if (dupOther) { alert(`El código ${dupOther} ya lo usa otro producto. Al escanearlo no sabríamos cuál es: cámbialo.`); return; }
     const variants = [];
     form.sizes.forEach((s) => form.colors.forEach((c) => {
       const key = `${s}|${c.n}`;
       const customSku = (form.skus[key] || "").trim();
-      variants.push({ id: genId("var"), size: s, colorName: c.n, colorHex: c.h, stock: form.stock[key] || 0,
+      variants.push({ ...(existingVar.get(key) || {}), id: existingVar.get(key)?.id || genId("var"), size: s, colorName: c.n, colorHex: c.h, stock: form.stock[key] || 0,
         sku: customSku || `${slugify(form.name)}-${s}-${slugify(c.n)}`.toUpperCase() });
     }));
     const record = {
@@ -4152,8 +4181,13 @@ const AdminProductEditor = ({ product, collections, onSave, onCancel }) => {
             <span key={s} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999, border: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12 }}>{s}<button onClick={() => removeSize(s)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={11} color={C.stone} /></button></span>
           ))}
         </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {QUICK_SIZES.filter((q) => !form.sizes.includes(q)).map((q) => (
+            <button key={q} onClick={() => set("sizes", sortSizes([...form.sizes, q]))} style={{ padding: "6px 11px", borderRadius: 999, border: `1px dashed ${C.stone}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>+ {q}</button>
+          ))}
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <input style={inputStyle} value={newSize} onChange={(e) => setNewSize(e.target.value)} placeholder="Ej. M, 38, Única" onKeyDown={(e) => e.key === "Enter" && addSize()} />
+          <input style={inputStyle} value={newSize} onChange={(e) => setNewSize(e.target.value)} placeholder="Otra talla: 38, 40…" onKeyDown={(e) => e.key === "Enter" && addSize()} />
           <button onClick={addSize} style={{ padding: "0 14px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, cursor: "pointer" }}><Plus size={14} /></button>
         </div>
       </AdminCard>
@@ -4649,50 +4683,134 @@ const AdminCollectionEditor = ({ collection, products, onSave, onCancel }) => {
 /* ---- Admin root ---- */
 /* ---- Stock: movement sheet ---- */
 const MOVEMENT_TYPES = [
-  { key: "entrada", label: "Entrada", hint: "Ingreso de mercadería" },
-  { key: "salida", label: "Salida", hint: "Retiro fuera de venta" },
-  { key: "merma", label: "Merma", hint: "Prenda dañada o perdida" },
-  { key: "ajuste", label: "Ajuste", hint: "Corrige el stock a un número exacto" },
+  { key: "entrada", label: "Entrada", sign: 1, hint: "Llegó mercadería o reposición del mismo modelo." },
+  { key: "devolucion", label: "Devolución", sign: 1, hint: "Una clienta devolvió la prenda y vuelve a la venta (si la venta tiene comprobante, mejor anúlala en Comprobantes)." },
+  { key: "salida", label: "Salida", sign: -1, needsNote: true, hint: "Sale sin venderse: traslado, préstamo, sesión de fotos…" },
+  { key: "merma", label: "Dañada / no vendible", sign: -1, needsNote: true, hint: "Prenda malograda, manchada, perdida o que ya no se puede vender." },
+  { key: "regalo", label: "Regalo", sign: -1, needsNote: true, hint: "Se regaló (influencer, cortesía, sorteo). Escribe a quién." },
+  { key: "ajuste", label: "Conteo", sign: 0, hint: "Contaste las prendas: escribe cuántas hay en total. Si alguien vende mientras cuentas, te avisa." },
 ];
 
-const StockMovementSheet = ({ product, variant, staffName, onClose, onSubmit }) => {
+const StockMovementSheet = ({ product, variant, onClose, onSubmit }) => {
   const [type, setType] = useState("entrada");
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
-  const n = Math.max(0, parseInt(qty || "0", 10));
-  const newStock = type === "entrada" ? variant.stock + n : type === "ajuste" ? n : Math.max(0, variant.stock - n);
-  const delta = newStock - variant.stock;
-  const canSubmit = qty !== "" && (type === "ajuste" || n > 0);
+  const [busy, setBusy] = useState(false);
+  const t = MOVEMENT_TYPES.find((x) => x.key === type);
+  const n = Math.max(0, parseInt(qty || "0", 10) || 0);
+  const newStock = t.sign > 0 ? variant.stock + n : t.sign < 0 ? variant.stock - n : n;
+  const tooMany = t.sign < 0 && n > variant.stock;
+  const canSubmit = qty !== "" && (type === "ajuste" || n > 0) && !tooMany && (!t.needsNote || note.trim().length >= 3) && !busy;
 
   return (
     <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 55, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
-      <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", padding: "20px 22px 28px", animation: "slideUp .25s ease" }}>
+      <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", padding: "20px 22px 28px", animation: "slideUp .25s ease", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 2 }}>{product.name}</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 18 }}>Talla {variant.size} · {variant.colorName} · Stock actual: {variant.stock}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 18 }}>Talla {variant.size} · {variant.colorName}{variant.sku ? ` · ${variant.sku}` : ""} · Stock actual: {variant.stock}</div>
 
-        <span style={labelStyle}>Tipo de movimiento</span>
+        <span style={labelStyle}>¿Qué pasó?</span>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          {MOVEMENT_TYPES.map((t) => (
-            <button key={t.key} onClick={() => setType(t.key)} style={{ padding: "9px 13px", borderRadius: 8, border: `1px solid ${type === t.key ? C.ink : C.line}`, background: type === t.key ? C.ink : "transparent", color: type === t.key ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{t.label}</button>
+          {MOVEMENT_TYPES.map((x) => (
+            <button key={x.key} onClick={() => setType(x.key)} style={{ padding: "9px 13px", borderRadius: 8, border: `1px solid ${type === x.key ? C.ink : C.line}`, background: type === x.key ? C.ink : "transparent", color: type === x.key ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{x.label}</button>
           ))}
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 16, marginTop: -8 }}>{MOVEMENT_TYPES.find((t) => t.key === type)?.hint}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 16, marginTop: -8, lineHeight: 1.45 }}>{t.hint}</div>
 
-        <Field label={type === "ajuste" ? "Nuevo stock total" : "Cantidad"}>
-          <input type="number" min="0" style={inputStyle} value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0" />
+        <Field label={type === "ajuste" ? "Cuántas hay en total (contadas) *" : "Cantidad *"}>
+          <input inputMode="numeric" style={inputStyle} value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="0" />
         </Field>
-        <Field label="Nota (opcional)"><input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. reposición proveedor, prenda con mancha…" /></Field>
+        <Field label={t.needsNote ? "Motivo *" : "Nota (opcional)"}><input style={inputStyle} value={note} maxLength={140} onChange={(e) => setNote(e.target.value)} placeholder={type === "regalo" ? "Ej. regalo a @influencer" : type === "merma" ? "Ej. mancha que no sale" : "Ej. reposición proveedor"} /></Field>
 
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 18 }}>Stock resultante: <strong>{newStock}</strong></div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: tooMany ? C.accent : C.inkSoft, marginBottom: 18 }}>
+          {tooMany ? `Solo hay ${variant.stock} en stock.` : <>Quedará en stock: <strong>{newStock}</strong></>}
+        </div>
 
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
-          <PrimaryButton disabled={!canSubmit} style={{ flex: 2, width: "auto" }} onClick={() => onSubmit({
-            id: genId("mov"), productId: product.id, productName: product.name, variantId: variant.id, size: variant.size, colorName: variant.colorName,
-            type, qty: Math.abs(delta), note: note.trim(), staffName, createdAt: Date.now(),
-          }, newStock)}>Registrar</PrimaryButton>
+          <PrimaryButton disabled={!canSubmit} style={{ flex: 2, width: "auto" }} onClick={async () => {
+            setBusy(true);
+            const ok = await onSubmit({ type, qty: n, note: note.trim(), expected: variant.stock, newStock });
+            setBusy(false);
+            if (ok) onClose();
+          }}>{busy ? "Guardando…" : "Registrar"}</PrimaryButton>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ---- Historial de una prenda (o de toda la tienda): lo anota la base de datos en cada cambio ----
+const MOVE_LABEL = (t) => ({ entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
+const StockHistory = ({ product, catalog, onBack }) => {
+  const [rows, setRows] = useState(null);
+  const [legacy, setLegacy] = useState(false);
+  const [variantId, setVariantId] = useState("");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      let q = supabase.from("stock_movements").select("*").order("created_at", { ascending: false }).limit(product ? 500 : 200);
+      if (product) q = q.eq("product_id", product.id);
+      const { data, error } = await q;
+      if (!alive) return;
+      if (error) { // aún no se corrió el SQL 14: se muestra el historial anterior
+        setLegacy(true);
+        setRows((catalog.stockMovements || []).filter((m) => !product || m.productId === product.id).map((m) => ({
+          id: m.id, created_at: m.createdAt, type: m.type, qty: ["venta", "salida", "merma"].includes(m.type) ? -Math.abs(m.qty) : m.qty,
+          variant_id: m.variantId, size: m.size, color: m.colorName, product_name: m.productName, staff_name: m.staffName, note: m.note,
+        })));
+        return;
+      }
+      setRows(data || []);
+    })();
+    return () => { alive = false; };
+  }, [product?.id]);
+  const list = (rows || []).filter((r) => !variantId || r.variant_id === variantId);
+  const isSale = (t) => /venta|pedido web/.test(t || "");
+  const sum = (fn) => list.filter(fn).reduce((a, r) => a + Math.abs(r.qty || 0), 0);
+  const sold = sum((r) => isSale(r.type) && r.qty < 0);
+  const returned = sum((r) => /devoluci|anulaci|cancelado/.test(r.type || "") && r.qty > 0);
+  const inbound = sum((r) => /entrada|alta/.test(r.type || "") && r.qty > 0);
+  const lost = sum((r) => /merma|regalo|salida/.test(r.type || "") && r.qty < 0);
+  const lastRestock = list.find((r) => /entrada|alta/.test(r.type || "") && r.qty > 0);
+  const stat = (n, label) => <AdminCard style={{ padding: 12 }}><div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink }}>{n}</div><div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>{label}</div></AdminCard>;
+  return (
+    <div style={{ padding: "18px 18px 90px" }}>
+      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver a Stock</button>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>{product ? `Historial: ${product.name}` : "Historial de movimientos"}</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 14 }}>{legacy ? "Historial anterior (falta correr el SQL 14 para ver el detalle completo)." : "Cada cambio de stock queda anotado solo: qué pasó, cuánto, precio, comprobante, clienta, vendedora y quién lo hizo."}</div>
+      {product && (
+        <>
+          <select value={variantId} onChange={(e) => setVariantId(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }}>
+            <option value="">Todas las tallas y colores</option>
+            {product.variants.map((v) => <option key={v.id} value={v.id}>{v.size} · {v.colorName}{v.sku ? ` · ${v.sku}` : ""} (hay {v.stock})</option>)}
+          </select>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8, marginBottom: 12 }}>
+            {stat(inbound, "Ingresadas")}{stat(sold, "Vendidas")}{stat(returned, "Devueltas / anuladas")}{stat(lost, "Dañadas, regalos y salidas")}
+          </div>
+          {lastRestock && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 14 }}>Última reposición: <strong>{new Date(lastRestock.created_at).toLocaleDateString("es-PE")}</strong> (+{lastRestock.qty}{lastRestock.size ? ` · ${lastRestock.size} ${lastRestock.color || ""}` : ""})</div>}
+        </>
+      )}
+      {rows === null && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Cargando…</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {list.map((m) => (
+          <AdminCard key={m.id} style={{ padding: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 3 }}>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink }}>{product ? `${m.size || ""} · ${m.color || ""}` : m.product_name}</span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: m.qty < 0 ? C.accent : C.ink, whiteSpace: "nowrap" }}>{m.qty > 0 ? "+" : ""}{m.qty}</span>
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>
+              <strong style={{ textTransform: "uppercase", fontSize: 10, letterSpacing: "0.05em" }}>{MOVE_LABEL(m.type)}</strong>
+              {!product && m.size ? ` · ${m.size} ${m.color || ""}` : ""}
+              {m.stock_before != null ? ` · stock ${m.stock_before} → ${m.stock_after}` : ""}
+              {m.unit_price != null && isSale(m.type) ? ` · ${moneyExact(m.unit_price)} c/u` : ""}
+            </div>
+            {(m.doc || m.customer || m.seller) && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 2 }}>{[m.doc, m.customer && `Clienta: ${m.customer}`, m.seller && `Vendió: ${m.seller}`].filter(Boolean).join(" · ")}</div>}
+            {m.note && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 2, fontStyle: "italic" }}>{m.note}</div>}
+            <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 3 }}>{m.staff_name || "Sistema"}{m.channel ? ` · ${m.channel}` : ""} · {new Date(m.created_at).toLocaleString("es-PE")}</div>
+          </AdminCard>
+        ))}
+        {rows && list.length === 0 && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Aún no hay movimientos registrados.</div>}
       </div>
     </div>
   );
@@ -4719,31 +4837,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
     if (found) { setExpanded(found.id); setQ(""); }
   };
 
-  if (showHistory) {
-    return (
-      <div style={{ padding: "18px 18px 90px" }}>
-        <button onClick={() => setShowHistory(false)} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver a Stock</button>
-        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 16px" }}>Historial de movimientos</h1>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {catalog.stockMovements.slice(0, 80).map((m) => {
-            const typeColor = { entrada: C.ink, salida: C.accent, merma: C.accent, ajuste: C.brass, venta: C.brass }[m.type] || C.stone;
-            return (
-              <AdminCard key={m.id} style={{ padding: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink }}>{m.productName}</span>
-                  <span style={{ fontFamily: FONT_BODY, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase", color: typeColor, fontWeight: 700 }}>{m.type}</span>
-                </div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>Talla {m.size} · {m.colorName} · {m.type === "entrada" ? "+" : "-"}{m.qty} u.</div>
-                {m.note && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 3, fontStyle: "italic" }}>{m.note}</div>}
-                <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 4 }}>{m.staffName} · {new Date(m.createdAt).toLocaleString("es-PE")}</div>
-              </AdminCard>
-            );
-          })}
-          {catalog.stockMovements.length === 0 && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Aún no hay movimientos registrados.</div>}
-        </div>
-      </div>
-    );
-  }
+  if (showHistory) return <StockHistory product={showHistory === true ? null : showHistory} catalog={catalog} onBack={() => setShowHistory(false)} />;
 
   return (
     <div style={{ padding: "18px 18px 90px" }}>
@@ -4783,6 +4877,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
               </button>
               {isOpen && (
                 <div style={{ borderTop: `1px solid ${C.paperDeep}`, padding: 12 }}>
+                  <button onClick={() => setShowHistory(p)} style={{ ...quickLinkStyle, width: "100%", justifyContent: "center", marginBottom: 6 }}><FileSpreadsheet size={14} /> Historial de esta prenda (ventas, reposiciones, devoluciones)</button>
                   {p.variants.map((v) => (
                     <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}` }}>
                       <div>
@@ -4807,7 +4902,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
         <StockMovementSheet
           product={activeMove.product} variant={activeMove.variant} staffName={staffName}
           onClose={() => setActiveMove(null)}
-          onSubmit={(movement, newStock) => { onRegisterMovement(activeMove.product.id, activeMove.variant.id, newStock, movement); setActiveMove(null); }}
+          onSubmit={(mv) => onRegisterMovement(activeMove.product, activeMove.variant, mv)}
         />
       )}
     </div>
@@ -6709,14 +6804,29 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const [editingBannerId, setEditingBannerId] = useState(undefined);
   const [editingCollectionId, setEditingCollectionId] = useState(undefined);
 
-  const registerMovement = async (productId, variantId, newStock, movement) => {
-    const { error } = await supabase.rpc("adjust_stock", { p_variant: variantId, p_new_stock: newStock, p_type: movement?.type || "ajuste", p_note: movement?.note || "" });
-    if (error) { alert("No se pudo guardar el stock: " + error.message); return; }
+  // Entradas y salidas suman o restan en el servidor (si otra persona vendió, no se pierde esa venta).
+  const registerMovement = async (product, variant, mv) => {
+    let { data, error } = await supabase.rpc("move_stock", { p_variant: variant.id, p_type: mv.type, p_qty: mv.qty, p_note: mv.note || null, p_expected: mv.type === "ajuste" ? mv.expected : null });
+    if (error?.code === "PGRST202") { // aún no se corrió el SQL 14
+      ({ error } = await supabase.rpc("adjust_stock", { p_variant: variant.id, p_new_stock: mv.newStock, p_type: mv.type === "devolucion" ? "entrada" : mv.type === "regalo" ? "salida" : mv.type, p_note: mv.note || "" }));
+      data = mv.newStock;
+    }
+    if (error) {
+      const m = error.message || "";
+      const now = (m.match(/:(\d+)/) || [])[1];
+      alert(m.includes("STOCK_CAMBIO") ? `Mientras contabas, el stock cambió (alguien vendió o movió esta prenda). Ahora hay ${now}. Vuelve a contar y registra de nuevo.`
+        : m.includes("STOCK_INSUFICIENTE") ? `No alcanza: ahora solo hay ${now} en stock.`
+        : m.includes("SIN_PERMISO") ? "Tu usuario no puede mover stock. Pídeselo a un Administrador."
+        : "No se pudo guardar el stock: " + m);
+      refreshData && refreshData();
+      return false;
+    }
+    const finalStock = Number(data);
     patchCatalog((c) => ({
       ...c,
-      products: c.products.map((p) => p.id !== productId ? p : { ...p, variants: p.variants.map((v) => v.id === variantId ? { ...v, stock: newStock } : v) }),
-      stockMovements: [movement, ...(c.stockMovements || [])],
+      products: c.products.map((p) => p.id !== product.id ? p : { ...p, variants: p.variants.map((v) => v.id === variant.id ? { ...v, stock: Number.isFinite(finalStock) ? finalStock : mv.newStock } : v) }),
     }));
+    return true;
   };
 
 
@@ -6859,7 +6969,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
         {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
-        {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} onSave={saveProduct} onCancel={() => setScreen("products")} />}
+        {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => setScreen("products")} />}
         {(role === "administrador" || role === "superadmin") && screen === "banners" && <AdminBannerList banners={catalog.banners} openEditor={(id) => { setEditingBannerId(id); setScreen("bannerEditor"); }} toggleActive={toggleBannerActive} deleteBanner={deleteBanner} />}
         {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}
         {(role === "administrador" || role === "superadmin") && screen === "collections" && <AdminCollectionList collections={catalog.collections} openEditor={(id) => { setEditingCollectionId(id); setScreen("collectionEditor"); }} deleteCollection={deleteCollection} />}
