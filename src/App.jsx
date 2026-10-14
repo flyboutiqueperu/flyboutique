@@ -6024,7 +6024,7 @@ const ReceiptDocument = ({ sale, settings, format = "80" }) => {
       <div style={{ fontSize: fmt.font + 2 }}><R l="IMPORTE TOTAL" v={money2(total)} b /></div>
       <div style={{ ...small, marginTop: 3 }}>SON: {amountInWords(total)}</div>
       {line}
-      {payments.map((p, i) => <R key={i} l={`Pago ${p.method}`} v={money2(p.amount)} />)}
+      {payments.map((p, i) => <R key={i} l={`Pago ${p.method}${p.code ? ` ${p.code}` : ""}`} v={money2(p.amount)} />)}
       {Number(sale.amountReceived) > 0 && <><R l="Efectivo recibido" v={money2(sale.amountReceived)} /><R l="Vuelto" v={money2(sale.vuelto || 0)} /></>}
       {line}
       <div style={small}>Atendió: {sale.staffName || "—"}{sale.sellerCode ? ` (${sale.sellerCode})` : ""}{sale.cashierName && sale.cashierName !== sale.staffName ? ` · Cajero(a): ${sale.cashierName}` : ""}</div>
@@ -6113,12 +6113,42 @@ const PAY_BADGES = {
   Tarjeta: { bg: "#111111", fg: "#FFFFFF", icon: "card" },
   "Tarjeta (Culqi)": { bg: "#111111", fg: "#FFFFFF", icon: "card" },
   Mixto: { bg: "#8F8F8F", fg: "#FFFFFF", text: "+" },
+  Vale: { bg: "#FFFFFF", fg: "#111111", text: "V", border: true },
 };
+// Pago con vale: código + saldo consultado al servidor (el servidor vuelve a revisar el saldo al guardar la venta)
+const ValeInput = ({ pay, onChange }) => {
+  const [code, setCode] = useState(pay.code || "");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const check = async () => {
+    const c = code.trim().toUpperCase(); if (!c) return;
+    setBusy(true); setMsg("");
+    const { data, error } = await supabase.rpc("credit_lookup", { p_code: c });
+    setBusy(false);
+    if (error) { setMsg(error.code === "PGRST202" ? "Falta correr el SQL 22 en Supabase." : "No se pudo consultar. Revisa tu conexión."); onChange({ code: "", balance: null }); return; }
+    if (!data) { setMsg("Ese código de vale no existe."); onChange({ code: "", balance: null }); return; }
+    if (data.status !== "activo" || Number(data.balance) <= 0) { setMsg(data.status === "anulado" ? "Ese vale está anulado." : "Ese vale ya no tiene saldo."); onChange({ code: "", balance: null }); return; }
+    const amt = Math.min(Number(pay.amount) || 0, Number(data.balance));
+    onChange({ code: data.code, balance: Number(data.balance), amount: amt.toFixed(2) });
+    setMsg(`Saldo ${moneyExact(data.balance)}${data.customer ? ` · a nombre de ${data.customer}` : ""}${amt < Number(pay.amount) ? ". Cobra lo que falta con otro medio." : ""}`);
+  };
+  return (
+    <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 10)); onChange({ code: "", balance: null }); }} onKeyDown={(e) => e.key === "Enter" && check()} placeholder="Código del vale (ej. V7K2QX)" style={{ ...inputStyle, flex: 1, textTransform: "uppercase" }} />
+        <button onClick={check} disabled={busy || !code.trim()} style={{ padding: "0 14px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{busy ? "…" : "Ver saldo"}</button>
+      </div>
+      {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: pay.code ? C.ink : C.accent, marginTop: 6 }}>{msg}</div>}
+      {pay.code && Number(pay.amount) > Number(pay.balance) + 0.004 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginTop: 6 }}>El monto con vale pasa el saldo ({moneyExact(pay.balance)}).</div>}
+    </div>
+  );
+};
+
 const PayBadge = ({ method, size = 30 }) => {
   const b = PAY_BADGES[method] || { bg: C.paperDeep, fg: C.ink, text: String(method || "?").slice(0, 2) };
   const r = Math.round(size * 0.26);
   return (
-    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: r, background: b.bg, color: b.fg, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 1px 2px rgba(0,0,0,0.15)" }}>
+    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: r, background: b.bg, color: b.fg, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 1px 2px rgba(0,0,0,0.15)", ...(b.border ? { border: `1.5px solid ${C.ink}` } : {}) }}>
       {b.icon === "card" ? (
         <svg width={size * 0.66} height={size * 0.48} viewBox="0 0 22 16"><rect x="0.75" y="0.75" width="20.5" height="14.5" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><rect x="0" y="4" width="22" height="2.6" fill="currentColor" /><rect x="3" y="10" width="5" height="2" rx="0.5" fill="currentColor" /></svg>
       ) : b.icon === "bank" ? (
@@ -6129,7 +6159,7 @@ const PayBadge = ({ method, size = 30 }) => {
     </span>
   );
 };
-const POS_PAY_OPTIONS = [["Efectivo", Banknote], ["Tarjeta", CreditCard], ["Yape", Smartphone], ["Plin", Smartphone], ["Transferencia", Landmark]];
+const POS_PAY_OPTIONS = [["Efectivo", Banknote], ["Tarjeta", CreditCard], ["Yape", Smartphone], ["Plin", Smartphone], ["Transferencia", Landmark], ["Vale", Ticket]];
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const ceil10 = (n) => Math.ceil(round2(n) * 10 - 1e-9) / 10;
 const GENERIC_DOC = "00000000";
@@ -6215,7 +6245,9 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const emailOk = anon || !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const addressOk = anon || docType !== "RUC" || customerAddress.trim().length >= 5;
   const customerOk = docOk && nameOk && emailOk && addressOk;
-  const paymentsOk = payments.length > 0 && Math.abs(pending) < 0.005 && (!cash || !received || Number(received) >= Number(cash.amount));
+  const valePay = payments.find((p) => p.method === "Vale");
+  const valeOk = !valePay || (valePay.code && valePay.balance != null && Number(valePay.amount) <= Number(valePay.balance) + 0.004);
+  const paymentsOk = payments.length > 0 && Math.abs(pending) < 0.005 && (!cash || !received || Number(received) >= Number(cash.amount)) && valeOk;
   const canConfirm = customerOk && paymentsOk && saleItems.length > 0 && !busy && !manualOverCap && (!useCodes || !!codeMatch);
 
   // Tocar un medio: si ya está, se quita; si no falta nada por cobrar, reemplaza al último; si falta, se agrega con lo pendiente
@@ -6233,7 +6265,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
     if (!anon && cleanPhone && !matched && onSaveCustomer) onSaveCustomer({ name: name.trim(), doc, phone: cleanPhone, email: email.trim() });
     onConfirm({
       customerName: name.trim(), customerDoc: doc, customerDocType: anon ? "" : docType, customerAddress: docType === "RUC" ? customerAddress.trim() : "", customerPhone: anon ? "" : cleanPhone, customerEmail: anon ? "" : email.trim(),
-      payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount) })),
+      payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount), ...(p.method === "Vale" ? { code: p.code } : {}) })),
       paymentMethod: payments.length > 1 ? "Mixto" : payments[0].method,
       amountReceived: cash && received ? Number(received) : null, vuelto: change && change > 0 ? change : 0,
       promoCode: promo?.code || null, discount: round2(promoDiscount + manualDiscount + pointsDiscount), subtotal, total,
@@ -6364,7 +6396,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
           </div>
           )}
           {step(3, "Pago", paymentsOk, "Toca uno o varios medios. Puedes dividir el pago (ej. S/ 20 tarjeta + S/ 80 efectivo).")}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
             {POS_PAY_OPTIONS.map(([m, Icon]) => {
               const used = payments.some((p) => p.method === m);
               return (
@@ -6382,6 +6414,9 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
               <button onClick={() => setPayments((ps) => ps.filter((_, j) => j !== idx))} aria-label="Quitar pago" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={16} /></button>
             </div>
           ))}
+          {payments.some((p) => p.method === "Vale") && (
+            <ValeInput pay={payments.find((p) => p.method === "Vale")} onChange={(patch) => setPayments((ps) => ps.map((x) => (x.method === "Vale" ? { ...x, ...patch } : x)))} />
+          )}
           {cash && (
             <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -6746,6 +6781,8 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
             <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: C.ink, marginTop: 12 }}>
               {r.difference > 0 ? `Devolver ${moneyExact(r.difference)} (${r.method})` : r.difference < 0 ? `Cobrar ${moneyExact(-r.difference)} (${r.method})` : "Sin diferencia de dinero"}
             </div>
+            {r.valeCode && <div style={{ border: `2px dashed ${C.ink}`, borderRadius: 10, padding: "10px 12px", marginTop: 10, textAlign: "center" }}><div style={{ ...txt, fontSize: 11 }}>VALE DE COMPRA</div><div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 900, letterSpacing: "0.08em", color: C.ink }}>{r.valeCode}</div><div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>Saldo {moneyExact(r.difference)} · úsalo en la tienda Fly</div></div>}
+            {r.method === "Vale" && r.difference > 0 && !r.valeCode && <div style={{ ...txt, color: C.accent, marginTop: 8 }}>El vale se crea cuando se corra el SQL 22 en Supabase.</div>}
             <div style={{ ...txt, marginTop: 4 }}>Motivo: {r.reason}{r.pointsRemoved ? ` · Se quitaron ${r.pointsRemoved} puntos del Club` : ""}</div>
             <div style={{ ...txt, marginTop: 8, fontSize: 10.5 }}>Documento interno. No es nota de crédito electrónica (SUNAT).</div>
           </AdminCard>
@@ -6772,6 +6809,7 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
   const save = async () => {
     if (!anyRet) { setMsg(RETURN_ERRORS.NADA_PARA_DEVOLVER); return; }
     if (!reason.trim()) { setMsg(RETURN_ERRORS.MOTIVO_REQUERIDO); return; }
+    if (method === "Vale" && diff < 0) { setMsg("Si la persona tiene que pagar la diferencia, elige cómo paga (efectivo, Yape…), no «Vale»."); return; }
     setBusy(true); setMsg("");
     const { data, error } = await supabase.rpc("return_sale", {
       p_sale_id: sale.id, p_lines: retLines.filter((l) => l.q > 0).map((l) => ({ variantId: l.it.variantId, qty: l.q })), p_reason: reason.trim(),
@@ -6844,7 +6882,7 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
           </AdminCard>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
             <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Cómo se paga o devuelve" style={inputStyle}>
-              {["Efectivo", "Yape", "Plin", "Tarjeta", "Transferencia", "Vale"].map((m) => <option key={m} value={m}>{m === "Vale" ? "Vale de compra (sin dinero)" : m}</option>)}
+              {["Efectivo", "Yape", "Plin", "Tarjeta", "Transferencia", "Vale"].map((m) => <option key={m} value={m}>{m === "Vale" ? "Vale de compra (saldo para otra compra)" : m}</option>)}
             </select>
             <select value={loc} onChange={(e) => setLoc(e.target.value)} aria-label="Dónde queda la prenda devuelta" style={inputStyle}>
               {locs.map((l) => <option key={l.id} value={l.id}>Queda en {l.name}</option>)}
@@ -6856,6 +6894,71 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
           {msg && <div style={{ ...txt, color: C.accent, marginBottom: 8 }}>{msg}</div>}
           <PrimaryButton disabled={busy || !anyRet} onClick={save}>{busy ? "Guardando…" : newItems.length ? "Registrar cambio" : "Registrar devolución"}</PrimaryButton>
         </>
+      )}
+    </div>
+  );
+};
+
+// Vales de compra (SQL 22): saldo, a nombre de quién, de qué venta salió y cada uso. Administración puede anularlos.
+const CreditsScreen = ({ role }) => {
+  const [list, setList] = useState(null);
+  const [q, setQ] = useState("");
+  const [f, setF] = useState("activo");
+  const [open, setOpen] = useState(null);
+  const [msg, setMsg] = useState("");
+  const load = async () => {
+    const { data, error } = await supabase.from("store_credits").select("*").order("created_at", { ascending: false }).limit(500);
+    if (error) { setMsg(/store_credits|42P01/.test(`${error.code} ${error.message}`) ? "Falta correr el SQL 22 en Supabase." : "No se pudo cargar. Revisa tu conexión."); setList([]); return; }
+    setList(data || []);
+  };
+  useEffect(() => { load(); }, []);
+  const voidIt = async (c) => {
+    const reason = prompt(`Motivo para anular el vale ${c.code} (saldo ${moneyExact(c.balance)}):`);
+    if (!reason || !reason.trim()) return;
+    const { error } = await supabase.rpc("void_credit", { p_code: c.code, p_reason: reason.trim() });
+    if (error) { alert("No se pudo anular: " + (error.message.includes("SIN_PERMISO") ? "solo Administración." : error.message)); return; }
+    load();
+  };
+  const nq = q.trim().toLowerCase();
+  const rows = (list || []).filter((c) => f === "todos" || c.status === f).filter((c) => !nq || `${c.code} ${c.customer_name || ""} ${c.customer_phone || ""} ${c.origin_doc || ""}`.toLowerCase().includes(nq));
+  const active = (list || []).filter((c) => c.status === "activo");
+  const txt = { fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft };
+  return (
+    <div style={{ padding: "18px 18px 100px", maxWidth: 680, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Vales de compra</h1>
+      <div style={{ ...txt, marginBottom: 12 }}>{active.length} vale(s) activos · saldo pendiente {moneyExact(active.reduce((a, c) => a + Number(c.balance), 0))}. Se crean en «Devolución o cambio» y se usan en caja con «Vale».</div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por código, nombre, celular o venta" style={{ ...inputStyle, marginBottom: 10 }} />
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {[["activo", "Activos"], ["usado", "Usados"], ["anulado", "Anulados"], ["todos", "Todos"]].map(([k, l]) => <Chip key={k} active={f === k} onClick={() => setF(k)}>{l}</Chip>)}
+      </div>
+      {msg && <div style={{ ...txt, color: C.accent, marginBottom: 10 }}>{msg}</div>}
+      {list === null ? <div style={txt}>Cargando…</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {rows.map((c) => (
+            <AdminCard key={c.code} style={{ padding: 12 }}>
+              <button onClick={() => setOpen(open === c.code ? null : c.code)} style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+                <div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, letterSpacing: "0.06em", color: C.ink }}>{c.code}</div>
+                  <div style={txt}>{c.customer_name || "Sin nombre"}{c.origin_doc ? ` · de ${c.origin_doc}` : ""} · {new Date(c.created_at).toLocaleDateString("es-PE")}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.ink }}>{moneyExact(c.balance)}</div>
+                  <div style={{ ...txt, fontSize: 10.5 }}>{c.status === "activo" ? `de ${moneyExact(c.amount)}` : c.status === "usado" ? "usado" : "anulado"}</div>
+                </div>
+              </button>
+              {open === c.code && (
+                <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 8 }}>
+                  {(c.history || []).map((h, i) => (
+                    <div key={i} style={{ ...txt, marginBottom: 4 }}>{new Date(h.at).toLocaleString("es-PE")} · {h.type}{h.doc ? ` ${h.doc}` : ""} · {Number(h.amount) >= 0 ? "+" : "−"}{moneyExact(Math.abs(Number(h.amount) || 0))}{h.by ? ` · ${h.by}` : ""}{h.note ? ` · «${h.note}»` : ""}</div>
+                  ))}
+                  {c.note && <div style={{ ...txt, marginTop: 4 }}>Motivo de la devolución: {c.note}</div>}
+                  {c.status === "activo" && STAFF_ADMIN.includes(role) && <button onClick={() => voidIt(c)} style={{ marginTop: 8, padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Anular vale</button>}
+                </div>
+              )}
+            </AdminCard>
+          ))}
+          {!rows.length && <div style={{ ...txt, textAlign: "center", padding: 24 }}>No hay vales con ese filtro.</div>}
+        </div>
       )}
     </div>
   );
@@ -7296,6 +7399,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("returns")} style={quickLinkStyle}><Undo2 size={16} color={C.ink} /> Devolución o cambio de prendas <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("credits")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Vales de compra (saldos) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("customers")} style={quickLinkStyle}><Users size={16} color={C.ink} /> Clientas (Club Fly y permisos de publicidad) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("sellers")} style={quickLinkStyle}><User size={16} color={C.ink} /> Vendedores (códigos MA01) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -7586,7 +7690,7 @@ const BigAction = ({ icon: Icon, title, hint, onClick, dark = false, disabled = 
   </button>
 );
 
-const CashScreen = ({ catalog, role, onGoSell, onReturns }) => {
+const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
   const canManage = ["superadmin", "administrador", "cajero"].includes(role);
   const isAdmin = role === "superadmin" || role === "administrador";
   const { stores, store, choose } = useStoreChoice(catalog.settings);
@@ -7711,6 +7815,7 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns }) => {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
                 {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint="Ir al punto de venta" onClick={onGoSell} dark />}
                 {onReturns && <BigAction icon={Undo2} title="Devolución o cambio" hint="De una venta ya hecha" onClick={onReturns} />}
+                {onCredits && <BigAction icon={Ticket} title="Vales" hint="Ver saldo de un vale" onClick={onCredits} />}
                 <BigAction icon={Plus} title="Entrada" hint="Meter efectivo (ej. sencillo)" onClick={() => { setMove({ type: "entrada", amount: "", reason: "" }); setClosing(null); }} />
                 <BigAction icon={Minus} title="Salida" hint="Sacar efectivo (ej. compras)" onClick={() => { setMove({ type: "salida", amount: "", reason: "" }); setClosing(null); }} />
                 <BigAction icon={RotateCcw} title="Cambio de turno" hint="Entregar la caja a otra vendedora" onClick={() => { setClosing({ counted: "", notes: "", shift: true, next: "" }); setMove(null); }} />
@@ -8052,6 +8157,11 @@ const STAFF_GUIDES = {
   ] },
   promocodes: { title: "Códigos promocionales", steps: [["Gift", "Crea un código (ej. FLY10) con % o monto. Puede ser solo para el Club Fly. Desactívalo cuando termine la promoción."]] },
   complaints: { title: "Libro de Reclamaciones", steps: [["BookOpen", "Responde cada reclamo dentro del plazo legal (15 días hábiles). La respuesta queda guardada."]] },
+  credits: { title: "Vales de compra", steps: [
+    ["Ticket", "Un vale se crea al hacer una devolución eligiendo «Vale». Tiene un código (ej. V7K2QX) y un saldo."],
+    ["Banknote", "Para usarlo: en Cobrar toca «Vale», escribe el código y «Ver saldo». Si no alcanza, cobra lo que falta con otro medio."],
+    ["ShieldCheck", "El saldo se descuenta al guardar la venta; si se anula la venta, el saldo vuelve al vale."],
+  ] },
   returns: { title: "Devolución o cambio", steps: [
     ["Search", "Escribe el número de la venta (está en el ticket, ej. B001-000123) y toca «Buscar»."],
     ["Undo2", "Marca con + las prendas que vuelven. Si se lleva otra (cambio de talla o color), búscala o escanéala."],
@@ -8069,7 +8179,7 @@ const STAFF_GUIDES = {
     ["X", "Si alguien deja de trabajar, desactívalo. No se borra, para no perder sus ventas en los reportes."],
   ] },
 };
-const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2, RotateCcw, BookOpen, Layers, ImageIcon, Eye, Gift, Search };
+const GUIDE_ICONS = { Ticket, Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2, RotateCcw, BookOpen, Layers, ImageIcon, Eye, Gift, Search };
 
 // Captura de una pantalla para las guías (si la imagen no existe, no se muestra nada)
 const GuideImage = ({ src, alt }) => {
@@ -8223,7 +8333,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -8297,6 +8407,8 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const saleErrorText = (m) => m.includes("SIN_STOCK") ? `Sin stock suficiente de "${m.split("SIN_STOCK:")[1] || "una prenda"}". Revisa el stock.`
     : m.includes("PRECIO_CAMBIO") ? "El precio de una prenda cambió. Recarga la página e intenta de nuevo."
     : m.includes("PAGO_INCOMPLETO") ? "La suma de los pagos no coincide con el total."
+    : m.includes("VALE_SIN_SALDO") ? `El vale no tiene saldo suficiente (le quedan S/ ${m.split("VALE_SIN_SALDO:")[1] || "0"}).`
+    : m.includes("VALE_NO_EXISTE") ? "Ese código de vale no existe."
     : m.includes("CAJA_CERRADA") ? "La caja de esta sede está cerrada. Ábrela en Caja para poder vender."
     : m.includes("VENDEDOR_INVALIDO") ? "El código de vendedor no es válido o está desactivado."
     : m.includes("CLUB_DESACTIVADO") ? "El Club Fly está en pausa: no se pueden usar puntos."
@@ -8429,7 +8541,8 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" role={role} onGoCash={() => setScreen("caja")} />}
         {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
-        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} onReturns={canOpenScreen(role, "returns") ? () => { setReturnSale(null); setScreen("returns"); } : null} />}
+        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} onReturns={canOpenScreen(role, "returns") ? () => { setReturnSale(null); setScreen("returns"); } : null} onCredits={canOpenScreen(role, "credits") ? () => setScreen("credits") : null} />}
+        {canOpenScreen(role, "credits") && screen === "credits" && <CreditsScreen role={role} />}
         {canOpenScreen(role, "returns") && screen === "returns" && <ReturnsScreen key={returnSale?.id || "nueva"} catalog={catalog} initialSale={returnSale}
           onSaved={(data) => { patchCatalog((c) => ({ ...c, sales: c.sales.some((x) => x.id === data.id) ? c.sales.map((x) => (x.id === data.id ? data : x)) : c.sales })); refreshData && refreshData(); }} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
