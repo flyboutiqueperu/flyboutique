@@ -526,7 +526,7 @@ const isOutlet = (p) => p?.outlet === true;
 // El Outlet se abre o se pausa en Panel → Configuración. Pausado: sus prendas no se ven ni se venden en la web.
 const outletOn = (settings = SHOP_SETTINGS) => settings?.outletEnabled !== false;
 const webVisible = (p) => p.showOnline !== false && (!isOutlet(p) || outletOn());
-const OUTLET_RULES = ["Precio final: no aplican cupones ni puntos del Club, y no suman puntos.", "El envío lo paga la clienta (no cuenta para el envío gratis).", "Sin cambios ni devoluciones, salvo falla de fábrica."];
+const OUTLET_RULES = ["Precio final: no aplican cupones ni puntos del Club, y no suman puntos.", "El envío se paga aparte (no cuenta para el envío gratis).", "Sin cambios ni devoluciones, salvo falla de fábrica."];
 const OutletRules = ({ compact }) => (
   <div style={{ background: C.paperDeep, borderRadius: 10, padding: compact ? "10px 12px" : "12px 14px", fontFamily: FONT_BODY, fontSize: compact ? 11.5 : 12, color: C.inkSoft, lineHeight: 1.55 }}>
     <strong style={{ color: C.ink, letterSpacing: "0.08em", textTransform: "uppercase", fontSize: 10.5 }}>Outlet · Venta final</strong>
@@ -1791,7 +1791,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                 {stock === 0 && size && (() => {
                   const v = product.variants.find((vv) => vv.size === size && vv.colorName === color?.n);
                   const reservedElsewhere = v && v.stock > 0;
-                  return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 10 }}>{reservedElsewhere ? "Otra clienta la tiene en su cesta ahora mismo. Vuelve a intentar en unos minutos." : "Sin stock en esta combinación."}</div>;
+                  return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 10 }}>{reservedElsewhere ? "Otra persona la tiene en su cesta ahora mismo. Vuelve a intentar en unos minutos." : "Sin stock en esta combinación."}</div>;
                 })()}
               </div>
 
@@ -2085,14 +2085,14 @@ const CartHoldNotice = ({ cart, onRenew }) => {
   if (left <= 0) return (
     <div style={box}>
       <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
-      <span style={{ flex: 1 }}>Pasó el tiempo de reserva: tus prendas siguen en la cesta, pero otra clienta podría llevárselas.</span>
+      <span style={{ flex: 1 }}>Pasó el tiempo de reserva: tus prendas siguen en la cesta, pero otra persona podría llevárselas.</span>
       {onRenew && <button onClick={onRenew} style={{ padding: "7px 10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>Apartar de nuevo</button>}
     </div>
   );
   return (
     <div style={box}>
       <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
-      <span>Te apartamos estas prendas <strong style={{ color: C.ink }}>{left} min más</strong> (hasta las {new Date(until).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}). Después quedan libres para otras clientas.</span>
+      <span>Te apartamos estas prendas <strong style={{ color: C.ink }}>{left} min más</strong> (hasta las {new Date(until).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}). Después quedan libres para otras personas.</span>
     </div>
   );
 };
@@ -2138,7 +2138,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
   const applyPromo = () => {
     const promo = findPromo(promoCodes, promoInput);
     if (!promo) { setPromoMsg({ ok: false, text: "Código no válido" }); return; }
-    if (promo.clubOnly && !clubMember) { setPromoMsg({ ok: false, text: "Este código es solo para miembras del Club Fly — regístrate gratis en la pestaña Club Fly." }); return; }
+    if (promo.clubOnly && !clubMember) { setPromoMsg({ ok: false, text: "Este código es solo para el Club Fly — únete gratis en la pestaña Club Fly." }); return; }
     setAppliedPromo(promo);
     setPromoMsg({ ok: true, text: `Código ${promo.code} aplicado` });
   };
@@ -3411,11 +3411,11 @@ const ProfileScreen = ({ points, favCount, onStaffClick, clubMember, onLogoutClu
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
         <div style={{ width: 62, height: 62, borderRadius: "50%", background: C.paperDeep, border: `1.5px solid ${C.ink}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800 }}>{initials}</div>
         <div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800 }}>{clubMember ? clubMember.name : "Invitada"}</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800 }}>{clubMember ? clubMember.name : "Hola"}</div>
           {clubMember ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}><Award size={12} color={C.brass} /><span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}>Miembra Club Fly</span></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}><Award size={12} color={C.brass} /><span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}>Club Fly</span></div>
           ) : (
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 3 }}>Aún no eres del Club Fly</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 3 }}>Inicia sesión o únete al Club Fly</div>
           )}
         </div>
       </div>
@@ -4670,7 +4670,7 @@ const AdminPromoCodesScreen = ({ promoCodes, onSave, onDelete }) => {
             <div style={{ flex: 1 }}><Field label="Valor"><input type="number" style={inputStyle} value={editing.value} onChange={(e) => set("value", Number(e.target.value))} /></Field></div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 6 }}>
-            <Switch on={editing.clubOnly} onClick={() => set("clubOnly", !editing.clubOnly)} label="Solo para miembras del Club Fly" />
+            <Switch on={editing.clubOnly} onClick={() => set("clubOnly", !editing.clubOnly)} label="Solo para el Club Fly" />
             <Switch on={editing.active} onClick={() => set("active", !editing.active)} label="Código activo" />
           </div>
         </AdminCard>
@@ -7692,7 +7692,7 @@ export default function FlyBoutiqueApp() {
       else if (m.includes("SIN_STOCK")) alert(`Lo sentimos, "${m.split("SIN_STOCK:")[1] || "una prenda"}" ya no tiene stock suficiente. Ajusta tu cesta.`);
       else if (m.includes("PRECIO_CAMBIO")) alert("El precio de una prenda cambió. Recarga la página para ver el precio actualizado.");
       else if (m.includes("TOTAL_CAMBIO")) alert("El total de tu pedido cambió (precio, descuento o envío). Recarga la página e intenta de nuevo.");
-      else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para miembras del Club Fly. Quítalo o regístrate en el Club Fly.");
+      else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para el Club Fly. Quítalo o regístrate en el Club Fly.");
       else if (m.includes("PROMO_INVALIDA")) alert("Ese código promocional ya no está activo. Quítalo e intenta de nuevo.");
       else if (m.includes("CLUB_DESACTIVADO")) alert("El Club Fly está en pausa: por ahora no se pueden usar puntos. Desactiva \"usar puntos\" para seguir.");
       else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, confirma tu cuenta en Club Fly (Google o código al correo). Desactiva \"usar puntos\" para seguir sin ellos.");
@@ -7727,7 +7727,7 @@ export default function FlyBoutiqueApp() {
     setClubMember(member);
     setClubPoints(Number(c.points) || 0);
     try { window.storage.set(CLUB_KEY, JSON.stringify(member), false); } catch (e) { /* storage unavailable */ }
-    showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
+    showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Te damos la bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
     if (!c.existing) track("sign_up", { method: "formulario" });
     return true;
   };
@@ -7775,7 +7775,7 @@ export default function FlyBoutiqueApp() {
       setClubPoints(Number(c.points) || 0);
       try { window.storage.set(CLUB_KEY, JSON.stringify(member), false); } catch (e) { /* storage unavailable */ }
       if (isNew && !c.existing) track("sign_up", { method: "google" });
-      if (isNew) showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
+      if (isNew) showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Te damos la bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
     });
   }, [googleProfile?.email]);
 
