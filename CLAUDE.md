@@ -10,6 +10,7 @@ Este archivo se lee al inicio de cada sesión de Claude Code. Contiene: (1) regl
 - Cada tarea en **su propia rama**. Al terminar, crea un **Pull Request a `main`** con: qué cambió, qué probaste, riesgos y cómo volver atrás.
 - Ejecuta `npm install` y `npm run build` antes de cada PR. Si falla, no abras el PR: avisa y corrige.
 - Si hay cambios en Supabase, guarda el SQL en la carpeta `/supabase` con número (ej. `08-fase2-caja.sql`) y explica paso a paso cómo correrlo y **en qué orden respecto a publicar el código** (normalmente: primero el SQL, después el Merge).
+- Alberto corre el SQL desde el **celular**: además del archivo, pega el SQL completo en el chat (sin comentarios) dentro de un bloque de código para copiar y pegar.
 - **Nunca** pongas claves secretas en el código. **Nunca** borres datos. **Nunca** corras cambios destructivos sin aprobación.
 - Trabaja por fases (sección 19 de la instrucción maestra). Al terminar cada fase, informa según la sección 20.
 - Si necesitas una decisión, haz **una** pregunta concreta y recomienda una opción.
