@@ -8,6 +8,7 @@ import {
   MessageCircle, Download, FileSpreadsheet, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import JsBarcode from "jsbarcode";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { supabase, setStaffSessionMode, clearStaffSessionMode } from "./supabaseClient.js";
@@ -3256,16 +3257,115 @@ const formatAddress = (a) => a.type === "provincia"
     ? [a.address, a.city, a.state, a.zip && `CP ${a.zip}`, a.country].filter(Boolean).join(", ")
     : [a.address, a.district, "Trujillo"].filter(Boolean).join(", ");
 
+// ---- Ubicación para la entrega: mapa (OpenStreetMap, gratis), distritos del Perú (INEI) y enlaces para el repartidor ----
+const TRUJILLO_CENTER = { lat: -8.1116, lng: -79.0288 };
+const latLngOf = (d) => {
+  if (d && Number.isFinite(Number(d.lat)) && Number.isFinite(Number(d.lng)) && d.lat !== "" && d.lng !== "") return { lat: Number(d.lat), lng: Number(d.lng) };
+  const m = String(d?.mapsUrl || "").match(/q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  return m ? { lat: Number(m[1]), lng: Number(m[2]) } : null;
+};
+const mapsLink = (p) => `https://www.google.com/maps?q=${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+const wazeLink = (p) => `https://waze.com/ul?ll=${p.lat.toFixed(6)},${p.lng.toFixed(6)}&navigate=yes`;
+let ubigeoCache = null;
+const loadUbigeo = () => (ubigeoCache ||= import("./data/ubigeo-peru.json").then((m) => m.default || m));
+
+// Mapa para marcar dónde se entrega: toca el mapa o arrastra el pin
+const MapPicker = ({ value, onClose, onPick }) => {
+  const boxRef = useRef(null);
+  const mapRef = useRef(null);
+  const [pt, setPt] = useState(value || null);
+  const [err, setErr] = useState("");
+  const [locating, setLocating] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([import("leaflet"), import("leaflet/dist/leaflet.css")]).then(([mod]) => {
+      if (!alive || !boxRef.current) return;
+      const L = mod.default || mod;
+      const start = value || TRUJILLO_CENTER;
+      const map = L.map(boxRef.current, { zoomControl: true, attributionControl: true }).setView([start.lat, start.lng], value ? 17 : 13);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+      const icon = L.divIcon({ className: "fly-pin", html: '<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;background:#111;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>', iconSize: [22, 22], iconAnchor: [11, 22] });
+      let marker = value ? L.marker([value.lat, value.lng], { icon, draggable: true }).addTo(map) : null;
+      const put = (lat, lng) => {
+        if (!marker) { marker = L.marker([lat, lng], { icon, draggable: true }).addTo(map); marker.on("dragend", () => { const p = marker.getLatLng(); setPt({ lat: p.lat, lng: p.lng }); }); }
+        else marker.setLatLng([lat, lng]);
+        setPt({ lat, lng });
+      };
+      if (marker) marker.on("dragend", () => { const p = marker.getLatLng(); setPt({ lat: p.lat, lng: p.lng }); });
+      map.on("click", (e) => put(e.latlng.lat, e.latlng.lng));
+      mapRef.current = { map, put };
+      setTimeout(() => map.invalidateSize(), 200);
+    }).catch(() => setErr("No se pudo cargar el mapa. Revisa tu conexión."));
+    return () => { alive = false; try { mapRef.current?.map.remove(); } catch (e) { /* nada */ } };
+  }, []);
+  const locateMe = () => {
+    if (!navigator.geolocation) { setErr("Tu navegador no permite compartir ubicación."); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition((pos) => {
+      setLocating(false);
+      const { latitude: lat, longitude: lng } = pos.coords;
+      mapRef.current?.put(lat, lng); mapRef.current?.map.setView([lat, lng], 17);
+    }, () => { setLocating(false); setErr("No pudimos obtener tu ubicación. Activa el permiso de ubicación o marca el punto en el mapa."); }, { enableHighAccuracy: true, timeout: 12000 });
+  };
+  return (
+    <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}88` }} />
+      <div className="sheet-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: "16px 16px 20px", maxHeight: "94vh", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink }}>¿Dónde entregamos?</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Toca el mapa en la puerta de tu casa o arrastra el pin. El repartidor llegará a ese punto.</div>
+        <div ref={boxRef} style={{ width: "100%", height: "min(56vh, 420px)", borderRadius: 12, overflow: "hidden", background: C.paperDeep }} />
+        {err && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" onClick={locateMe} disabled={locating} style={{ flex: "1 1 160px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}><Navigation size={14} /> {locating ? "Buscando…" : "Estoy aquí (usar mi ubicación)"}</button>
+          <PrimaryButton disabled={!pt} style={{ flex: "1 1 160px", width: "auto" }} onClick={() => { onPick(pt); onClose(); }}>Confirmar ubicación</PrimaryButton>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Departamento → Provincia → Distrito (lista oficial del INEI)
+const PeruPlaceSelects = ({ v, set }) => {
+  const [ubigeo, setUbigeo] = useState(null);
+  useEffect(() => { loadUbigeo().then(setUbigeo).catch(() => setUbigeo({})); }, []);
+  const provs = ubigeo && v.department ? Object.keys(ubigeo[v.department] || {}).sort((a, b) => a.localeCompare(b, "es")) : [];
+  const dists = ubigeo && v.department && v.city ? (ubigeo[v.department]?.[v.city] || []) : [];
+  const grid = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 };
+  const sel = (val, onCh, label, opts, disabled) => (
+    <select value={val || ""} onChange={(e) => onCh(e.target.value)} disabled={disabled} style={{ ...inputStyle, opacity: disabled ? 0.6 : 1 }} aria-label={label}>
+      <option value="">{label}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+  return (
+    <>
+      <div style={grid}>
+        {sel(v.department, (x) => set({ department: x, city: "", district: "" }), "Departamento *", PERU_DEPARTMENTS)}
+        {ubigeo && Object.keys(ubigeo).length ? sel(v.city, (x) => set({ city: x, district: "" }), "Provincia *", provs, !v.department)
+          : <input value={v.city || ""} onChange={(e) => set({ city: e.target.value })} placeholder="Provincia / ciudad *" style={inputStyle} />}
+      </div>
+      <div style={grid}>
+        {ubigeo && Object.keys(ubigeo).length ? sel(v.district, (x) => set({ district: x }), "Distrito *", dists, !v.city)
+          : <input value={v.district || ""} onChange={(e) => set({ district: e.target.value })} placeholder="Distrito *" style={inputStyle} />}
+        <input value={v.zip || ""} inputMode="numeric" onChange={(e) => set({ zip: e.target.value.replace(/\D/g, "").slice(0, 5) })} placeholder="Código postal (opcional)" style={inputStyle} />
+      </div>
+    </>
+  );
+};
+
 // Formulario de dirección (se usa en "Mis direcciones" y en la cesta)
 const AddressFields = ({ value, onChange, type }) => {
   const v = value || {};
   const set = (k, x) => onChange({ ...v, type, [k]: x });
+  const setMany = (patch) => onChange({ ...v, type, ...patch });
   const [locating, setLocating] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const here = latLngOf(v);
+  const pick = (p) => setMany({ lat: Number(p.lat.toFixed(6)), lng: Number(p.lng.toFixed(6)), mapsUrl: mapsLink(p) });
   const locate = () => {
     if (!navigator.geolocation) { alert("Tu navegador no permite compartir ubicación."); return; }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setLocating(false); onChange({ ...v, type, mapsUrl: `https://www.google.com/maps?q=${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}` }); },
+      (pos) => { setLocating(false); pick({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
       () => { setLocating(false); alert("No pudimos obtener tu ubicación. Revisa que el permiso de ubicación esté activado."); },
       { enableHighAccuracy: true, timeout: 12000 }
     );
@@ -3286,19 +3386,7 @@ const AddressFields = ({ value, onChange, type }) => {
           <input value={v.zip || ""} onChange={(e) => set("zip", e.target.value.replace(/[^0-9A-Za-z -]/g, "").slice(0, 10))} placeholder="Código postal *" style={{ ...inputStyle, marginBottom: 8 }} />
         </>
       ) : type === "provincia" ? (
-        <>
-          <div style={grid}>
-            <select value={v.department || ""} onChange={(e) => set("department", e.target.value)} style={inputStyle}>
-              <option value="">Departamento</option>
-              {PERU_DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <input value={v.city || ""} onChange={(e) => set("city", e.target.value)} placeholder="Provincia / ciudad *" style={inputStyle} />
-          </div>
-          <div style={grid}>
-            <input value={v.district || ""} onChange={(e) => set("district", e.target.value)} placeholder="Distrito *" style={inputStyle} />
-            <input value={v.zip || ""} inputMode="numeric" onChange={(e) => set("zip", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="Código postal (opcional)" style={inputStyle} />
-          </div>
-        </>
+        <PeruPlaceSelects v={v} set={setMany} />
       ) : (
         <select value={v.district || ""} onChange={(e) => set("district", e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
           <option value="">Distrito en Trujillo</option>
@@ -3313,12 +3401,18 @@ const AddressFields = ({ value, onChange, type }) => {
           {SHIPPING_AGENCIES.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
       )}
-      {type === "local" && (
+      {(type === "local" || type === "provincia") && (
+        <button type="button" onClick={() => setMapOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "center", padding: "11px 12px", borderRadius: 8, border: `1px solid ${here ? C.ink : C.line}`, background: here ? C.paperDeep : C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", marginBottom: 8 }}>
+          <MapPin size={14} /> {here ? "Punto marcado en el mapa ✓ (tocar para cambiar)" : type === "local" ? "Marcar en el mapa dónde entregamos" : "Marcar en el mapa (opcional, para delivery a domicilio)"}
+        </button>
+      )}
+      {mapOpen && <MapPicker value={here} onClose={() => setMapOpen(false)} onPick={pick} />}
+      {type === "local" && !here && (
         <button type="button" onClick={locate} disabled={locating} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "center", padding: "11px 12px", borderRadius: 8, border: `1px solid ${v.mapsUrl ? C.ink : C.line}`, background: v.mapsUrl ? C.paperDeep : "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
           <Navigation size={14} /> {locating ? "Buscando tu ubicación…" : v.mapsUrl ? "Ubicación exacta agregada ✓ (tocar para actualizar)" : "Usar mi ubicación actual (para el repartidor)"}
         </button>
       )}
-      {v.mapsUrl && <a href={v.mapsUrl} target="_blank" rel="noreferrer" style={{ display: "block", textAlign: "center", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 8 }}>Ver en Google Maps</a>}
+      {here && <a href={mapsLink(here)} target="_blank" rel="noreferrer" style={{ display: "block", textAlign: "center", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 8 }}>Ver en Google Maps</a>}
     </div>
   );
 };
@@ -3783,6 +3877,90 @@ const AdminNav = ({ screen, setScreen, role }) => {
 
 const quickLinkStyle = { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink };
 
+// ---- Resumen del negocio (inicio del panel): todo sale de los registros reales ----
+const ACTION_LABELS = { venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
+const BusinessSummary = ({ catalog, go }) => {
+  const [extra, setExtra] = useState({ transfers: null, cash: null, activity: null });
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      supabase.from("stock_transfers").select("id").eq("status", "en_camino").limit(500),
+      supabase.from("cash_sessions").select("store_id,closed_at,closed_by_name,difference,notes").eq("status", "cerrada").order("closed_at", { ascending: false }).limit(10),
+      supabase.from("audit_log").select("at,user_name,action,details").order("at", { ascending: false }).limit(8),
+    ]).then(([t, c, a]) => { if (alive) setExtra({ transfers: t.error ? null : (t.data || []).length, cash: c.error ? null : c.data || [], activity: a.error ? null : a.data || [] }); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const valid = (catalog.sales || []).filter((x) => x.status !== "anulado");
+  const day = 86400000;
+  const start = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
+  const today = start(Date.now());
+  const weekStart = today - ((new Date(today).getDay() + 6) % 7) * day; // lunes
+  const n = new Date(); const monthStart = new Date(n.getFullYear(), n.getMonth(), 1).getTime(); const prevMonthStart = new Date(n.getFullYear(), n.getMonth() - 1, 1).getTime();
+  const sumIn = (a, b) => valid.filter((x) => x.createdAt >= a && x.createdAt < b);
+  const tot = (l) => l.reduce((t, x) => t + (x.total || 0), 0);
+  const elapsed = Date.now() - monthStart;
+  const periods = [
+    ["Hoy", sumIn(today, Date.now() + 1), sumIn(today - day, Date.now() - day), "vs. ayer a esta hora"],
+    ["Esta semana", sumIn(weekStart, Date.now() + 1), sumIn(weekStart - 7 * day, Date.now() - 7 * day), "vs. semana pasada"],
+    ["Este mes", sumIn(monthStart, Date.now() + 1), sumIn(prevMonthStart, prevMonthStart + elapsed), "vs. mismos días del mes pasado"],
+  ];
+  const month = periods[2][1];
+  const web = month.filter((x) => x.channel === "online"), shop = month.filter((x) => x.channel !== "online");
+  const orders = (catalog.sales || []).filter((x) => x.channel === "online" && x.source === "web" && x.status !== "anulado");
+  const toValidate = orders.filter((x) => x.paymentStatus !== "confirmado").length;
+  const toShip = orders.filter((x) => x.paymentStatus === "confirmado" && x.fulfillment !== "entregado").length;
+  const low = catalog.products.reduce((a, p) => a + p.variants.filter((v) => v.stock > 0 && v.stock <= (p.minStock ?? 3)).length, 0);
+  const out = catalog.products.filter(productSoldOut).length;
+  const diffs = (extra.cash || []).filter((c) => Math.abs(Number(c.difference) || 0) >= 0.5);
+  const pct = (a, b) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
+  const tile = (label, value, sub, onClick, alert, small) => (
+    <button key={label} onClick={onClick} style={{ textAlign: "left", background: C.paperDeep, border: `1px solid ${alert ? C.accent : C.line}`, borderRadius: 12, padding: "14px 16px", cursor: onClick ? "pointer" : "default", minWidth: 0 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: C.stone }}>{label}</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: small ? 17 : 22, fontWeight: 800, color: alert ? C.accent : C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{value}</div>
+      {sub && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 1 }}>{sub}</div>}
+    </button>
+  );
+  return (
+    <>
+      <span style={labelStyle}>Ventas</span>
+      <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
+        {periods.map(([label, cur, prev, vsText]) => { const p = pct(tot(cur), tot(prev)); return tile(label, money(tot(cur)), `${cur.length} ventas${p !== null ? ` · ${p >= 0 ? "+" : ""}${p}% ${vsText}` : ""}`, () => go("reports")); })}
+        {tile("Mes: tienda / web", <>{money(tot(shop))}<br />{money(tot(web))}</>, `${shop.length} en tienda · ${web.length} por la web`, () => go("reports"), false, true)}
+      </div>
+      <span style={labelStyle}>Pendientes</span>
+      <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
+        {tile("Pagos por validar", toValidate, "Pedidos web", () => go("onlineorders"), toValidate > 0)}
+        {tile("Por preparar o enviar", toShip, "Pedidos web pagados", () => go("onlineorders"))}
+        {tile("Guías en camino", extra.transfers ?? "—", "Traslados por recibir", () => go("transfers"), (extra.transfers || 0) > 0)}
+        {tile("Stock bajo", low, `${out} productos agotados`, () => go("stock"), out > 0)}
+      </div>
+      {extra.cash && (
+        <AdminCard style={{ marginBottom: 14 }}>
+          <span style={labelStyle}>Diferencias de caja (últimos cierres)</span>
+          {diffs.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>{extra.cash.length ? "Los últimos cierres cuadraron." : "Aún no hay cierres de caja."}</div> : diffs.slice(0, 5).map((c, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+              <span style={{ minWidth: 0 }}>{fmtDT(c.closed_at)} · {c.closed_by_name || "—"}<span style={{ display: "block", fontSize: 11, color: C.stone }}>{c.notes || "Sin motivo"}</span></span>
+              <strong style={{ color: Number(c.difference) < 0 ? C.accent : C.ink, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{Number(c.difference) > 0 ? "+" : "−"}{money2(Math.abs(Number(c.difference)))}</strong>
+            </div>
+          ))}
+        </AdminCard>
+      )}
+      {extra.activity && extra.activity.length > 0 && (
+        <AdminCard style={{ marginBottom: 24 }}>
+          <span style={labelStyle}>Actividad reciente</span>
+          {extra.activity.map((a, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>
+              <span style={{ minWidth: 0 }}>{ACTION_LABELS[a.action] || a.action.replace(/_/g, " ")}{a.details?.guia ? ` · ${a.details.guia}` : a.details?.motivo ? ` · ${a.details.motivo}` : ""}</span>
+              <span style={{ color: C.stone, whiteSpace: "nowrap" }}>{a.user_name || ""} · {fmtDT(a.at)}</span>
+            </div>
+          ))}
+        </AdminCard>
+      )}
+      <span style={labelStyle}>Configuración de la tienda</span>
+    </>
+  );
+};
+
 const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
   const { products, banners, collections } = catalog;
   const agotados = products.filter(productSoldOut).length;
@@ -3852,26 +4030,13 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
     yapeNumber: catalog.settings?.yapeNumber || "", plinNumber: catalog.settings?.plinNumber || "",
     bankName: catalog.settings?.bankName || "", bankAccount: catalog.settings?.bankAccount || "", bankCCI: catalog.settings?.bankCCI || "",
   });
-  const stats = [
-    ["Productos", products.length, () => setAdminScreen("products")],
-    ["Agotados", agotados, () => setAdminScreen("products")],
-    ["Banners activos", banners.filter((b) => b.active).length, () => setAdminScreen("banners")],
-    ["Colecciones", collections.length, () => setAdminScreen("collections")],
-  ];
   const saveCulqiKey = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, culqiPublicKey: culqiKey.trim() } })); alert("Llave pública de Culqi guardada."); };
   const savePayAccounts = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, ...payAccounts } })); alert("Datos de pago guardados."); };
   return (
     <div style={{ padding: "20px 18px 90px" }}>
       <Eyebrow>Fly</Eyebrow>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 24, color: C.ink, fontWeight: 800, margin: "0 0 20px" }}>Panel de control</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
-        {stats.map(([label, val, onClick]) => (
-          <button key={label} onClick={onClick} style={{ textAlign: "left", background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px", cursor: "pointer" }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 800, color: C.ink }}>{val}</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 2 }}>{label}</div>
-          </button>
-        ))}
-      </div>
+      <BusinessSummary catalog={catalog} go={setAdminScreen} />
       <AdminCard style={{ marginBottom: 14 }}>
         <span style={labelStyle}>Yape, Plin y transferencia bancaria</span>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
@@ -4751,6 +4916,55 @@ const labelMissing = (o) => {
   return miss;
 };
 
+// Texto para el repartidor / mensajero (WhatsApp) con todos los datos y la ubicación
+const riderMessage = (o) => {
+  const d = o.deliveryDetails || {};
+  const pt = latLngOf(d);
+  const place = [d.district, d.city, d.department || d.state, d.country].filter(Boolean).join(", ");
+  return [
+    `*Entrega FLY ${o.serie}-${String(o.numero).padStart(6, "0")}*`,
+    o.customerName && `Recibe: ${o.customerName}`,
+    o.customerPhone && `Celular: +${o.customerPhone}`,
+    (d.address || o.deliveryAddress) && `Dirección: ${d.address || o.deliveryAddress}`,
+    place && `Lugar: ${place}`,
+    d.reference && `Referencia: ${d.reference}`,
+    pt && `Ubicación: ${mapsLink(pt)}`,
+    pt && `Waze: ${wazeLink(pt)}`,
+    `Paquete: ${o.items.reduce((a, i) => a + i.qty, 0)} prenda(s)`,
+    `Pago: ${o.paymentStatus === "confirmado" ? "ya pagado, no cobrar" : `consultar con la tienda antes de entregar (${money(o.total)})`}`,
+  ].filter(Boolean).join("\n");
+};
+
+const RiderShare = ({ o }) => {
+  const pt = latLngOf(o.deliveryDetails);
+  if (o.deliveryMethod === "recojo") return null;
+  const btn = { display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, textDecoration: "none" };
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "4px 0 8px" }}>
+      {pt && <a href={mapsLink(pt)} target="_blank" rel="noreferrer" style={btn}><MapPin size={13} /> Google Maps</a>}
+      {pt && <a href={wazeLink(pt)} target="_blank" rel="noreferrer" style={btn}><Navigation size={13} /> Waze</a>}
+      <a href={`https://wa.me/?text=${encodeURIComponent(riderMessage(o))}`} target="_blank" rel="noreferrer" style={{ ...btn, background: C.ink, color: C.paper, borderColor: C.ink }}>Enviar al repartidor por WhatsApp</a>
+    </div>
+  );
+};
+
+// QR en la etiqueta: el repartidor lo escanea y se abre el mapa
+const LocationQR = ({ url }) => {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    let alive = true;
+    import("qrcode").then((m) => (m.default || m).toDataURL(url, { margin: 0, width: 220, errorCorrectionLevel: "M" })).then((d) => { if (alive) setSrc(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [url]);
+  if (!src) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, borderTop: "1px dashed #000", marginTop: 8, paddingTop: 8 }}>
+      <img src={src} alt="QR de la ubicación" style={{ width: 92, height: 92 }} />
+      <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.35 }}>Escanea para ver la ubicación en el mapa</div>
+    </div>
+  );
+};
+
 const ShippingLabel = ({ order, orders, settings, onClose }) => {
   const list = orders || [order];
   return (
@@ -4794,7 +5008,7 @@ const LabelCard = ({ o, settings }) => {
           {line("Cód. postal", d.zip)}
           {line("Referencia", d.reference)}
           {line("Agencia", d.agency || d.carrier)}
-          {d.mapsUrl && line("Ubicación", d.mapsUrl)}
+          {latLngOf(d) && <LocationQR url={mapsLink(latLngOf(d))} />}
           <div style={{ borderTop: "1px dashed #000", margin: "8px 0", paddingTop: 6, fontSize: 12 }}>
             <strong>Contenido ({o.items.reduce((a, i) => a + i.qty, 0)}):</strong> {o.items.map((i) => `${i.name} ${i.size}/${i.colorName} x${i.qty}`).join(" · ")}
           </div>
@@ -4878,7 +5092,7 @@ const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, can
               {o.deliveryDetails?.reference && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 4 }}>Referencia: {o.deliveryDetails.reference}</div>}
               {o.deliveryDetails?.carrier && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 4 }}>Envío internacional: {o.deliveryDetails.carrier}{o.deliveryDetails.toQuote ? " (costo por cotizar)" : ""}</div>}
               {o.deliveryDetails?.agency && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 4 }}>Agencia: {o.deliveryDetails.agency}</div>}
-              {o.deliveryDetails?.mapsUrl && <a href={o.deliveryDetails.mapsUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 4 }}>Ver ubicación en Google Maps</a>}
+              <RiderShare o={o} />
               {o.paymentRef && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, fontWeight: 600, margin: "4px 0 8px" }}>N.° de operación: {o.paymentRef}</div>}
               {o.pointsUsed > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 6 }}>Usó {o.pointsUsed} puntos ({money(o.pointsDiscount)} de descuento)</div>}
               <div style={{ borderTop: `1px solid ${C.paperDeep}`, paddingTop: 8, marginBottom: 10 }}>
@@ -5322,8 +5536,86 @@ const StockHistory = ({ product, catalog, onBack }) => {
   );
 };
 
+// ---- Etiquetas con código de barras (para pistolear en caja, stock y guías). NO son comprobantes ----
+const LABEL_FORMATS = {
+  r5025: { name: "Rollo 50 × 25 mm", w: "50mm", h: "25mm", page: "50mm 25mm", roll: true, bar: 1.1, barH: 26 },
+  r4030: { name: "Rollo 40 × 30 mm", w: "40mm", h: "30mm", page: "40mm 30mm", roll: true, bar: 0.9, barH: 34 },
+  a4: { name: "Hoja A4 adhesiva (3 × 8)", w: "63.5mm", h: "33.9mm", page: "A4", roll: false, bar: 1.3, barH: 34 },
+};
+const Barcode = ({ value, width = 1.2, height = 30 }) => {
+  const ref = useRef(null);
+  const [bad, setBad] = useState(false);
+  useEffect(() => {
+    if (!ref.current || !value) return;
+    try { JsBarcode(ref.current, value, { format: "CODE128", width, height, margin: 0, displayValue: true, fontSize: 9, textMargin: 1, background: "#ffffff", lineColor: "#000000" }); setBad(false); }
+    catch (e) { setBad(true); }
+  }, [value, width, height]);
+  if (!value || bad) return <div style={{ fontSize: 9, color: "#b3261e" }}>Sin código válido</div>;
+  return <svg ref={ref} style={{ maxWidth: "100%", height: "auto", display: "block" }} />;
+};
+const LabelsScreen = ({ catalog, onBack }) => {
+  const [q, setQ] = useState("");
+  const [qty, setQty] = useState({}); // variantId -> cantidad de etiquetas
+  const [fmt, setFmt] = useState(() => { try { return localStorage.getItem("flyboutique:etiquetas") || "r5025"; } catch (e) { return "r5025"; } });
+  const [showPrice, setShowPrice] = useState(true);
+  const F = LABEL_FORMATS[fmt];
+  const nq = q.trim().toLowerCase();
+  const rows = catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => !nq || `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq));
+  const labels = catalog.products.flatMap((p) => p.variants.flatMap((v) => Array.from({ length: Math.min(500, parseInt(qty[v.id] || "0", 10) || 0) }, (_, k) => ({ key: `${v.id}-${k}`, p, v }))));
+  const setN = (id, n) => setQty((x) => ({ ...x, [id]: String(n) }));
+  const onScan = (e) => {
+    if (e.key !== "Enter") return;
+    const code = q.trim().toLowerCase();
+    for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { setN(v.id, (parseInt(qty[v.id] || "0", 10) || 0) + 1); setQ(""); return; } }
+  };
+  const label = ({ key, p, v }) => (
+    <div key={key} className="fly-label" style={{ width: F.w, height: F.h, boxSizing: "border-box", padding: "1.5mm 2mm", background: "#fff", color: "#000", fontFamily: "'Jost', Arial, sans-serif", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden", border: "1px dashed #bbb" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 4 }}>
+        <span style={{ fontFamily: "'Archivo', Arial, sans-serif", fontWeight: 900, fontSize: 10 }}>FLY</span>
+        {showPrice && <span style={{ fontWeight: 700, fontSize: 10 }}>S/ {Number(p.price).toFixed(2)}</span>}
+      </div>
+      <div style={{ fontSize: 8.5, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+      <div style={{ fontSize: 8.5, fontWeight: 600 }}>Talla {v.size} · {v.colorName}</div>
+      <Barcode value={v.sku} width={F.bar} height={F.barH} />
+    </div>
+  );
+  const choose = (k) => { setFmt(k); try { localStorage.setItem("flyboutique:etiquetas", k); } catch (e) { /* nada */ } };
+  return (
+    <div style={{ padding: "18px 18px 90px" }}>
+      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver a Stock</button>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Etiquetas con código de barras</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14 }}>Para pegar en las prendas y pistolearlas en caja, stock y traslados. Cada talla y color lleva su propio código.</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {Object.entries(LABEL_FORMATS).map(([k, x]) => <Chip key={k} active={fmt === k} onClick={() => choose(k)}>{x.name}</Chip>)}
+      </div>
+      <div style={{ marginBottom: 12 }}><Switch on={showPrice} onClick={() => setShowPrice((x) => !x)} label="Mostrar precio en la etiqueta" /></div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onScan} placeholder="Busca la prenda o escanea su código + Enter (suma 1)" style={{ ...inputStyle, marginBottom: 10 }} />
+      <AdminCard style={{ padding: 8, marginBottom: 14, maxHeight: 360, overflowY: "auto" }}>
+        {rows.slice(0, 80).map(({ p, v }) => (
+          <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 4px", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+            <span style={{ flex: 1, minWidth: 0 }}>{p.name} · {v.size} {v.colorName}<span style={{ display: "block", fontSize: 11, color: v.sku ? C.stone : C.accent }}>{v.sku || "Sin código: ponlo en Productos → editar"} · stock {v.stock}</span></span>
+            <button type="button" onClick={() => setN(v.id, v.stock)} disabled={!v.stock} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer", color: C.ink }}>= stock</button>
+            <input inputMode="numeric" value={qty[v.id] || ""} onChange={(e) => setN(v.id, e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="0" aria-label={`Etiquetas de ${p.name} ${v.size}`} style={{ ...inputStyle, width: 56, padding: "6px 8px", textAlign: "center" }} />
+          </div>
+        ))}
+        {rows.length === 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, padding: 8 }}>Sin resultados.</div>}
+      </AdminCard>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <button onClick={() => window.print()} disabled={!labels.length} style={{ ...quickLinkStyle, justifyContent: "center", fontWeight: 600, opacity: labels.length ? 1 : 0.4 }}><Receipt size={15} /> Imprimir {labels.length} etiquetas</button>
+        {labels.length > 0 && <button onClick={() => setQty({})} style={{ background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Vaciar</button>}
+      </div>
+      {labels.length > 0 && <span style={labelStyle}>Vista previa</span>}
+      <div className="print-area labels-sheet" style={{ display: "flex", flexWrap: "wrap", gap: F.roll ? 8 : 0, background: "#fff", padding: F.roll ? 0 : 0 }}>
+        <style>{`@media print { @page { size: ${F.page}; margin: ${F.roll ? "0" : "13mm 7mm"}; } .labels-sheet { gap: 0 !important; display: ${F.roll ? "block" : "grid"} !important; grid-template-columns: repeat(3, 63.5mm); } .fly-label { border: none !important; ${F.roll ? "page-break-after: always; break-after: page;" : ""} } }`}</style>
+        {labels.map(label)}
+      </div>
+    </div>
+  );
+};
+
 /* ---- Stock: main screen (shared by Vendedor + Administrador) ---- */
 const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, canEdit }) => {
+  const [showLabels, setShowLabels] = useState(false);
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [activeMove, setActiveMove] = useState(null); // {product, variant}
@@ -5343,6 +5635,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, 
     if (found) { setExpanded(found.id); setQ(""); }
   };
 
+  if (showLabels) return <LabelsScreen catalog={catalog} onBack={() => setShowLabels(false)} />;
   if (showHistory) return <StockHistory product={showHistory === true ? null : showHistory} catalog={catalog} onBack={() => setShowHistory(false)} />;
 
   return (
@@ -5367,6 +5660,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         <button onClick={() => setShowHistory(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><FileSpreadsheet size={15} /> Ver historial de movimientos</button>
         {onOpenTransfers && <button onClick={onOpenTransfers} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Navigation size={15} /> Traslados entre sedes</button>}
+        {canEdit && <button onClick={() => setShowLabels(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Scan size={15} /> Imprimir etiquetas</button>}
       </div>
 
       <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={handleSearchKeyDown} placeholder="Buscar por nombre o escanea un código + Enter" style={{ ...inputStyle, marginBottom: 16 }} />
@@ -8072,7 +8366,7 @@ export default function FlyBoutiqueApp() {
       loadAnalytics({ gaId: (catalog.settings.gaId || "").trim(), clarityId: (catalog.settings.clarityId || "").trim() });
     }
   }, [cookieChoice, catalog?.settings?.gaId, catalog?.settings?.clarityId]);
-  const SCREEN_TITLES = { outlet: "Outlet", complaints: "Libro de Reclamaciones", home: "Inicio", category: "Catálogo", viewed: "Visto", cart: "Cesta", profile: "Cuenta", loyalty: "Club Fly", orders: "Mis pedidos", info: "Información", favorites: "Favoritos", addresses: "Direcciones", payments: "Métodos de pago" };
+  const SCREEN_TITLES = { track: "Seguir mi pedido", outlet: "Outlet", complaints: "Libro de Reclamaciones", home: "Inicio", category: "Catálogo", viewed: "Visto", cart: "Cesta", profile: "Cuenta", loyalty: "Club Fly", orders: "Mis pedidos", info: "Información", favorites: "Favoritos", addresses: "Direcciones", payments: "Métodos de pago" };
   // Al cambiar de sección se cierra la ficha abierta y se vuelve arriba
   useEffect(() => { setSelectedProduct(null); scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); }, [screen, infoSectionIndex]);
   useEffect(() => { if (selectedProduct) { scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); } }, [selectedProduct?.id]);
@@ -8080,31 +8374,44 @@ export default function FlyBoutiqueApp() {
   const restoringRef = useRef(false);
   const catalogRef = useRef(null); catalogRef.current = catalog;
   const deepLinkDone = useRef(false);
-  const routeHash = () => (selectedProduct ? `#/p/${selectedProduct.id}` : screen === "home" ? "#/" : screen === "category" ? `#/catalogo${activeCategory !== "Todo" ? "/" + encodeURIComponent(activeCategory) : ""}${searchQuery ? "?q=" + encodeURIComponent(searchQuery) : ""}` : `#/${screen}`);
+  // Direcciones normales (sin #) para que Google indexe cada prenda y WhatsApp muestre su foto:
+  //   /p/<id> · /catalogo/<categoría>?q=… · /outlet · /cart … Los enlaces viejos con #/ se convierten solos.
+  const routePath = () => (selectedProduct ? `/p/${encodeURIComponent(selectedProduct.id)}` : screen === "home" ? "/" : screen === "category" ? `/catalogo${activeCategory !== "Todo" ? "/" + encodeURIComponent(activeCategory) : ""}${searchQuery ? "?q=" + encodeURIComponent(searchQuery) : ""}` : `/${screen}`);
+  const currentRoute = () => window.location.pathname + window.location.search;
   useEffect(() => {
     if (mode !== "store" || !catalog || !deepLinkDone.current) return; // primero se respeta el enlace con el que entró
-    const h = routeHash();
+    const h = routePath();
     if (restoringRef.current) { restoringRef.current = false; return; }
-    if (window.location.hash === h) return;
-    try { if (!window.location.hash || window.location.hash === "#") window.history.replaceState(null, "", h); else window.history.pushState(null, "", h); } catch (e) { /* sin historial */ }
+    if (currentRoute() === h && !window.location.hash) return;
+    try { window.history.pushState(null, "", h); } catch (e) { /* sin historial */ }
   }, [screen, selectedProduct?.id, activeCategory, searchQuery, mode, !!catalog]);
   useEffect(() => {
     const apply = () => {
-      const h = window.location.hash || "#/";
-      if (!h.startsWith("#/") || mode !== "store") return;
+      if (mode !== "store") return;
+      const h = window.location.hash || "";
+      let route = currentRoute();
+      if (h.startsWith("#/")) { route = h.slice(1) || "/"; try { window.history.replaceState(null, "", route); } catch (e) { /* nada */ } } // enlace viejo con #
       restoringRef.current = true;
-      const [path, query] = h.slice(2).split("?");
-      const parts = path.split("/");
+      const [path, query] = route.slice(1).split("?");
+      const parts = path.split("/").filter(Boolean);
       if (parts[0] === "p" && parts[1]) { const p = catalogRef.current?.products.find((x) => x.id === decodeURIComponent(parts[1])); if (p && webVisible(p)) { setSelectedProduct(p); return; } }
       setSelectedProduct(null);
       if (parts[0] === "catalogo") { setActiveCategory(parts[1] ? decodeURIComponent(parts[1]) : "Todo"); setSearchQuery(query && query.startsWith("q=") ? decodeURIComponent(query.slice(2)) : ""); setScreen("category"); return; }
-      setScreen(parts[0] || "home");
+      setScreen(parts[0] && SCREEN_TITLES[parts[0]] ? parts[0] : "home"); // dirección desconocida → inicio
     };
     window.addEventListener("popstate", apply);
-    // enlace directo a una prenda (por ejemplo, compartido por WhatsApp): se abre una sola vez al cargar
-    if (catalog && !deepLinkDone.current) { deepLinkDone.current = true; const h0 = window.location.hash || ""; if (h0.startsWith("#/") && h0 !== "#/") apply(); } // enlaces directos: #/outlet, #/catalogo, #/p/…
+    // enlace directo (compartido por WhatsApp, Google, Instagram…): se abre una sola vez al cargar
+    if (catalog && !deepLinkDone.current) { deepLinkDone.current = true; const h0 = window.location.hash || ""; if ((h0.startsWith("#/") && h0 !== "#/") || (window.location.pathname !== "/" && !h0.startsWith("#staff") && h0 !== "#caja")) apply(); else if (h0 === "#/") { try { window.history.replaceState(null, "", "/"); } catch (e) { /* nada */ } } }
     return () => window.removeEventListener("popstate", apply);
   }, [!!catalog, mode]);
+  // Título de la pestaña y descripción según lo que se ve (Google también los lee)
+  useEffect(() => {
+    if (mode !== "store") return;
+    const p = selectedProduct;
+    document.title = p ? `${p.name} · Fly Boutique Perú` : screen === "home" ? "Fly Boutique Perú · Moda femenina" : screen === "category" && activeCategory !== "Todo" ? `${activeCategory} · Fly Boutique Perú` : `${SCREEN_TITLES[screen] || "Tienda"} · Fly Boutique Perú`;
+    const m = document.querySelector('meta[name="description"]');
+    if (m) m.setAttribute("content", p ? (p.description || `${p.name} · S/ ${Number(p.price).toFixed(2)}`).slice(0, 160) : "Fly Boutique Perú: moda femenina elegante. Compra online con envío a todo el Perú o recoge en tienda.");
+  }, [mode, screen, selectedProduct?.id, activeCategory]);
   const openInfo = (i) => { setInfoSectionIndex(i); setScreen("info"); };
   useEffect(() => {
     if (mode !== "store") return;

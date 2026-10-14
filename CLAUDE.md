@@ -20,7 +20,7 @@ Este archivo se lee al inicio de cada sesión de Claude Code. Contiene: (1) regl
 ## 2. CONTEXTO DEL PROYECTO
 
 - **Stack:** React 18 + Vite. Casi todo está en un solo archivo grande: `src/App.jsx`. Supabase (base de datos, Auth, Storage). Vercel (publicación automática desde `main`).
-- **Producción:** https://flyboutique.vercel.app — panel del staff en `/#staff`, caja directa en `/#caja`. Rutas de la tienda con hash: `#/`, `#/catalogo`, `#/p/<id>`, etc.
+- **Producción:** https://flyboutique.vercel.app — panel del staff en `/#staff`, caja directa en `/#caja`. Rutas de la tienda **sin hash** (para SEO): `/`, `/catalogo/<categoría>`, `/p/<id>`, `/outlet`, `/cart`… (los enlaces viejos `#/…` se convierten solos). `vercel.json` reescribe todo a `index.html`; `/p/<id>` pasa por `api/p.js` (título, foto, precio y JSON-LD para Google/WhatsApp) y `/sitemap.xml` por `api/sitemap.js`.
 - **Supabase:** proyecto `yknpuirmbfoeeqjaikhu`. Variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` configuradas en Vercel.
 - **Datos:**
   - Catálogo público (productos, variantes con stock, colecciones, banners, ajustes, promos) en **un solo JSONB**: tabla `store_data` (id = `main`).
