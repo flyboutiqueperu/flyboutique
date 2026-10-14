@@ -25,7 +25,8 @@ const C = {
 };
 const FONT_DISPLAY = "'Archivo', 'Helvetica Neue', Arial, sans-serif";
 const FONT_BODY = "'Jost', 'Helvetica Neue', Arial, sans-serif";
-const imgGrade = { filter: "saturate(0.9) contrast(1.04)" };
+// Sin filtros de color sobre las fotos: se ven tal cual son y el deslizar es más fluido en equipos antiguos.
+const imgGrade = {};
 const STORAGE_KEY = "flyboutique:catalog:v1";
 const WISHLIST_KEY = "flyboutique:wishlist:v1";
 const CLUB_KEY = "flyboutique:clubmember:v1";
@@ -531,7 +532,7 @@ const ProductImg = ({ src, alt, style, dim }) => {
   if (!src || broken) {
     return <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center", background: C.paperDeep }}><BadgeLogo size={30} /></div>;
   }
-  return <img src={src} alt={alt} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }} onError={() => setBroken(true)} loading="lazy" />;
+  return <img src={src} alt={alt} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }} onError={() => setBroken(true)} loading="lazy" decoding="async" />;
 };
 
 /* ------------------------------------------------------------------ */
@@ -632,7 +633,7 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
   const sameColor = (cardColor ? shown : colorPhotos(product, (product.images || [])[0]?.colorName)).filter((im) => im.url !== baseImg);
   const altImg = sameColor[0]?.url || (cardColor ? null : hoverImageUrl(product));
   return (
-    <div style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => onOpen(product, cardColor)}>
+    <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => onOpen(product, cardColor)}>
       <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
         <Tag label={label} />
         <button aria-label={fav ? "Quitar de favoritos" : "Guardar en favoritos"} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -7023,12 +7024,13 @@ export default function FlyBoutiqueApp() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   useEffect(() => {
     const content = document.querySelector(".app-content");
+    let raf = 0;
     const onScroll = () => {
-      const y = window.scrollY || content?.scrollTop || 0;
-      setShowBackToTop(y > 500);
+      if (raf) return; // como máximo una vez por cuadro: el deslizar no se traba
+      raf = requestAnimationFrame(() => { raf = 0; const y = window.scrollY || content?.scrollTop || 0; setShowBackToTop(y > 500); });
     };
-    window.addEventListener("scroll", onScroll);
-    content?.addEventListener("scroll", onScroll);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    content?.addEventListener("scroll", onScroll, { passive: true });
     return () => { window.removeEventListener("scroll", onScroll); content?.removeEventListener("scroll", onScroll); };
   }, [screen]);
   const scrollToTop = () => scrollAllTop(true);
@@ -7464,6 +7466,9 @@ export default function FlyBoutiqueApp() {
         .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
         .app-content { scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        /* Las tarjetas fuera de pantalla no se dibujan hasta acercarse: inicio y catálogo más fluidos en equipos antiguos */
+        .pcard { content-visibility: auto; contain-intrinsic-block-size: auto 460px; }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
         @media print { @page { margin: 8mm; } body * { visibility: hidden !important; } .print-area, .print-area * { visibility: visible !important; } .print-area { position: absolute; left: 0; top: 0; width: 100%; border: none !important; } }
         @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes popIn { from { transform: scale(.97); opacity: 0; } to { transform: scale(1); opacity: 1; } }
