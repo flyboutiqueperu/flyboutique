@@ -1,0 +1,16 @@
+create schema auth;
+create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
+create function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt()->>'sub','')::uuid $$;
+create table store_data (id text primary key default 'main', data jsonb not null, updated_at timestamptz not null default now());
+create table sales (id text primary key, data jsonb, created_at timestamptz default now());
+create table customers (phone text primary key, data jsonb);
+create table store_private (id text primary key, data jsonb, updated_at timestamptz default now());
+create table doc_counters (serie text primary key, next_number int not null default 1);
+create table reservations (session_id text, variant_id text, qty int, expires_at timestamptz, primary key (session_id, variant_id));
+alter table reservations enable row level security;
+create policy "reservas_leer" on reservations for select using (true);
+create table staff_profiles (user_id uuid primary key, username text, name text, role text, phone text, active boolean default true, created_at timestamptz default now());
+create function public.is_staff() returns boolean language sql stable security definer set search_path = public as $$ select exists (select 1 from staff_profiles where user_id = auth.uid() and active) $$;
+create function public.staff_role() returns text language sql stable security definer set search_path = public as $$ select case when public.is_staff() then (select role from public.staff_profiles where user_id = auth.uid()) end $$;
+create function public.has_role(variadic roles text[]) returns boolean language sql stable security definer set search_path = public as $$ select coalesce(public.staff_role() = any(roles), false) $$;
+create function public.customer_points(p_phone text) returns integer language sql stable security definer set search_path = public as $$ select coalesce((data->>'points')::int, 0) from public.customers where phone = p_phone $$;

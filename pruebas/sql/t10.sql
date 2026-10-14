@@ -1,0 +1,10 @@
+set client_min_messages = warning;
+select t_as('{}');
+create or replace function t_err(q text) returns text language plpgsql as $$ begin execute q; return 'sin error'; exception when others then return sqlerrm; end $$;
+select register_customer('Nueva Dos','51900111555','n2@x.com','OK')->>'existing' as nueva_false;
+select r->>'name' as solo_primer_nombre, r->>'email' as correo_vacio from (select register_customer('Otro','51999000111','yo@x.com','OK') r) x;
+select t_err($q$ select register_customer('X','51900333444','x@x.com','DUPLICADO') $q$) as token_usado;
+select t_err($q$ select register_customer('X','51900333444','x@x.com','CAIDO') $q$) as sin_conexion;
+select t_err($q$ select register_customer('X','51900333444','x@x.com','') $q$) as sin_token;
+update app_secrets set value='malo' where name='turnstile_secret';
+select t_err($q$ select register_customer('X','51900333444','x@x.com','OK') $q$) as clave_mala;

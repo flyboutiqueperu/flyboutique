@@ -1,0 +1,10 @@
+set client_min_messages = warning;
+select t_as('{}');
+update store_data set data = jsonb_set(data, '{products,0,variants,1,stock}', '30');
+select place_order('{"items":[{"variantId":"v2","name":"V","qty":1,"unitPrice":100}],"deliveryMethod":"local","total":112}', 's')->>'shipping' as local_defecto_12;
+update store_data set data = jsonb_set(data, '{settings,localShipping}', '{"price":15,"freeFrom":90}');
+select place_order('{"items":[{"variantId":"v2","name":"V","qty":1,"unitPrice":100}],"deliveryMethod":"local","total":100}', 's')->>'shipping' as local_gratis_desde_90;
+select place_order('{"items":[{"variantId":"v2","name":"V","qty":1,"unitPrice":100}],"deliveryMethod":"provincia","deliveryDetails":{"department":"Lima"},"total":115}', 's')->>'shipping' as lima_defecto_15;
+update store_data set data = jsonb_set(data, '{settings,provinceRates}', '{"Lima":9}');
+select place_order('{"items":[{"variantId":"v2","name":"V","qty":1,"unitPrice":100}],"deliveryMethod":"provincia","deliveryDetails":{"department":"Lima"},"total":109}', 's')->>'shipping' as lima_configurado_9;
+select t_expect_error($q$ select place_order('{"items":[{"variantId":"v2","name":"V","qty":1,"unitPrice":100}],"deliveryMethod":"provincia","deliveryDetails":{"department":"Lima"},"total":115}', 's') $q$, 'TOTAL_CAMBIO') as total_viejo_rechazado;

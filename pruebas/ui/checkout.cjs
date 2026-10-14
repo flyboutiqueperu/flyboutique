@@ -1,0 +1,36 @@
+const { chromium } = require("playwright-core");
+const http = require("http"), fs = require("fs"), path = require("path");
+const dist = path.join(__dirname, "dist"), out = process.argv[2];
+const types = { ".js": "text/javascript", ".png": "image/png", ".css": "text/css", ".webmanifest": "application/manifest+json" };
+const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?")[0].split("#")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": types[path.extname(f)] || "text/html" }); r.end(fs.readFileSync(f)); }).listen(4352);
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const exp = Math.floor(Date.now() / 1000) + 3600;
+const role = process.argv[3] || "administrador";
+const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: "u1", aal: "aal2", role: "authenticated", exp, email: "ana@staff.flyboutique.pe", amr: [{ method: "totp", timestamp: 1 }] })}.sig`;
+const user = { id: "u1", email: "ana@staff.flyboutique.pe", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, factors: [{ id: "f1", factor_type: "totp", status: "verified" }] };
+const mk = (id, name, price, sizes) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, images: [], variants: sizes.map((s, i) => ({ id: id + s, size: s, colorName: "Negro", colorHex: "#111", stock: 3 + i, sku: (id + "-" + s).toUpperCase() })) });
+const catalog = { products: [mk("p1", "Blusa Seda Marfil", 129, ["XS", "S", "M", "L"]), mk("p2", "Pantalón Sastre", 189, ["S", "M"]), mk("p3", "Vestido Midi", 219, ["M"]), mk("p4", "Top Lino", 79, ["S"])], collections: [], banners: [], settings: { cartHoldMinutes: 20 }, promoCodes: [] };
+(async () => {
+  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, geolocation: { latitude: -8.105, longitude: -79.02 }, permissions: ["geolocation"] });
+  await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
+  const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));
+  await p.route("**/tile.openstreetmap.org/**", (rt) => rt.fulfill({ status: 404, body: "" }));
+  await p.route("http://fake.supabase.test/**", (rt) => { const u = rt.request().url(); if (u.includes("store_data")) return rt.fulfill({ json: { data: catalog } }); if (u.includes("set_reservation")) return rt.fulfill({ json: 3 }); return rt.fulfill({ json: [] }); });
+  await p.goto("http://localhost:4352/p/p1"); await p.waitForTimeout(1500);
+  await p.getByRole("button", { name: /añadir a la cesta|agregar a la cesta|añadir$/i }).last().click(); await p.waitForTimeout(500);
+  await p.evaluate(() => { location.hash = "#/cart"; }); await p.waitForTimeout(900);
+  const go = await p.$("button:has-text('Continuar'), button:has-text('Finalizar'), button:has-text('Tramitar')"); console.log("botón:", go && await go.innerText());
+  await p.click("text=Envío a otra provincia").catch((e) => console.log("no chip provincia", e.message)); await p.waitForTimeout(800);
+  await p.selectOption("select[aria-label='Departamento *']", "La Libertad"); await p.waitForTimeout(200);
+  await p.selectOption("select[aria-label='Provincia *']", "Pacasmayo"); await p.waitForTimeout(200);
+  const dists = await p.$$eval("select[aria-label^='Distrito'] option", (os) => os.map((o) => o.value).filter(Boolean));
+  console.log("Distritos de Pacasmayo:", dists.join(", "));
+  await p.screenshot({ path: `${out}/c-provincia.png` });
+  await p.click("text=Delivery en Trujillo").catch(() => {}); await p.waitForTimeout(500);
+  const mb = await p.$("text=Marcar en el mapa dónde entregamos");
+  console.log("botón mapa local:", !!mb);
+  if (mb) { await mb.click(); await p.waitForTimeout(1500); await p.click("text=Estoy aquí").catch((e) => console.log("no estoy aquí", e.message)); await p.waitForTimeout(800); await p.screenshot({ path: `${out}/c-mapa.png` }); await p.click("text=Confirmar ubicación"); await p.waitForTimeout(500); }
+  console.log("tras confirmar:", (await p.innerText("body")).match(/Punto marcado[^\n]*/)?.[0], "| link:", await p.getAttribute("a:has-text('Ver en Google Maps')", "href").catch(() => null));
+  await b.close(); srv.close();
+})().catch((e) => { console.log("FALLO:", e.message); process.exit(1); });

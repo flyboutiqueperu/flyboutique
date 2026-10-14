@@ -37,10 +37,36 @@ Este archivo se lee al inicio de cada sesión de Claude Code. Contiene: (1) regl
 - **SQL creados hasta hoy** (verificar con consultas de SOLO LECTURA cuáles están aplicados):
   1. seguridad-staff · 2. captcha-turnstile · 3. registro-google · 4. storage-fotos-videos · 5. libro-reclamaciones · 6. rol-almacen · 7. ventas-servidor (estos 7 no están en el repo)
   8. `supabase/08-fase2a-parches.sql` (aplicado) · 9. `09-fase2b-club-caja.sql` · 10. `10-registro-club.sql` · 11. `11-fase2-caja.sql` (caja, rol cajero, códigos de vendedor, Club Fly activable) · 12. `12-pedidos-sin-pago.sql` · 13. `13-caja-turnos.sql` · 14. `14-historial-y-concurrencia.sql` (historial `stock_movements` por trigger, `move_stock`, `save_catalog` por producto, reserva de cesta configurable, candados de caja) · 15. `15-acceso-codigo-correo.sql` (Club: entrar con código al correo; `google_email()` acepta Google u OTP, nunca contraseña ni staff) · 16. `16-club-contrasena.sql` (contraseña de clienta solo si la creó estando verificada; tabla `customer_auth`) · 17. `17-outlet.sql` (Outlet: producto `outlet:true`; sin cupones/puntos, no cuenta para envío gratis; `outletSubtotal` en la venta) · 18. `18-costos-gastos.sql` (tablas privadas `product_costs` y `expenses`; solo superadmin/administrador; gastos solo se anulan) · 19. `19-ubicaciones-stock.sql` (stock por sede `stockBy`: `principal`=Larco, `almacen`=Almacén, cuadre automático por trigger; guías de traslado `stock_transfers` con `create_transfer`/`receive_transfer`/`cancel_transfer`; `move_stock` con `p_location`) · 20. `20-permiso-publicidad.sql` (permiso de publicidad del Club en `customers.data.marketing`; `register_customer` con `p_marketing`, `my_marketing`, `set_marketing_consent`, `staff_set_marketing`) · 21. `21-devoluciones-cambios.sql` (`return_sale`: devolución parcial y cambio con diferencia de dinero, caja, puntos y stock; `find_sale_for_return`; `void_sale` bloquea ventas con devoluciones; la venta guarda `returns`, `refundedTotal`, `returnStatus`)) · 22. `22-vales.sql` (tabla `store_credits`; disparador `sales_store_credit` en `sales`: descuenta el saldo al pagar con «Vale» + `code`, crea el vale en devoluciones con método Vale y lo repone si se anula la venta; `credit_lookup`, `void_credit`). Cada uno tiene su `-VOLVER-ATRAS.sql`.
-- Pruebas del SQL: se hacen en un PostgreSQL local que imita las tablas/funciones de producción (no hay pruebas automáticas en el repo).
+- **Pruebas:** kit en `/pruebas` (ver `pruebas/LEEME.md`): base PostgreSQL local que imita producción + todos los SQL (`bash pruebas/sql/build.sh prueba1`) y pruebas de navegador con Supabase simulado (`pruebas/ui/*.cjs`). No toca producción.
 - **Riesgos conocidos:** sobreventa web/tienda (hasta aplicar Fase 2), catálogo en un solo JSONB (ediciones simultáneas pueden pisarse), caja sin turnos, comprobantes solo internos (SUNAT pendiente: requiere proveedor tipo Nubefact y RUC), pagos online manuales (Culqi pendiente), la copia de seguridad descargable no incluye las fotos de Storage, no hay pruebas automáticas.
 - **Textos para quien compra: neutros en género** (también compran hombres para regalar): «Hola», «te damos la bienvenida», «otra persona». En el panel del staff se puede usar «clienta».
 - **Identidad visual:** blanco y negro estrictos; rojo solo para ofertas y errores. Logo: letras "FLY" (sin círculo). Fuentes: Archivo (títulos) + Jost (texto). Inspiración funcional: Privé by Zalando.
+
+---
+
+## 2b. ESTADO ACTUAL Y PENDIENTES (actualizar al terminar cada tarea)
+
+**Última actualización:** 14-oct-2026.
+
+**Cómo se trabaja con Alberto:**
+- Cada tarea: rama → PR → Alberto toca **Merge** desde el celular. Claude **nunca** hace Merge, nunca corre SQL en Supabase y nunca toca Vercel.
+- SQL nuevo: se agrega sin comentarios a la página «Copiar SQL» (https://claude.ai/artifact/4dVXkJgozDmzqE8SN4yq42). Hay que leerla primero con Artifact `read` y republicarla con su `url`.
+- Al final, el resumen va en pasos numerados: 1) correr SQL (si hay), 2) Merge, 3) qué probar.
+
+**Hecho (PR ya en `main`):**
+- Fases 1–3: auditoría, parches de seguridad, roles y caja (turnos, arqueo, códigos de vendedor), stock por sede, guías de traslado, historial, devoluciones/cambios, vales, costos y gastos, panel del negocio.
+- Fase 4: Club (código al correo y contraseña), Outlet, entrega con mapa y distritos (INEI), selector talla/color que no deja elegir combinaciones inexistentes, zoom de fotos en móvil, miniaturas («Optimizar fotos»), carga por partes.
+- Apps: tienda y «Fly Staff» instalables; aviso «Hay una versión nueva»; barra inferior con «Inicio».
+- PR #20 (pendiente de Merge al escribir esto): tienda en **ES | EN** + este kit de pruebas.
+
+**SQL:** del 08 al 22, Alberto dijo haberlos corrido (para confirmarlo, usar consultas de solo lectura). **El 23 (compras/proveedores) es un borrador probado: NO correrlo hasta que exista la pantalla «Compras».**
+
+**Pendiente (en orden):**
+1. Pantalla **«Compras»** en el panel: proveedores, registrar compra (entra stock por sede + costo promedio) y anular. Usa el SQL 23. Al terminar, agregar el 23 a la página «Copiar SQL».
+2. **Fotos que a veces no cargan:** Supabase está bien (egress 0,01 GB de 5 GB el 14-oct). Se sospecha de la señal del celular. Se pidió a Alberto: ¿pasa en todos los productos y también en la PC? y una captura de la foto abierta en una pestaña nueva.
+3. Traducción: cuando se agregue texto a la tienda, también hay que agregarlo en `src/i18n-en.js`. Para ver qué falta: en modo dev, `window.__flyMissingEN`.
+4. Comprobantes **SUNAT** (Fase 5): falta saber si Alberto tiene RUC; se recomienda Nubefact. Pagos online con **Culqi**: pendiente.
+5. Supabase plan gratis **sin copias automáticas**: recordar a Alberto que descargue la copia del panel (no incluye fotos).
 
 ---
 
