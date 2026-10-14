@@ -1,0 +1,40 @@
+const { chromium } = require("playwright-core");
+const http = require("http"), fs = require("fs"), path = require("path");
+const dist = path.join(__dirname, "dist"), out = process.argv[2];
+const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?")[0].split("#")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": f.endsWith(".js") ? "text/javascript" : "text/html" }); r.end(fs.readFileSync(f)); }).listen(4338);
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const exp = Math.floor(Date.now() / 1000) + 3600;
+const catalog = { products: [{ id: "p1", name: "Blusa", slug: "b", category: "Blusas", price: 100, status: "active", images: [], variants: [{ id: "v1", size: "M", colorName: "Negro", stock: 3, sku: "B-M" }] }], collections: [], banners: [], settings: {}, promoCodes: [] };
+const run = async (b, role, startHash, tries) => {
+  const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: "u1", aal: "aal2", role: "authenticated", exp, email: "ana@staff.flyboutique.pe", amr: [{ method: "totp", timestamp: 1 }] })}.sig`;
+  const user = { id: "u1", email: "ana@staff.flyboutique.pe", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, factors: [{ id: "f1", factor_type: "totp", status: "verified" }] };
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 } });
+  await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
+  const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("  ERROR:", e.message));
+  await p.route("http://fake.supabase.test/**", (rt) => { const u = rt.request().url();
+    if (u.includes("/auth/v1/token")) return rt.fulfill({ json: { access_token: jwt, token_type: "bearer", expires_in: 3600, expires_at: exp, refresh_token: "r", user } });
+    if (u.includes("/auth/v1/user")) return rt.fulfill({ json: user });
+    if (u.includes("/auth/v1/")) return rt.fulfill({ json: {} });
+    if (u.includes("store_data")) return rt.fulfill({ json: { data: catalog } });
+    if (u.includes("staff_profiles")) return rt.fulfill({ json: { user_id: "u1", username: "ana", name: "Persona", role, active: true } });
+    if (u.includes("/rpc/current_cash")) return rt.fulfill({ json: null }); return rt.fulfill({ json: [] }); });
+  await p.goto("http://localhost:4338/" + startHash);
+  await p.waitForSelector('input[placeholder="Usuario"]'); await p.fill('input[placeholder="Usuario"]', "ana"); await p.fill('input[placeholder="Contraseña"]', "clave1234"); await p.click("text=Entrar");
+  await p.waitForTimeout(2200);
+  await p.screenshot({ path: `${out}/rol-${role}.png` }); const first = await p.evaluate(() => location.hash);
+  const res = [];
+  for (const t of tries) { await p.evaluate((h) => { location.hash = h; }, t); await p.waitForTimeout(500); res.push(`${t}→${await p.evaluate(() => location.hash)}`); }
+  const body = (await p.innerText("body")).trim().length;
+  console.log(`${role.padEnd(16)} entra por ${startHash || "(inicio)"} → ${first} | ${res.join(" | ")} | pantalla con contenido: ${body > 40}`);
+  await ctx.close();
+};
+(async () => {
+  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  await run(b, "cajero", "#caja", ["#staff/reports", "#staff/users", "#staff/products", "#staff/pos", "#caja"]);
+  await run(b, "administrador", "#caja", ["#staff/reports", "#staff/users", "#staff/products"]);
+  await run(b, "superadmin", "#caja", ["#staff/users", "#staff/promocodes"]);
+  await run(b, "vendedora_tienda", "#caja", ["#staff/dashboard", "#staff/onlinesales"]);
+  await run(b, "vendedora_online", "#caja", ["#staff/pos", "#staff/reports"]);
+  await run(b, "almacen", "#staff/products", ["#staff/caja", "#staff/stock"]);
+  await b.close(); srv.close();
+})().catch((e) => { console.log("FALLO:", e.message); process.exit(1); });

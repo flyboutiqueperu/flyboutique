@@ -1,0 +1,50 @@
+const { chromium } = require("playwright-core");
+const http = require("http"), fs = require("fs"), path = require("path");
+const dist = path.join(__dirname, "dist"), out = process.argv[2];
+const types = { ".js": "text/javascript", ".png": "image/png", ".css": "text/css", ".webmanifest": "application/manifest+json" };
+const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?")[0].split("#")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": types[path.extname(f)] || "text/html" }); r.end(fs.readFileSync(f)); }).listen(4351);
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const exp = Math.floor(Date.now() / 1000) + 3600;
+const role = process.argv[3] || "administrador";
+const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: "u1", aal: "aal2", role: "authenticated", exp, email: "ana@staff.flyboutique.pe", amr: [{ method: "totp", timestamp: 1 }] })}.sig`;
+const user = { id: "u1", email: "ana@staff.flyboutique.pe", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, factors: [{ id: "f1", factor_type: "totp", status: "verified" }] };
+const mk = (id, name, price, sizes) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, images: [], variants: sizes.map((s, i) => ({ id: id + s, size: s, colorName: "Negro", colorHex: "#111", stock: 3 + i, sku: (id + "-" + s).toUpperCase() })) });
+const catalog = { products: [mk("p1", "Blusa Seda Marfil", 129, ["XS", "S", "M", "L"]), mk("p2", "Pantalón Sastre", 189, ["S", "M"]), mk("p3", "Vestido Midi", 219, ["M"]), mk("p4", "Top Lino", 79, ["S"])], collections: [], banners: [], settings: { cartHoldMinutes: 20 }, promoCodes: [] };
+const ORDER = { id: "o1", serie: "B001", numero: 77, status: "emitido", channel: "online", source: "web", createdAt: Date.now(), items: [{ productId: "p1", name: "Blusa Seda Marfil", size: "M", colorName: "Negro", qty: 2, unitPrice: 129 }], total: 258, subtotal: 258, discount: 0, paymentStatus: "confirmado", paymentMethod: "Yape", fulfillment: "pendiente", deliveryMethod: "local", customerName: "Lucía Torres", customerPhone: "51987654321", deliveryAddress: "Av. España 123", deliveryDetails: { address: "Av. España 123", district: "Trujillo", reference: "Frente al parque", lat: -8.1101, lng: -79.0301, mapsUrl: "https://www.google.com/maps?q=-8.110100,-79.030100" } };
+(async () => {
+  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
+  const p = await ctx.newPage();
+  p.on("pageerror", (e) => console.log("ERROR EN PÁGINA:", e.message));
+  await p.route("**/tile.openstreetmap.org/**", (rt) => rt.fulfill({ status: 404, body: "" }));
+  await p.route("http://fake.supabase.test/**", async (rt) => {
+    const u = rt.request().url();
+    if (u.includes("/auth/v1/token")) return rt.fulfill({ json: { access_token: jwt, token_type: "bearer", expires_in: 3600, expires_at: exp, refresh_token: "r", user } });
+    if (u.includes("/auth/v1/user")) return rt.fulfill({ json: user });
+    if (u.includes("/auth/v1/")) return rt.fulfill({ json: {} });
+    if (u.includes("store_data")) return rt.fulfill({ json: { data: catalog } });
+    if (u.includes("staff_profiles")) return rt.fulfill({ json: { user_id: "u1", username: "ana", name: "Ana Admin", role, active: true } });
+    if (u.includes("/rest/v1/sales")) return rt.fulfill({ json: [{ data: ORDER }] });
+    return rt.fulfill({ json: [] });
+  });
+  await p.goto("http://localhost:4351/#staff/onlineorders");
+  await p.waitForSelector('input[placeholder="Usuario"]');
+  await p.fill('input[placeholder="Usuario"]', "ana"); await p.fill('input[placeholder="Contraseña"]', "clave1234"); await p.click("text=Entrar");
+  await p.waitForTimeout(2500);
+  if (!(await p.$("text=Enviar al repartidor por WhatsApp"))) { const nav = await p.$("text=Pedidos Web"); if (nav) await nav.click(); await p.waitForTimeout(800); }
+  const wa = await p.getAttribute("text=Enviar al repartidor por WhatsApp", "href");
+  console.log("WA:\n" + decodeURIComponent(wa.split("text=")[1]));
+  console.log("Maps:", await p.getAttribute("a:has-text('Google Maps')", "href"), "| Waze:", await p.getAttribute("a:has-text('Waze')", "href"));
+  await p.screenshot({ path: `${out}/e-pedido.png` });
+  await p.click("text=Imprimir etiqueta de envío"); await p.waitForTimeout(1200);
+  console.log("QR en etiqueta:", !!(await p.$("img[alt='QR de la ubicación']")));
+  await p.screenshot({ path: `${out}/e-etiqueta.png` });
+  // Tienda: mapa y selects
+  const p2 = await ctx.newPage(); p2.on("pageerror", (e) => console.log("ERROR TIENDA:", e.message));
+  await p2.route("http://fake.supabase.test/**", (rt) => rt.request().url().includes("store_data") ? rt.fulfill({ json: { data: catalog } }) : rt.fulfill({ json: [] }));
+  await p2.route("**/tile.openstreetmap.org/**", (rt) => rt.fulfill({ status: 404, body: "" }));
+  await p2.goto("http://localhost:4351/p/p1"); await p2.waitForTimeout(1500);
+  console.log("ficha cargó:", (await p2.innerText("body")).includes("Blusa Seda"));
+  await b.close(); srv.close();
+})().catch((e) => { console.log("FALLO:", e.message); process.exit(1); });
