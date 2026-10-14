@@ -2437,6 +2437,7 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         })()}
         {!clubMember.phone && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>Tu cuenta se activa para puntos con tu primera compra (al dar tu celular).</div>}
       </div>
+      {clubMember.google && googlePrefill && <ClubPasswordBox />}
     </div>
   );
 };
@@ -2842,6 +2843,89 @@ const TurnstileBox = ({ siteKey, onToken }) => {
   return <div ref={boxRef} style={{ display: "flex", justifyContent: "center", marginTop: 12, minHeight: 66 }} />;
 };
 
+// Entrar con correo + contraseña (solo sirve si la clienta la creó estando dentro con código o Google)
+const CLUB_PASS_LOCK_KEY = "flyboutique:club-intentos:v1";
+const PasswordLogin = ({ onForgot }) => {
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const login = async () => {
+    if (busy) return;
+    const em = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setMsg("Escribe tu correo completo."); return; }
+    if (!pass) { setMsg("Falta la contraseña."); return; }
+    if (em.endsWith("@" + STAFF_EMAIL_DOMAIN)) { setMsg("Las cuentas del equipo entran por el panel del staff."); return; }
+    let lock = {}; try { lock = JSON.parse(localStorage.getItem(CLUB_PASS_LOCK_KEY) || "{}"); } catch (e) { /* nada */ }
+    if (lock.until > Date.now()) { setMsg(`Demasiados intentos. Espera ${Math.ceil((lock.until - Date.now()) / 60000)} min o entra con código.`); return; }
+    setBusy(true); setMsg("");
+    const { error } = await supabase.auth.signInWithPassword({ email: em, password: pass });
+    setBusy(false);
+    if (error) {
+      const n = (lock.n || 0) + 1;
+      try { localStorage.setItem(CLUB_PASS_LOCK_KEY, JSON.stringify(n >= 5 ? { n: 0, until: Date.now() + 15 * 60000 } : { n })); } catch (e) { /* nada */ }
+      setMsg(n >= 5 ? "Demasiados intentos. Espera 15 min o entra con código." : `Correo o contraseña incorrectos (te quedan ${5 - n} intentos). Si nunca creaste contraseña, entra con código.`);
+      return;
+    }
+    try { localStorage.removeItem(CLUB_PASS_LOCK_KEY); } catch (e) { /* nada */ }
+    setPass("");
+  };
+  const btn = { width: "100%", padding: "12px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" };
+  return (
+    <div style={{ textAlign: "left" }}>
+      <input value={email} onChange={(e) => { setEmail(e.target.value); setMsg(""); }} placeholder="Tu correo *" type="email" autoComplete="email" style={{ ...inputStyle, marginBottom: 8 }} />
+      <div style={{ position: "relative", marginBottom: 8 }}>
+        <input value={pass} onChange={(e) => { setPass(e.target.value); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && login()} placeholder="Contraseña *" type={show ? "text" : "password"} autoComplete="current-password" style={{ ...inputStyle, paddingRight: 44 }} />
+        <button type="button" aria-label={show ? "Ocultar contraseña" : "Ver contraseña"} onClick={() => setShow((x) => !x)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }}><Eye size={16} color={C.stone} /></button>
+      </div>
+      <button onClick={login} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>{busy ? "Entrando…" : "Entrar"}</button>
+      <button onClick={onForgot} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer", marginTop: 8, padding: 0 }}>¿Olvidaste tu contraseña? Entra con código y crea una nueva</button>
+      {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginTop: 8 }}>{msg}</div>}
+    </div>
+  );
+};
+
+// Crear o cambiar la contraseña (solo estando dentro con código, Google o con la contraseña ya creada)
+const ClubPasswordBox = () => {
+  const [open, setOpen] = useState(false);
+  const [p1, setP1] = useState("");
+  const [p2, setP2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const save = async () => {
+    if (p1.length < 8) { setMsg({ ok: false, t: "Mínimo 8 caracteres." }); return; }
+    if (p1 !== p2) { setMsg({ ok: false, t: "Las dos contraseñas no coinciden." }); return; }
+    setBusy(true); setMsg(null);
+    const { error } = await supabase.auth.updateUser({ password: p1 });
+    if (error) { setBusy(false); setMsg({ ok: false, t: /different|same/i.test(error.message) ? "Es igual a la anterior: elige otra." : /weak|short|characters/i.test(error.message) ? "Muy débil: usa letras y números." : "No se pudo guardar. Intenta de nuevo." }); return; }
+    const { error: e2 } = await supabase.rpc("mark_customer_password");
+    setBusy(false);
+    // Si entró con contraseña, ya estaba registrada: el cambio vale igual
+    if (e2 && !/SOLO_VERIFICADA/.test(e2.message || "")) { setMsg({ ok: false, t: "Se guardó, pero falta activarla. Vuelve a intentar más tarde." }); return; }
+    setP1(""); setP2(""); setOpen(false);
+    setMsg({ ok: true, t: "Listo. La próxima vez puedes entrar con tu correo y esta contraseña." });
+  };
+  return (
+    <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 18, paddingTop: 14 }}>
+      {!open ? (
+        <button onClick={() => { setOpen(true); setMsg(null); }} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer" }}>Crear o cambiar mi contraseña</button>
+      ) : (
+        <div style={{ maxWidth: 320 }}>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8 }}>Para entrar la próxima vez con tu correo y contraseña (también puedes seguir usando el código).</div>
+          <input value={p1} onChange={(e) => setP1(e.target.value)} type="password" autoComplete="new-password" placeholder="Nueva contraseña (mín. 8) *" style={{ ...inputStyle, marginBottom: 8 }} />
+          <input value={p2} onChange={(e) => setP2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} type="password" autoComplete="new-password" placeholder="Repite la contraseña *" style={{ ...inputStyle, marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setOpen(false)} style={{ flex: 1, padding: "11px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", color: C.ink }}>Cancelar</button>
+            <button onClick={save} disabled={busy} style={{ flex: 2, padding: "11px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Guardando…" : "Guardar contraseña"}</button>
+          </div>
+        </div>
+      )}
+      {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: msg.ok ? C.ink : C.accent, marginTop: 8 }}>{msg.t}</div>}
+    </div>
+  );
+};
+
 // Entrar con un código de 6 dígitos que llega al correo (sin contraseñas que olvidar).
 const EmailCodeLogin = () => {
   const [email, setEmail] = useState("");
@@ -2910,6 +2994,7 @@ const VerifyAccountBox = ({ onGoogleSignIn }) => {
 
 const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSiteKey }) => {
   const [tab, setTab] = useState("crear");
+  const [loginWay, setLoginWay] = useState("codigo");
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaKey, setCaptchaKey] = useState(0);
   const [sending, setSending] = useState(false);
@@ -2949,7 +3034,12 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
           <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
             <div style={{ flex: 1, height: 1, background: C.line }} /><span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>o con tu correo</span><div style={{ flex: 1, height: 1, background: C.line }} />
           </div>
-          <EmailCodeLogin />
+          <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 10 }}>
+            {[["codigo", "Con código"], ["clave", "Con contraseña"]].map(([k, l]) => (
+              <button key={k} onClick={() => setLoginWay(k)} style={{ background: "none", border: "none", borderBottom: `2px solid ${loginWay === k ? C.ink : "transparent"}`, padding: "4px 2px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: loginWay === k ? 700 : 400, color: loginWay === k ? C.ink : C.stone, cursor: "pointer" }}>{l}</button>
+            ))}
+          </div>
+          {loginWay === "codigo" ? <EmailCodeLogin /> : <PasswordLogin onForgot={() => setLoginWay("codigo")} />}
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 14, lineHeight: 1.5 }}>Usa el mismo correo con el que te registraste. ¿Aún no tienes cuenta? <button onClick={() => setTab("crear")} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 11, color: C.ink, textDecoration: "underline", cursor: "pointer" }}>Créala aquí</button>.</div>
         </div>
       ) : (<>
