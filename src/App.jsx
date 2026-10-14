@@ -8224,7 +8224,7 @@ export default function FlyBoutiqueApp() {
       loadAnalytics({ gaId: (catalog.settings.gaId || "").trim(), clarityId: (catalog.settings.clarityId || "").trim() });
     }
   }, [cookieChoice, catalog?.settings?.gaId, catalog?.settings?.clarityId]);
-  const SCREEN_TITLES = { outlet: "Outlet", complaints: "Libro de Reclamaciones", home: "Inicio", category: "Catálogo", viewed: "Visto", cart: "Cesta", profile: "Cuenta", loyalty: "Club Fly", orders: "Mis pedidos", info: "Información", favorites: "Favoritos", addresses: "Direcciones", payments: "Métodos de pago" };
+  const SCREEN_TITLES = { track: "Seguir mi pedido", outlet: "Outlet", complaints: "Libro de Reclamaciones", home: "Inicio", category: "Catálogo", viewed: "Visto", cart: "Cesta", profile: "Cuenta", loyalty: "Club Fly", orders: "Mis pedidos", info: "Información", favorites: "Favoritos", addresses: "Direcciones", payments: "Métodos de pago" };
   // Al cambiar de sección se cierra la ficha abierta y se vuelve arriba
   useEffect(() => { setSelectedProduct(null); scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); }, [screen, infoSectionIndex]);
   useEffect(() => { if (selectedProduct) { scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); } }, [selectedProduct?.id]);
@@ -8232,31 +8232,44 @@ export default function FlyBoutiqueApp() {
   const restoringRef = useRef(false);
   const catalogRef = useRef(null); catalogRef.current = catalog;
   const deepLinkDone = useRef(false);
-  const routeHash = () => (selectedProduct ? `#/p/${selectedProduct.id}` : screen === "home" ? "#/" : screen === "category" ? `#/catalogo${activeCategory !== "Todo" ? "/" + encodeURIComponent(activeCategory) : ""}${searchQuery ? "?q=" + encodeURIComponent(searchQuery) : ""}` : `#/${screen}`);
+  // Direcciones normales (sin #) para que Google indexe cada prenda y WhatsApp muestre su foto:
+  //   /p/<id> · /catalogo/<categoría>?q=… · /outlet · /cart … Los enlaces viejos con #/ se convierten solos.
+  const routePath = () => (selectedProduct ? `/p/${encodeURIComponent(selectedProduct.id)}` : screen === "home" ? "/" : screen === "category" ? `/catalogo${activeCategory !== "Todo" ? "/" + encodeURIComponent(activeCategory) : ""}${searchQuery ? "?q=" + encodeURIComponent(searchQuery) : ""}` : `/${screen}`);
+  const currentRoute = () => window.location.pathname + window.location.search;
   useEffect(() => {
     if (mode !== "store" || !catalog || !deepLinkDone.current) return; // primero se respeta el enlace con el que entró
-    const h = routeHash();
+    const h = routePath();
     if (restoringRef.current) { restoringRef.current = false; return; }
-    if (window.location.hash === h) return;
-    try { if (!window.location.hash || window.location.hash === "#") window.history.replaceState(null, "", h); else window.history.pushState(null, "", h); } catch (e) { /* sin historial */ }
+    if (currentRoute() === h && !window.location.hash) return;
+    try { window.history.pushState(null, "", h); } catch (e) { /* sin historial */ }
   }, [screen, selectedProduct?.id, activeCategory, searchQuery, mode, !!catalog]);
   useEffect(() => {
     const apply = () => {
-      const h = window.location.hash || "#/";
-      if (!h.startsWith("#/") || mode !== "store") return;
+      if (mode !== "store") return;
+      const h = window.location.hash || "";
+      let route = currentRoute();
+      if (h.startsWith("#/")) { route = h.slice(1) || "/"; try { window.history.replaceState(null, "", route); } catch (e) { /* nada */ } } // enlace viejo con #
       restoringRef.current = true;
-      const [path, query] = h.slice(2).split("?");
-      const parts = path.split("/");
+      const [path, query] = route.slice(1).split("?");
+      const parts = path.split("/").filter(Boolean);
       if (parts[0] === "p" && parts[1]) { const p = catalogRef.current?.products.find((x) => x.id === decodeURIComponent(parts[1])); if (p && webVisible(p)) { setSelectedProduct(p); return; } }
       setSelectedProduct(null);
       if (parts[0] === "catalogo") { setActiveCategory(parts[1] ? decodeURIComponent(parts[1]) : "Todo"); setSearchQuery(query && query.startsWith("q=") ? decodeURIComponent(query.slice(2)) : ""); setScreen("category"); return; }
-      setScreen(parts[0] || "home");
+      setScreen(parts[0] && SCREEN_TITLES[parts[0]] ? parts[0] : "home"); // dirección desconocida → inicio
     };
     window.addEventListener("popstate", apply);
-    // enlace directo a una prenda (por ejemplo, compartido por WhatsApp): se abre una sola vez al cargar
-    if (catalog && !deepLinkDone.current) { deepLinkDone.current = true; const h0 = window.location.hash || ""; if (h0.startsWith("#/") && h0 !== "#/") apply(); } // enlaces directos: #/outlet, #/catalogo, #/p/…
+    // enlace directo (compartido por WhatsApp, Google, Instagram…): se abre una sola vez al cargar
+    if (catalog && !deepLinkDone.current) { deepLinkDone.current = true; const h0 = window.location.hash || ""; if ((h0.startsWith("#/") && h0 !== "#/") || (window.location.pathname !== "/" && !h0.startsWith("#staff") && h0 !== "#caja")) apply(); else if (h0 === "#/") { try { window.history.replaceState(null, "", "/"); } catch (e) { /* nada */ } } }
     return () => window.removeEventListener("popstate", apply);
   }, [!!catalog, mode]);
+  // Título de la pestaña y descripción según lo que se ve (Google también los lee)
+  useEffect(() => {
+    if (mode !== "store") return;
+    const p = selectedProduct;
+    document.title = p ? `${p.name} · Fly Boutique Perú` : screen === "home" ? "Fly Boutique Perú · Moda femenina" : screen === "category" && activeCategory !== "Todo" ? `${activeCategory} · Fly Boutique Perú` : `${SCREEN_TITLES[screen] || "Tienda"} · Fly Boutique Perú`;
+    const m = document.querySelector('meta[name="description"]');
+    if (m) m.setAttribute("content", p ? (p.description || `${p.name} · S/ ${Number(p.price).toFixed(2)}`).slice(0, 160) : "Fly Boutique Perú: moda femenina elegante. Compra online con envío a todo el Perú o recoge en tienda.");
+  }, [mode, screen, selectedProduct?.id, activeCategory]);
   const openInfo = (i) => { setInfoSectionIndex(i); setScreen("info"); };
   useEffect(() => {
     if (mode !== "store") return;
