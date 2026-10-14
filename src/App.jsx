@@ -8888,12 +8888,14 @@ export default function FlyBoutiqueApp() {
     else alert("Para instalar Fly: abre el menú del navegador (los tres puntitos) y elige \"Instalar app\" o \"Agregar a pantalla de inicio\".");
   };
 
-  const frameStyle = { width: "100%", maxWidth: 430, height: "92vh", background: C.paper, position: "relative", borderRadius: 20, overflow: "hidden", boxShadow: "0 30px 70px rgba(21,19,18,0.3)", border: `8px solid ${C.ink}`, display: "flex", flexDirection: "column" };
+  // Sin "marco de teléfono": la app ocupa toda la pantalla desde el primer instante. Antes el marco negro (y el
+  // fondo gris) se veía un momento al abrir la app instalada, hasta que el celular terminaba de medir la pantalla.
+  const frameStyle = { width: "100%", height: "100vh", background: C.paper, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" };
 
   return (
-    <div className="app-page" style={{ width: "100%", minHeight: "100vh", background: "#D9D9D9", display: "flex", justifyContent: "center", padding: "18px 0", boxSizing: "border-box", fontFamily: FONT_BODY }}>
+    <div className="app-page" style={{ width: "100%", minHeight: "100vh", background: C.paper, display: "flex", justifyContent: "center", boxSizing: "border-box", fontFamily: FONT_BODY }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,700;0,800;0,900&family=Jost:wght@300;400;500;600&display=swap');
+        /* Las fuentes se cargan en index.html (<link>): un @import aquí hacía que Safari no aplicara NINGÚN estilo de este bloque hasta descargarlas */
         * { box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; margin: 0; }
         #root { height: 100%; }
