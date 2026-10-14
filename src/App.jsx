@@ -5,7 +5,7 @@ import {
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
-  MessageCircle, Download, FileSpreadsheet, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
+  MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import JsBarcode from "jsbarcode";
@@ -271,13 +271,14 @@ async function loadCatalog() {
 async function loadPrivateData() {
   const [sales, customers, priv] = await Promise.all([
     supabase.from("sales").select("data").order("created_at", { ascending: false }).limit(3000),
-    supabase.from("customers").select("data"),
+    supabase.from("customers").select("phone,data"),
     supabase.from("store_private").select("data").eq("id", "main").maybeSingle(),
   ]);
   if (sales.error) throw sales.error;
   return {
     sales: (sales.data || []).map((r) => r.data),
-    customers: (customers.data || []).map((r) => r.data),
+    // Las cuentas de Google sin celular guardan el celular vacío: se usa la clave de la fila (g:correo)
+    customers: (customers.data || []).map((r) => (r.data?.phone ? r.data : { ...r.data, phone: r.phone })),
     stockMovements: priv.data?.data?.stockMovements || [],
   };
 }
@@ -2470,7 +2471,44 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         })()}
         {!clubMember.phone && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>Tu cuenta se activa para puntos con tu primera compra (al dar tu celular).</div>}
       </div>
+      <MarketingConsentBox verified={!!clubMember.google} />
       {clubMember.google && googlePrefill && <ClubPasswordBox />}
+    </div>
+  );
+};
+
+// Permiso para recibir publicidad (Ley 29733): solo la persona con cuenta confirmada lo cambia desde aquí
+const MarketingConsentBox = ({ verified }) => {
+  const [on, setOn] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    if (!verified) return;
+    supabase.rpc("my_marketing").then(({ data, error }) => { if (!error) setOn(data === true); }).catch(() => {});
+  }, [verified]);
+  const change = async () => {
+    const next = !on;
+    setBusy(true); setMsg("");
+    const { error } = await supabase.rpc("set_marketing_consent", { p_optin: next });
+    setBusy(false);
+    if (error) { setMsg("No se pudo guardar. Intenta de nuevo."); return; }
+    setOn(next); setMsg(next ? "Listo: te avisaremos de novedades y ofertas." : "Listo: ya no te enviaremos publicidad.");
+  };
+  return (
+    <div style={{ margin: "16px 20px 0", background: C.paperDeep, borderRadius: 12, padding: "14px 16px", fontFamily: FONT_BODY }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Novedades y ofertas</div>
+          <div style={{ fontSize: 11.5, color: C.stone, lineHeight: 1.5 }}>Por WhatsApp o correo. Los avisos de tus pedidos llegan siempre.</div>
+        </div>
+        {verified && on !== null && (
+          <button onClick={change} disabled={busy} aria-pressed={on} aria-label="Recibir novedades y ofertas" style={{ width: 44, height: 24, borderRadius: 999, border: "none", background: on ? C.ink : C.line, position: "relative", cursor: "pointer", flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
+            <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 18, height: 18, borderRadius: "50%", background: C.paper, transition: "left .15s ease" }} />
+          </button>
+        )}
+      </div>
+      {!verified && <div style={{ fontSize: 11.5, color: C.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Para cambiarlo aquí, confirma tu cuenta (Google o código al correo), o escríbenos por WhatsApp.</div>}
+      {msg && <div style={{ fontSize: 11.5, color: C.ink, marginTop: 8 }}>{msg}</div>}
     </div>
   );
 };
@@ -3038,6 +3076,7 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
   const [humanB, setHumanB] = useState(0);
   const [humanAnswer, setHumanAnswer] = useState("");
   const [touched, setTouched] = useState(false);
+  const [marketing, setMarketing] = useState(false);
 
   useEffect(() => { setHumanA(Math.ceil(Math.random() * 6) + 1); setHumanB(Math.ceil(Math.random() * 6) + 1); }, []);
   useEffect(() => { if (googlePrefill) { setName(googlePrefill.name || ""); setEmail(googlePrefill.email || ""); } }, [googlePrefill]);
@@ -3112,19 +3151,23 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
         ) : (
           <>
             <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginTop: 10, marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Para confirmar que eres humana: {humanA} + {humanB} =</span>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Para confirmar que no eres un robot: {humanA} + {humanB} =</span>
               <input value={humanAnswer} onChange={(e) => setHumanAnswer(e.target.value)} style={{ ...inputStyle, width: 56, padding: "6px 8px", textAlign: "center" }} />
             </div>
             {fieldError(humanValid, "La suma no es correcta, intenta de nuevo.")}
           </>
         )}
 
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.5, marginTop: 12 }}>
+          <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>Quiero recibir novedades y ofertas del Club Fly por WhatsApp o correo (opcional). Me puedo dar de baja cuando quiera.</span>
+        </label>
         <div style={{ marginTop: 16 }}>
           <PrimaryButton disabled={sending} onClick={async () => {
             setTouched(true);
             if (!(nameValid && phoneValid && emailValid && humanValid) || sending) return;
             setSending(true);
-            const ok = await onRegister({ name: name.trim(), phone: phone.trim(), email: email.trim(), captcha: captchaToken });
+            const ok = await onRegister({ name: name.trim(), phone: phone.trim(), email: email.trim(), captcha: captchaToken, marketing });
             setSending(false);
             // El código del captcha sirve una sola vez: si algo falló, se pide uno nuevo
             if (!ok) { setCaptchaToken(""); setCaptchaKey((k) => k + 1); }
@@ -3890,7 +3933,7 @@ const BusinessSummary = ({ catalog, go }) => {
     ]).then(([t, c, a]) => { if (alive) setExtra({ transfers: t.error ? null : (t.data || []).length, cash: c.error ? null : c.data || [], activity: a.error ? null : a.data || [] }); }).catch(() => {});
     return () => { alive = false; };
   }, []);
-  const valid = (catalog.sales || []).filter((x) => x.status !== "anulado");
+  const valid = (catalog.sales || []).filter((x) => x.status !== "anulado").map(netSale);
   const day = 86400000;
   const start = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
   const today = start(Date.now());
@@ -6500,7 +6543,197 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
 /* ==================================================================== */
 /*  ============================  COMPROBANTES  ========================*/
 /* ==================================================================== */
-const AdminInvoicesScreen = ({ sales, onVoid, storesSettings }) => {
+// Devolución parcial o cambio (talla, color u otra prenda) de una venta ya hecha. Lo calcula y guarda el servidor (SQL 21).
+const RETURN_ERRORS = {
+  SIN_PERMISO: "Tu usuario no puede hacer devoluciones (solo Caja y Administración).", MOTIVO_REQUERIDO: "Escribe el motivo.",
+  YA_DEVUELTO: "Esa cantidad ya fue devuelta antes.", NO_ESTA_EN_LA_VENTA: "Esa prenda no está en esta venta.", VENTA_ANULADA: "La venta está anulada.",
+  PEDIDO_SIN_PAGO: "El pedido aún no tiene el pago validado: cancélalo en Pedidos Web.", SIN_STOCK: "No hay stock de la prenda nueva.",
+  CAJA_CERRADA: "Para devolver o cobrar en efectivo, la caja tiene que estar abierta.", VENDEDOR_INVALIDO: "Ese código de vendedora no existe o está inactivo.",
+  NADA_PARA_DEVOLVER: "Elige al menos una prenda que vuelve.", NUMERO_INVALIDO: "Escribe el número así: B001-000123.",
+};
+const returnErrorText = (e) => {
+  if (e?.code === "PGRST202") return "Falta correr el SQL 21 en Supabase.";
+  const m = e?.message || "";
+  const k = Object.keys(RETURN_ERRORS).find((x) => m.includes(x));
+  if (k === "YA_DEVUELTO") return `Solo quedan ${m.split("YA_DEVUELTO:")[1] || 0} por devolver de esa prenda.`;
+  return k ? RETURN_ERRORS[k] : "No se pudo guardar. Revisa tu conexión e intenta de nuevo (no se duplica).";
+};
+// Venta "neta" para reportes: resta lo devuelto y suma lo que se llevó en un cambio (SQL 21).
+// Total, prendas y pagos quedan como si la venta hubiera sido así desde el inicio.
+const netSale = (s) => {
+  if (!s || !(s.returns || []).length) return s;
+  const back = {};
+  s.returns.forEach((r) => (r.lines || []).forEach((l) => { back[l.variantId] = (back[l.variantId] || 0) + l.qty; }));
+  const items = s.items.map((i) => { const take = Math.min(back[i.variantId] || 0, i.qty); back[i.variantId] = (back[i.variantId] || 0) - take; return { ...i, qty: i.qty - take }; })
+    .concat(s.returns.flatMap((r) => r.newItems || [])).filter((i) => i.qty > 0);
+  const basePays = s.payments && s.payments.length ? s.payments : [{ method: s.paymentMethod || "—", amount: s.total }];
+  const payments = basePays.concat(s.returns.filter((r) => r.difference).map((r) => ({ method: r.method, amount: -r.difference })));
+  return { ...s, items, payments, total: Math.round(((Number(s.total) || 0) - (Number(s.refundedTotal) || 0)) * 100) / 100 };
+};
+const saleLabel = (s) => `${s.serie}-${String(s.numero).padStart(6, "0")}`;
+const returnedQtyOf = (s, variantId) => (s.returns || []).reduce((a, r) => a + (r.lines || []).filter((l) => l.variantId === variantId).reduce((b, l) => b + l.qty, 0), 0);
+
+const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
+  const [doc, setDoc] = useState(initialSale ? saleLabel(initialSale) : "");
+  const [sale, setSale] = useState(initialSale || null);
+  const [ret, setRet] = useState({});
+  const [newItems, setNewItems] = useState([]);
+  const [pq, setPq] = useState("");
+  const [reason, setReason] = useState("");
+  const [method, setMethod] = useState("Efectivo");
+  const [loc, setLoc] = useState("");
+  const [seller, setSeller] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [done, setDone] = useState(null);
+  const reqId = useRef(genId("dev"));
+  const locs = stockLocations(catalog.settings);
+  const reset = () => { setRet({}); setNewItems([]); setReason(""); setMsg(""); setDone(null); reqId.current = genId("dev"); };
+  const find = async () => {
+    setMsg(""); setBusy(true);
+    const local = (catalog.sales || []).find((x) => saleLabel(x).toLowerCase() === doc.trim().toLowerCase());
+    const { data, error } = await supabase.rpc("find_sale_for_return", { p_doc: doc.trim() });
+    setBusy(false);
+    const found = data || (error?.code === "PGRST202" ? local : null);
+    if (error && error.code !== "PGRST202") { setMsg(returnErrorText(error)); return; }
+    if (!found) { setMsg("No encontramos esa venta. Revisa el número."); return; }
+    reset(); setSale(found); setLoc(locs.some((l) => l.id === found.storeId) ? found.storeId : locs[0]?.id || "principal");
+  };
+  useEffect(() => { if (initialSale) setLoc(locs.some((l) => l.id === initialSale.storeId) ? initialSale.storeId : locs[0]?.id || "principal"); }, []);
+
+  const txt = { fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft };
+  const head = (t) => <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, color: C.stone, margin: "16px 0 8px" }}>{t}</div>;
+  const stepBtn = { width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.line}`, background: C.white, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" };
+
+  if (done) {
+    const r = done.returns[done.returns.length - 1];
+    return (
+      <div style={{ padding: "18px 18px 100px", maxWidth: 560, margin: "0 auto" }}>
+        <div className="print-area">
+          <AdminCard>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>{r.newItems?.length ? "Cambio registrado" : "Devolución registrada"}</div>
+            <div style={{ ...txt, marginTop: 4 }}>Venta {saleLabel(done)} · {new Date(r.at).toLocaleString("es-PE")} · {r.by}{r.seller ? ` · ${r.seller}` : ""}</div>
+            <div style={{ ...txt, marginTop: 10 }}>Vuelve: {r.lines.map((l) => `${l.name} ${l.size}/${l.colorName} ×${l.qty}`).join(" · ")}</div>
+            {r.newItems?.length > 0 && <div style={{ ...txt, marginTop: 4 }}>Se lleva: {r.newItems.map((l) => `${l.name} ${l.size}/${l.colorName} ×${l.qty}`).join(" · ")}</div>}
+            <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: C.ink, marginTop: 12 }}>
+              {r.difference > 0 ? `Devolver ${moneyExact(r.difference)} (${r.method})` : r.difference < 0 ? `Cobrar ${moneyExact(-r.difference)} (${r.method})` : "Sin diferencia de dinero"}
+            </div>
+            <div style={{ ...txt, marginTop: 4 }}>Motivo: {r.reason}{r.pointsRemoved ? ` · Se quitaron ${r.pointsRemoved} puntos del Club` : ""}</div>
+            <div style={{ ...txt, marginTop: 8, fontSize: 10.5 }}>Documento interno. No es nota de crédito electrónica (SUNAT).</div>
+          </AdminCard>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button onClick={() => window.print()} style={{ ...quickLinkStyle, flex: 1, justifyContent: "center" }}><Receipt size={15} /> Imprimir</button>
+          <button onClick={() => { setSale(null); setDoc(""); reset(); }} style={{ ...quickLinkStyle, flex: 1, justifyContent: "center" }}>Otra devolución</button>
+        </div>
+      </div>
+    );
+  }
+
+  const retLines = sale ? sale.items.map((it) => ({ it, max: Math.max(0, it.qty - returnedQtyOf(sale, it.variantId)), q: ret[it.variantId] || 0 })) : [];
+  const sub = sale ? (Number(sale.subtotal) || sale.items.reduce((a, i) => a + i.unitPrice * i.qty, 0)) : 0;
+  const ratio = sale && sub > 0 ? Math.min(Math.max(((Number(sale.total) || 0) - (Number(sale.shipping) || 0)) / sub, 0), 1) : 1;
+  const retAmount = retLines.reduce((a, l) => a + Math.round(l.it.unitPrice * ratio * 100) / 100 * l.q, 0);
+  const newAmount = newItems.reduce((a, n) => a + n.price * n.qty, 0);
+  const diff = Math.round((retAmount - newAmount) * 100) / 100;
+  const anyRet = retLines.some((l) => l.q > 0);
+  const hasOutlet = sale && retLines.some((l) => l.q > 0 && isOutlet(catalog.products.find((p) => p.id === l.it.productId)));
+  const nq = pq.trim().toLowerCase();
+  const results = nq.length >= 2 ? catalog.products.flatMap((p) => p.variants.filter((v) => v.stock > 0 && (`${p.name} ${v.sku || ""}`.toLowerCase().includes(nq))).map((v) => ({ p, v }))).slice(0, 12) : [];
+  const addNew = (p, v) => { setNewItems((xs) => xs.some((x) => x.variantId === v.id) ? xs.map((x) => (x.variantId === v.id && x.qty < v.stock ? { ...x, qty: x.qty + 1 } : x)) : [...xs, { variantId: v.id, name: p.name, size: v.size, colorName: v.colorName, price: Number(p.price) || 0, qty: 1, max: v.stock }]); setPq(""); };
+  const save = async () => {
+    if (!anyRet) { setMsg(RETURN_ERRORS.NADA_PARA_DEVOLVER); return; }
+    if (!reason.trim()) { setMsg(RETURN_ERRORS.MOTIVO_REQUERIDO); return; }
+    setBusy(true); setMsg("");
+    const { data, error } = await supabase.rpc("return_sale", {
+      p_sale_id: sale.id, p_lines: retLines.filter((l) => l.q > 0).map((l) => ({ variantId: l.it.variantId, qty: l.q })), p_reason: reason.trim(),
+      p_method: method, p_new_items: newItems.map((n) => ({ variantId: n.variantId, qty: n.qty })), p_location: loc || null, p_request_id: reqId.current, p_seller: seller.trim() || null,
+    });
+    setBusy(false);
+    if (error || !data) { setMsg(returnErrorText(error)); return; }
+    setDone(data); setSale(data);
+    onSaved && onSaved(data);
+  };
+
+  return (
+    <div style={{ padding: "18px 18px 100px", maxWidth: 620, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Devolución o cambio</h1>
+      <div style={{ ...txt, marginBottom: 12 }}>Elige qué prendas vuelven y, si es un cambio, cuál se lleva. El sistema calcula la diferencia, ajusta el stock y la caja.</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={doc} onChange={(e) => setDoc(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find()} placeholder="N.° de la venta (ej. B001-000123)" style={inputStyle} />
+        <button onClick={find} disabled={busy || !doc.trim()} style={{ padding: "0 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Buscar</button>
+      </div>
+      {msg && !sale && <div style={{ ...txt, color: C.accent, marginTop: 8 }}>{msg}</div>}
+      {sale && (
+        <>
+          <AdminCard style={{ marginTop: 14, padding: 12 }}>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink }}>{saleLabel(sale)} · {moneyExact(sale.total)}{sale.status === "anulado" ? " · ANULADA" : ""}</div>
+            <div style={txt}>{new Date(sale.createdAt).toLocaleString("es-PE")} · {sale.channel === "online" ? "Web" : "Tienda"}{sale.customerName ? ` · ${sale.customerName}` : ""}{sale.discount > 0 ? ` · Descuento ${moneyExact(sale.discount)}` : ""}</div>
+            {(sale.returns || []).length > 0 && <div style={{ ...txt, marginTop: 4 }}>Ya tuvo {sale.returns.length} devolución(es)/cambio(s).</div>}
+          </AdminCard>
+          {head("1. ¿Qué prendas vuelven?")}
+          {retLines.map(({ it, max, q }) => (
+            <div key={it.variantId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{it.name} — {it.size}/{it.colorName}</div>
+                <div style={{ ...txt, fontSize: 11 }}>Compró {it.qty} · {max === 0 ? "ya devuelta" : `puede devolver ${max}`} · pagó {moneyExact(Math.round(it.unitPrice * ratio * 100) / 100)} c/u</div>
+              </div>
+              <button aria-label="Menos" disabled={q <= 0} onClick={() => setRet((r) => ({ ...r, [it.variantId]: Math.max(0, q - 1) }))} style={stepBtn}><Minus size={13} /></button>
+              <span style={{ width: 18, textAlign: "center", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700 }}>{q}</span>
+              <button aria-label="Más" disabled={q >= max} onClick={() => setRet((r) => ({ ...r, [it.variantId]: Math.min(max, q + 1) }))} style={stepBtn}><Plus size={13} /></button>
+            </div>
+          ))}
+          {hasOutlet && <div style={{ ...txt, color: C.accent, marginTop: 8 }}>Prenda Outlet: sin cambios ni devoluciones, salvo falla de fábrica. Anótalo en el motivo.</div>}
+
+          {head("2. ¿Se lleva otra prenda? (cambio, opcional)")}
+          <input value={pq} onChange={(e) => setPq(e.target.value)} onKeyDown={(e) => { if (e.key !== "Enter") return; const code = pq.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v && v.stock > 0) { addNew(p, v); return; } } }} placeholder="Busca por nombre o escanea el código" style={inputStyle} />
+          {results.length > 0 && (
+            <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, marginTop: 6, maxHeight: 220, overflowY: "auto" }}>
+              {results.map(({ p, v }) => (
+                <button key={v.id} onClick={() => addNew(p, v)} style={{ display: "flex", width: "100%", justifyContent: "space-between", padding: "9px 10px", border: "none", borderBottom: `1px solid ${C.line}`, background: C.white, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textAlign: "left" }}>
+                  <span>{p.name} — {v.size}/{v.colorName}</span><span>{moneyExact(p.price)} · stock {v.stock}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {newItems.map((n) => (
+            <div key={n.variantId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ flex: 1, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{n.name} — {n.size}/{n.colorName} · {moneyExact(n.price)}</div>
+              <button aria-label="Menos" onClick={() => setNewItems((xs) => xs.map((x) => (x.variantId === n.variantId ? { ...x, qty: x.qty - 1 } : x)).filter((x) => x.qty > 0))} style={stepBtn}><Minus size={13} /></button>
+              <span style={{ width: 18, textAlign: "center", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700 }}>{n.qty}</span>
+              <button aria-label="Más" disabled={n.qty >= n.max} onClick={() => setNewItems((xs) => xs.map((x) => (x.variantId === n.variantId ? { ...x, qty: x.qty + 1 } : x)))} style={stepBtn}><Plus size={13} /></button>
+            </div>
+          ))}
+
+          {head("3. Dinero y datos")}
+          <AdminCard style={{ padding: 12, marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", ...txt }}><span>Vuelve</span><span>{moneyExact(retAmount)}</span></div>
+            {newItems.length > 0 && <div style={{ display: "flex", justifyContent: "space-between", ...txt }}><span>Se lleva</span><span>− {moneyExact(newAmount)}</span></div>}
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: C.ink, marginTop: 6 }}>
+              <span>{diff > 0 ? "Devolver a la persona" : diff < 0 ? "Cobrar a la persona" : "Diferencia"}</span><span>{moneyExact(Math.abs(diff))}</span>
+            </div>
+            {sale.shipping > 0 && <div style={{ ...txt, fontSize: 10.5, marginTop: 4 }}>El envío ({moneyExact(sale.shipping)}) no se devuelve.</div>}
+          </AdminCard>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Cómo se paga o devuelve" style={inputStyle}>
+              {["Efectivo", "Yape", "Plin", "Tarjeta", "Transferencia", "Vale"].map((m) => <option key={m} value={m}>{m === "Vale" ? "Vale de compra (sin dinero)" : m}</option>)}
+            </select>
+            <select value={loc} onChange={(e) => setLoc(e.target.value)} aria-label="Dónde queda la prenda devuelta" style={inputStyle}>
+              {locs.map((l) => <option key={l.id} value={l.id}>Queda en {l.name}</option>)}
+            </select>
+          </div>
+          <input value={reason} onChange={(e) => setReason(e.target.value.slice(0, 200))} placeholder="Motivo (obligatorio): talla, color, falla…" style={{ ...inputStyle, marginBottom: 8 }} />
+          <input value={seller} onChange={(e) => setSeller(e.target.value.toUpperCase().slice(0, 5))} placeholder="Código de quien atiende (ej. MA01, opcional)" style={{ ...inputStyle, marginBottom: 8 }} />
+          {method === "Efectivo" && diff !== 0 && <div style={{ ...txt, fontSize: 11, marginBottom: 8 }}>Quedará como {diff > 0 ? "salida" : "entrada"} de efectivo en la caja abierta.</div>}
+          {msg && <div style={{ ...txt, color: C.accent, marginBottom: 8 }}>{msg}</div>}
+          <PrimaryButton disabled={busy || !anyRet} onClick={save}>{busy ? "Guardando…" : newItems.length ? "Registrar cambio" : "Registrar devolución"}</PrimaryButton>
+        </>
+      )}
+    </div>
+  );
+};
+
+const AdminInvoicesScreen = ({ sales, onVoid, storesSettings, onReturn }) => {
   const [selected, setSelected] = useState(null);
   const [tipoFilter, setTipoFilter] = useState("todos");
   const [estadoFilter, setEstadoFilter] = useState("todos");
@@ -6518,7 +6751,24 @@ const AdminInvoicesScreen = ({ sales, onVoid, storesSettings }) => {
           const lines = [`Comprobante Fly Boutique ${selected.serie}-${String(selected.numero).padStart(6, "0")}`, "", ...selected.items.map((i) => `• ${i.name} — ${i.size}/${i.colorName} × ${i.qty} — ${money(i.unitPrice * i.qty)}`), "", `Total: ${money(selected.total)}`];
           window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
         }} />
-        {selected.status !== "anulado" && (
+        {(selected.returns || []).length > 0 && (
+          <AdminCard style={{ marginTop: -60, marginBottom: 70 }}>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>Devoluciones y cambios</div>
+            {selected.returns.map((r) => (
+              <div key={r.id} style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 6 }}>
+                {new Date(r.at).toLocaleString("es-PE")} · {r.by}: vuelve {r.lines.map((l) => `${l.name} ${l.size}/${l.colorName} ×${l.qty}`).join(", ")}
+                {r.newItems?.length ? `; se lleva ${r.newItems.map((l) => `${l.name} ${l.size}/${l.colorName} ×${l.qty}`).join(", ")}` : ""}
+                {" · "}{r.difference > 0 ? `devuelto ${moneyExact(r.difference)}` : r.difference < 0 ? `cobrado ${moneyExact(-r.difference)}` : "sin diferencia"} ({r.method}) · «{r.reason}»
+              </div>
+            ))}
+          </AdminCard>
+        )}
+        {selected.status !== "anulado" && onReturn && (
+          <button onClick={() => onReturn(selected)} style={{ ...quickLinkStyle, width: "100%", justifyContent: "center", marginTop: (selected.returns || []).length ? -60 : -70, marginBottom: 80 }}>
+            <RotateCcw size={15} /> Devolución o cambio de prendas
+          </button>
+        )}
+        {selected.status !== "anulado" && !(selected.returns || []).length && (
           <button onClick={() => { onVoid(selected.id); setSelected(null); }} style={{ width: "100%", marginTop: -70, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
             <Undo2 size={15} /> Anular (nota de crédito) y devolver stock
           </button>
@@ -6750,14 +7000,14 @@ const AdminReportsScreen = ({ catalog }) => {
   const stores = storesOf(catalog.settings);
   const sellers = [...new Set(catalog.sales.map((s) => s.staffName || "Sin asignar"))].sort();
   const list = filterSales(catalog.sales, f);
-  const valid = list.filter((s) => s.status !== "anulado");
+  const valid = list.filter((s) => s.status !== "anulado").map(netSale);
   const total = valid.reduce((a, s) => a + (s.total || 0), 0);
   // Mismo periodo anterior (ej. este mes vs. el mes pasado), con los mismos filtros
   const [ra, rb] = periodRange(f);
   const prevTotal = f.period === "todo" ? null : catalog.sales.filter((s) => {
     const t = new Date(s.createdAt).getTime(), len = rb - ra;
     return t >= ra.getTime() - len && t < ra.getTime() && s.status !== "anulado";
-  }).filter((s) => filterSales([{ ...s, createdAt: ra.getTime() }], f).length).reduce((a, s) => a + (s.total || 0), 0);
+  }).filter((s) => filterSales([{ ...s, createdAt: ra.getTime() }], f).length).map(netSale).reduce((a, s) => a + (s.total || 0), 0);
   const vsPrev = prevTotal === null ? null : prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
   const storeName = (id) => (id === "web" ? "Tienda online" : (stores.find((x) => x.id === id)?.name || id));
   const byStore = {}; valid.forEach((s) => { const k = storeName(s.storeId || (s.channel === "online" ? "web" : "principal")); byStore[k] = byStore[k] || { count: 0, total: 0 }; byStore[k].count++; byStore[k].total += s.total || 0; });
@@ -6917,6 +7167,8 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("returns")} style={quickLinkStyle}><Undo2 size={16} color={C.ink} /> Devolución o cambio de prendas <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("customers")} style={quickLinkStyle}><Users size={16} color={C.ink} /> Clientas (Club Fly y permisos de publicidad) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("sellers")} style={quickLinkStyle}><User size={16} color={C.ink} /> Vendedores (códigos MA01) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       {role === "superadmin" && <button onClick={downloadBackup} style={quickLinkStyle}><DatabaseBackup size={16} color={C.ink} /> Descargar copia de seguridad <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
@@ -7083,7 +7335,7 @@ const AdminUsersScreen = ({ currentUserId }) => {
 };
 
 const MySalesScreen = ({ sales, staffName }) => {
-  const mine = sales.filter((s) => s.staffName === staffName && s.status !== "anulado");
+  const mine = sales.filter((s) => s.staffName === staffName && s.status !== "anulado").map(netSale);
   const total = mine.reduce((a, s) => a + s.total, 0);
   const now = new Date();
   const thisMonth = mine.filter((s) => { const d = new Date(s.createdAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
@@ -7206,7 +7458,7 @@ const BigAction = ({ icon: Icon, title, hint, onClick, dark = false, disabled = 
   </button>
 );
 
-const CashScreen = ({ catalog, role, onGoSell }) => {
+const CashScreen = ({ catalog, role, onGoSell, onReturns }) => {
   const canManage = ["superadmin", "administrador", "cajero"].includes(role);
   const isAdmin = role === "superadmin" || role === "administrador";
   const { stores, store, choose } = useStoreChoice(catalog.settings);
@@ -7330,6 +7582,7 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
             <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
                 {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint="Ir al punto de venta" onClick={onGoSell} dark />}
+                {onReturns && <BigAction icon={Undo2} title="Devolución o cambio" hint="De una venta ya hecha" onClick={onReturns} />}
                 <BigAction icon={Plus} title="Entrada" hint="Meter efectivo (ej. sencillo)" onClick={() => { setMove({ type: "entrada", amount: "", reason: "" }); setClosing(null); }} />
                 <BigAction icon={Minus} title="Salida" hint="Sacar efectivo (ej. compras)" onClick={() => { setMove({ type: "salida", amount: "", reason: "" }); setClosing(null); }} />
                 <BigAction icon={RotateCcw} title="Cambio de turno" hint="Entregar la caja a otra vendedora" onClick={() => { setClosing({ counted: "", notes: "", shift: true, next: "" }); setMove(null); }} />
@@ -7425,6 +7678,107 @@ const suggestSellerCode = (name, existing) => {
   const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : (parts[0] || "XX").slice(0, 2).padEnd(2, "X");
   for (let i = 1; i < 100; i++) { const c = `${letters}${String(i).padStart(2, "0")}`; if (!existing.includes(c)) return c; }
   return letters + "99";
+};
+
+// Clientas del Club Fly: compras, puntos y permiso de publicidad (Ley 29733). Solo administración.
+const consentOf = (c) => (c.marketing && typeof c.marketing.optIn === "boolean" ? c.marketing : null);
+const CustomersScreen = ({ catalog, refreshData }) => {
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState("todas");
+  const [open, setOpen] = useState(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [local, setLocal] = useState({});
+  const stats = useMemo(() => {
+    const m = new Map();
+    (catalog.sales || []).forEach((s) => {
+      if (!s.customerPhone || s.status === "anulado") return;
+      const x = m.get(s.customerPhone) || { n: 0, total: 0, last: 0 };
+      x.n += 1; x.total += Number(netSale(s).total) || 0; x.last = Math.max(x.last, s.createdAt || 0);
+      m.set(s.customerPhone, x);
+    });
+    return m;
+  }, [catalog.sales]);
+  const all = useMemo(() => (catalog.customers || []).map((c) => (local[c.phone] ? { ...c, marketing: local[c.phone] } : c))
+    .map((c) => ({ ...c, st: stats.get(c.phone) || { n: 0, total: 0, last: 0 } })), [catalog.customers, stats, local]);
+  const nq = q.trim().toLowerCase();
+  const list = all
+    .filter((c) => filter === "todas" || (filter === "si" ? consentOf(c)?.optIn === true : consentOf(c)?.optIn !== true))
+    .filter((c) => !nq || `${c.name || ""} ${c.phone || ""} ${c.email || ""} ${c.doc || ""}`.toLowerCase().includes(nq))
+    .sort((a, b) => (b.st.last || b.createdAt || 0) - (a.st.last || a.createdAt || 0));
+  const yes = all.filter((c) => consentOf(c)?.optIn === true).length;
+  const showPhone = (p) => (String(p || "").startsWith("g:") ? "" : `+${p}`);
+  const exportConsent = () => {
+    const rows = all.filter((c) => consentOf(c)?.optIn === true).map((c) => ({
+      Nombre: c.name || "", Celular: showPhone(c.phone), Correo: c.email || "", Puntos: Number(c.points) || 0,
+      Compras: c.st.n, "Total comprado (S/)": Number(c.st.total.toFixed(2)), "Permiso desde": new Date(c.marketing.at).toLocaleDateString("es-PE"), "Dio el permiso por": c.marketing.via || "",
+    }));
+    if (!rows.length) { setMsg("Aún no hay personas con permiso para recibir publicidad."); return; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Con permiso");
+    XLSX.writeFile(wb, `fly-clientas-con-permiso-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+  const setConsent = async (c, optIn) => {
+    if (!note.trim()) { setMsg("Escribe cómo lo pidió (ej. «Lo pidió en tienda» o «Pidió baja por WhatsApp»)."); return; }
+    setBusy(true); setMsg("");
+    const { error } = await supabase.rpc("staff_set_marketing", { p_phone: c.phone, p_optin: optIn, p_note: note.trim() });
+    setBusy(false);
+    if (error) { setMsg(error.code === "PGRST202" ? "Falta correr el SQL 20 en Supabase." : "No se pudo guardar. Intenta de nuevo."); return; }
+    setLocal((l) => ({ ...l, [c.phone]: { optIn, at: Date.now(), via: "staff", note: note.trim() } }));
+    setNote(""); setMsg(optIn ? "Guardado: acepta recibir publicidad." : "Guardado: no recibirá publicidad.");
+    refreshData && refreshData();
+  };
+  const chip = (k, l) => <button key={k} onClick={() => setFilter(k)} style={{ padding: "7px 12px", borderRadius: 999, border: `1px solid ${filter === k ? C.ink : C.line}`, background: filter === k ? C.ink : "transparent", color: filter === k ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>{l}</button>;
+  const txt = { fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft };
+  return (
+    <div style={{ padding: "18px 18px 100px", maxWidth: 760, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Clientas (Club Fly)</h1>
+      <div style={{ ...txt, marginBottom: 14 }}>{all.length} registradas · <strong>{yes}</strong> aceptan recibir publicidad. Solo a ellas se les envían ofertas; los avisos de pedidos se envían a todas.</div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, celular, correo o DNI" style={{ ...inputStyle, marginBottom: 10 }} />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+        {chip("todas", "Todas")}{chip("si", "Con permiso")}{chip("no", "Sin permiso")}
+        <button onClick={exportConsent} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 999, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}><FileSpreadsheet size={13} /> Descargar las que tienen permiso</button>
+      </div>
+      {msg && <div style={{ ...txt, color: C.ink, background: C.paperDeep, borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>{msg}</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {list.slice(0, 200).map((c) => {
+          const cs = consentOf(c);
+          const isOpen = open === c.phone;
+          return (
+            <AdminCard key={c.phone} style={{ padding: 12 }}>
+              <button onClick={() => { setOpen(isOpen ? null : c.phone); setNote(""); setMsg(""); }} style={{ display: "flex", width: "100%", gap: 10, alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink }}>{c.name || "Sin nombre"}</div>
+                  <div style={{ ...txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[showPhone(c.phone), c.email].filter(Boolean).join(" · ")}</div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink }}>{c.st.n ? moneyExact(c.st.total) : "Sin compras"}</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: cs?.optIn ? C.ink : C.stone, fontWeight: cs?.optIn ? 700 : 400 }}>{cs ? (cs.optIn ? "✓ Acepta publicidad" : "No quiere publicidad") : "Sin respuesta"}</div>
+                </div>
+              </button>
+              {isOpen && (
+                <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 10 }}>
+                  <div style={txt}>Puntos: <strong>{Number(c.points) || 0}</strong> · Compras: <strong>{c.st.n}</strong>{c.st.last ? ` · Última: ${new Date(c.st.last).toLocaleDateString("es-PE")}` : ""}{c.doc ? ` · Doc.: ${c.doc}` : ""}</div>
+                  <div style={{ ...txt, marginTop: 4 }}>Registro: {c.createdAt ? new Date(c.createdAt).toLocaleDateString("es-PE") : "—"}{c.via ? ` (${c.via})` : ""}</div>
+                  <div style={{ ...txt, marginTop: 4 }}>Publicidad: {cs ? `${cs.optIn ? "acepta" : "no acepta"} desde ${new Date(cs.at).toLocaleString("es-PE")} (${cs.via || "—"}${cs.by ? `, anotó ${cs.by}` : ""}${cs.note ? `: «${cs.note}»` : ""})` : "nunca respondió → no se le envía publicidad"}</div>
+                  <div style={{ marginTop: 10 }}>
+                    <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="¿Cómo lo pidió? (obligatorio)" style={{ ...inputStyle, marginBottom: 8 }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button disabled={busy} onClick={() => setConsent(c, true)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Acepta publicidad</button>
+                      <button disabled={busy} onClick={() => setConsent(c, false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Dar de baja</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AdminCard>
+          );
+        })}
+        {!list.length && <div style={{ ...txt, textAlign: "center", padding: 24 }}>No hay clientas con ese filtro.</div>}
+        {list.length > 200 && <div style={{ ...txt, textAlign: "center" }}>Se muestran 200. Usa el buscador para encontrar a alguien.</div>}
+      </div>
+    </div>
+  );
 };
 
 const SellersScreen = ({ catalog }) => {
@@ -7569,13 +7923,24 @@ const STAFF_GUIDES = {
   ] },
   promocodes: { title: "Códigos promocionales", steps: [["Gift", "Crea un código (ej. FLY10) con % o monto. Puede ser solo para el Club Fly. Desactívalo cuando termine la promoción."]] },
   complaints: { title: "Libro de Reclamaciones", steps: [["BookOpen", "Responde cada reclamo dentro del plazo legal (15 días hábiles). La respuesta queda guardada."]] },
+  returns: { title: "Devolución o cambio", steps: [
+    ["Search", "Escribe el número de la venta (está en el ticket, ej. B001-000123) y toca «Buscar»."],
+    ["Undo2", "Marca con + las prendas que vuelven. Si se lleva otra (cambio de talla o color), búscala o escanéala."],
+    ["Banknote", "El sistema dice cuánto devolver o cobrar. En efectivo queda solo en la caja abierta. Escribe el motivo."],
+    ["ShieldCheck", "No se puede devolver más de lo vendido y reintentar no duplica. Una venta con devoluciones ya no se anula entera."],
+  ] },
+  customers: { title: "Clientas", steps: [
+    ["User", "Busca a una clienta para ver sus compras, puntos y si acepta publicidad."],
+    ["ShieldCheck", "Ofertas y campañas SOLO a quienes aceptaron (botón «Descargar las que tienen permiso»). Quien no respondió cuenta como «no»."],
+    ["Pencil", "Si alguien lo pide en tienda o por WhatsApp, ábrela, escribe cómo lo pidió y toca «Acepta» o «Dar de baja». Queda anotado quién lo cambió."],
+  ] },
   sellers: { title: "Códigos de vendedor", steps: [
     ["User", "Crea un código por vendedora (ej. MA01). Se sugiere solo con sus iniciales."],
     ["ShieldCheck", "El código solo dice quién vendió o movió la caja: no es contraseña ni da acceso al panel."],
     ["X", "Si alguien deja de trabajar, desactívalo. No se borra, para no perder sus ventas en los reportes."],
   ] },
 };
-const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2, RotateCcw, BookOpen, Layers, ImageIcon, Eye, Gift };
+const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2, RotateCcw, BookOpen, Layers, ImageIcon, Eye, Gift, Search };
 
 // Captura de una pantalla para las guías (si la imagen no existe, no se muestra nada)
 const GuideImage = ({ src, alt }) => {
@@ -7729,7 +8094,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -7762,6 +8127,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   }, []);
   useEffect(() => { scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); }, [screen]);
   const [editingProductId, setEditingProductId] = useState(undefined);
+  const [returnSale, setReturnSale] = useState(null);
   const [editingBannerId, setEditingBannerId] = useState(undefined);
   const [editingCollectionId, setEditingCollectionId] = useState(undefined);
 
@@ -7831,6 +8197,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   // Anular y validar se hacen en el servidor: stock, puntos e historial quedan consistentes.
   const missingSql = (e) => e?.code === "PGRST202" ? "Falta correr el archivo 08-fase2a-parches.sql en Supabase." : "";
   const voidSale = async (saleId) => {
+    if ((catalog.sales || []).some((x) => x.id === saleId && (x.returns || []).length)) { alert("Esta venta ya tiene devoluciones: usa «Devolución o cambio» para las prendas que faltan."); return; }
     const reason = prompt("Motivo de la anulación (obligatorio). Se devolverá el stock y se generará una nota de crédito interna:");
     if (!reason || !reason.trim()) return;
     const { data, error } = await supabase.rpc("void_sale", { p_sale_id: saleId, p_reason: reason.trim() });
@@ -7929,8 +8296,11 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" role={role} onGoCash={() => setScreen("caja")} />}
         {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
-        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} />}
+        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} onReturns={canOpenScreen(role, "returns") ? () => { setReturnSale(null); setScreen("returns"); } : null} />}
+        {canOpenScreen(role, "returns") && screen === "returns" && <ReturnsScreen key={returnSale?.id || "nueva"} catalog={catalog} initialSale={returnSale}
+          onSaved={(data) => { patchCatalog((c) => ({ ...c, sales: c.sales.some((x) => x.id === data.id) ? c.sales.map((x) => (x.id === data.id ? data : x)) : c.sales })); refreshData && refreshData(); }} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
+        {isAdminRole && screen === "customers" && <CustomersScreen catalog={catalog} refreshData={refreshData} />}
         {screen === "manual" && <StaffManual role={role} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
@@ -7941,7 +8311,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}
         {(role === "administrador" || role === "superadmin") && screen === "collections" && <AdminCollectionList collections={catalog.collections} openEditor={(id) => { setEditingCollectionId(id); setScreen("collectionEditor"); }} deleteCollection={deleteCollection} />}
         {(role === "administrador" || role === "superadmin") && screen === "collectionEditor" && <AdminCollectionEditor collection={catalog.collections.find((c) => c.id === editingCollectionId) || null} products={catalog.products} onSave={saveCollection} onCancel={() => setScreen("collections")} />}
-        {(role === "administrador" || role === "superadmin") && screen === "invoices" && <AdminInvoicesScreen storesSettings={catalog.settings} sales={catalog.sales} onVoid={voidSale} />}
+        {(role === "administrador" || role === "superadmin") && screen === "invoices" && <AdminInvoicesScreen storesSettings={catalog.settings} sales={catalog.sales} onVoid={voidSale} onReturn={(sale) => { setReturnSale(sale); setScreen("returns"); }} />}
         {(role === "administrador" || role === "superadmin") && screen === "reports" && <AdminReportsScreen catalog={catalog} />}
         {(role === "administrador" || role === "superadmin") && screen === "more" && <AdminMoreScreen setScreen={setScreen} onExit={onExit} role={role} />}
         {role === "superadmin" && screen === "users" && <AdminUsersScreen currentUserId={currentUserId} />}
@@ -8257,7 +8627,10 @@ export default function FlyBoutiqueApp() {
   };
 
   const registerClub = async (data) => {
-    const { data: c, error } = await supabase.rpc("register_customer", { p_name: data.name, p_phone: data.phone, p_email: data.email || "", p_captcha: data.captcha || null });
+    const args = { p_name: data.name, p_phone: data.phone, p_email: data.email || "", p_captcha: data.captcha || null };
+    let { data: c, error } = await supabase.rpc("register_customer", { ...args, p_marketing: !!data.marketing });
+    // Si aún no se corrió el SQL 20, se registra como antes (sin guardar el permiso)
+    if (error?.code === "PGRST202") ({ data: c, error } = await supabase.rpc("register_customer", args));
     if (error || !c) {
       const m = error?.message || "";
       // El servidor dice por qué falló la verificación (ej. invalid-input-secret): se muestra para poder corregirlo
