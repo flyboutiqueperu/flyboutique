@@ -396,7 +396,9 @@ async function uploadMedia(file, folder = "productos") {
 async function makeThumb(blobOrFile, folder = "productos") {
   try { return await uploadBlob(await resizeImageToBlob(blobOrFile, 600, 0.8), folder, "jpg", "image/jpeg"); } catch (e) { console.error(e); return null; }
 }
-const imgThumb = (m) => (m ? m.thumb || m.url : null);
+// Si una miniatura no carga, la foto usa la original (nunca se queda sin foto)
+const THUMB_ORIGINAL = new Map();
+const imgThumb = (m) => { if (!m) return null; if (m.thumb && m.url) THUMB_ORIGINAL.set(m.thumb, m.url); return m.thumb || m.url; };
 // Para mover fotos viejas guardadas dentro de la base de datos (data:image/...) a Storage
 async function uploadDataUrl(dataUrl, folder) {
   const blob = await (await fetch(dataUrl)).blob();
@@ -558,12 +560,55 @@ const FlightPath = ({ width = 70, color = C.ink }) => (
   </svg>
 );
 
+// Aviso de versión nueva: al volver a la app (o cada 15 min) se revisa si se publicó otra versión.
+// Un toque en «Actualizar» la carga. No recarga sola (para no cortar una venta a medias).
+const currentBuild = () => document.querySelector('script[type="module"][src*="/assets/index-"]')?.getAttribute("src") || "";
+const UpdateBanner = ({ staff }) => {
+  const [ready, setReady] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    const mine = currentBuild();
+    if (!mine) return undefined; // modo desarrollo
+    let alive = true;
+    const check = async () => {
+      try {
+        const html = await (await fetch(`/?v=${Date.now()}`, { cache: "no-store" })).text();
+        const m = html.match(/\/assets\/index-[\w-]+\.js/);
+        if (alive && m && !mine.endsWith(m[0])) { setReady(true); setHidden(false); }
+      } catch (e) { /* sin internet: se revisa luego */ }
+    };
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    const t = setInterval(check, 15 * 60 * 1000);
+    const first = setTimeout(check, 20000);
+    return () => { alive = false; document.removeEventListener("visibilitychange", onVis); clearInterval(t); clearTimeout(first); };
+  }, []);
+  if (!ready || hidden) return null;
+  return (
+    <div role="status" style={{ position: "fixed", left: 12, right: 12, bottom: "calc(84px + env(safe-area-inset-bottom))", zIndex: 90, maxWidth: 460, margin: "0 auto", background: C.ink, color: C.paper, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", fontFamily: FONT_BODY }}>
+      <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4 }}><strong>Hay una versión nueva de Fly.</strong>{staff ? " Termina lo que estás haciendo y actualiza." : ""}</div>
+      <button onClick={() => window.location.reload()} style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Actualizar</button>
+      <button onClick={() => setHidden(true)} aria-label="Más tarde" style={{ background: "none", border: "none", color: C.paper, cursor: "pointer", padding: 4 }}><X size={16} /></button>
+    </div>
+  );
+};
+
 const ProductImg = ({ src, alt, style, dim }) => {
+  // Intentos: miniatura → foto original → un reintento (internet lento o cortado) → logo FLY
+  const [cur, setCur] = useState(src);
+  const [tries, setTries] = useState(0);
   const [broken, setBroken] = useState(false);
-  if (!src || broken) {
+  useEffect(() => { setCur(src); setTries(0); setBroken(false); }, [src]);
+  const onError = () => {
+    const orig = THUMB_ORIGINAL.get(cur);
+    if (orig && orig !== cur) { setCur(orig); return; }
+    if (tries < 1) { setTries(1); setTimeout(() => setCur(`${cur}${cur.includes("?") ? "&" : "?"}r=${Date.now()}`), 1500); return; }
+    setBroken(true);
+  };
+  if (!cur || broken) {
     return <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center", background: C.paperDeep }}><BadgeLogo size={30} /></div>;
   }
-  return <img src={src} alt={alt} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }} onError={() => setBroken(true)} loading="lazy" decoding="async" />;
+  return <img src={cur} alt={alt} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }} onError={onError} loading="lazy" decoding="async" />;
 };
 
 /* ------------------------------------------------------------------ */
@@ -715,8 +760,10 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
 // de tiendas). En PC el círculo es grande y muestra "Ir al inicio" al pasar el mouse.
 // La búsqueda se hace solo con la barra "¿Qué prenda buscas hoy?"; el botón "Catálogo"
 // abre todas las prendas con filtros (antes tenía otra lupa y se repetía).
+// Celular: Inicio · Catálogo · Favoritos · Cesta · Cuenta (como Zalando/Amazon). En PC el logo lleva al inicio y se ve «Visto».
 const NAV_ITEMS = [
-  { key: "category", label: "Catálogo", icon: LayoutGrid }, { key: "viewed", label: "Visto", icon: Eye }, { key: "favorites", label: "Favoritos", icon: Heart },
+  { key: "home", label: "Inicio", icon: Home, only: "mobile" },
+  { key: "category", label: "Catálogo", icon: LayoutGrid }, { key: "viewed", label: "Visto", icon: Eye, only: "desktop" }, { key: "favorites", label: "Favoritos", icon: Heart },
   { key: "cart", label: "Cesta", icon: ShoppingBag }, { key: "profile", label: "Cuenta", icon: User },
 ];
 const closeDrop = (e) => { const w = e.currentTarget; w.classList.add("nav-drop-closed"); try { document.activeElement && document.activeElement.blur(); } catch (err) { /* nada */ } };
@@ -730,10 +777,11 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
     <div className="nav-search" style={{ display: "none", position: "relative" }}>
       <SearchBox products={products} onOpenProduct={onOpenProduct} onSearch={onSearchQuery} />
     </div>
-    {NAV_ITEMS.map(({ key, label, icon: Icon }) => {
+    {NAV_ITEMS.map(({ key, label, icon: Icon, only }) => {
       const active = screen === key;
       const btn = (
-        <button key={key} className={`nav-item${active ? " is-active" : ""}`} onClick={() => setScreen(key)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 6px", position: "relative", flex: 1 }}>
+        // Tocar otra vez la pestaña en la que ya estás te sube al principio
+        <button key={key} className={`nav-item${active ? " is-active" : ""}${only ? ` nav-only-${only}` : ""}`} aria-current={active ? "page" : undefined} onClick={() => (active ? scrollAllTop(true) : setScreen(key))} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 6px", position: "relative", flex: 1 }}>
           <div style={{ position: "relative" }}>
             <Icon size={20} strokeWidth={active ? 2.1 : 1.5} color={active ? C.ink : C.stone} />
             {key === "favorites" && favCount > 0 && <span style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{favCount}</span>}
@@ -3624,6 +3672,7 @@ const ProfileScreen = ({ points, favCount, onStaffClick, clubMember, onLogoutClu
   const menu = [
     { label: "Mis pedidos", icon: Package, action: () => setScreen("orders") },
     { label: "Mis favoritos", icon: Heart, action: () => setScreen("favorites") },
+    { label: "Visto recientemente", icon: Eye, action: () => setScreen("viewed") },
     { label: "Mis direcciones", icon: MapPin, action: () => setScreen("addresses") },
     { label: "Métodos de pago", icon: CreditCard, action: () => setScreen("payments") },
     { label: "Cambios y devoluciones", icon: Undo2, action: () => setShowPolicy(true) },
@@ -8655,6 +8704,16 @@ export default function FlyBoutiqueApp() {
     })();
   }, []);
   const [mode, setMode] = useState("store"); // store | staffLogin | staff
+  // En el panel del staff, «Agregar a pantalla de inicio» instala otra app: «Fly Staff» (abre directo en el acceso del staff)
+  useEffect(() => {
+    const staff = mode !== "store";
+    const link = document.querySelector('link[rel="manifest"]');
+    if (link) link.setAttribute("href", staff ? "/manifest-staff.webmanifest" : "/manifest.webmanifest");
+    const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (title) title.setAttribute("content", staff ? "Fly Staff" : "Fly");
+    const icon = document.querySelector('link[rel="apple-touch-icon"]');
+    if (icon) icon.setAttribute("href", staff ? "/icons/staff-apple-touch-icon.png" : "/icons/apple-touch-icon.png");
+  }, [mode]);
   const [session, setSession] = useState(null); // { staffMember } — perfil de staff_profiles
   const sessionRef = useRef(null); sessionRef.current = session;
   const [clubPoints, setClubPoints] = useState(0);
@@ -9113,6 +9172,7 @@ export default function FlyBoutiqueApp() {
         }
         .back-top { bottom: 92px !important; }
         .pdp-thumbs { display: none; }
+        .app-nav .nav-only-desktop { display: none !important; }
         .page-narrow { width: 100%; }
         @media (max-width: 899px) {
           .pdp-crumb-name { display: none; }
@@ -9160,6 +9220,8 @@ export default function FlyBoutiqueApp() {
           }
           .app-nav::before { content: ""; position: absolute; top: 0; bottom: 0; left: -100vmax; right: -100vmax; background: ${C.paper}; border-bottom: 1px solid ${C.line}; z-index: -1; }
           .app-nav .nav-brand { display: flex !important; margin-right: 22px; transition: transform .2s ease; }
+          .app-nav .nav-item.nav-only-mobile { display: none !important; }
+          .app-nav .nav-item.nav-only-desktop { display: flex !important; }
           .app-nav .nav-brand:hover { transform: scale(1.04); }
           .app-nav .nav-brand-hint { opacity: 0; transition: opacity .2s ease; }
           .app-nav .nav-brand:hover .nav-brand-hint { opacity: 1; }
@@ -9294,6 +9356,7 @@ export default function FlyBoutiqueApp() {
             )}
           </>
         )}
+        <UpdateBanner staff={mode !== "store"} />
       </div>
     </div>
   );
