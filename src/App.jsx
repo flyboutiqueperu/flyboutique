@@ -3933,7 +3933,7 @@ const BusinessSummary = ({ catalog, go }) => {
     ]).then(([t, c, a]) => { if (alive) setExtra({ transfers: t.error ? null : (t.data || []).length, cash: c.error ? null : c.data || [], activity: a.error ? null : a.data || [] }); }).catch(() => {});
     return () => { alive = false; };
   }, []);
-  const valid = (catalog.sales || []).filter((x) => x.status !== "anulado");
+  const valid = (catalog.sales || []).filter((x) => x.status !== "anulado").map(netSale);
   const day = 86400000;
   const start = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
   const today = start(Date.now());
@@ -6543,7 +6543,197 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
 /* ==================================================================== */
 /*  ============================  COMPROBANTES  ========================*/
 /* ==================================================================== */
-const AdminInvoicesScreen = ({ sales, onVoid, storesSettings }) => {
+// Devolución parcial o cambio (talla, color u otra prenda) de una venta ya hecha. Lo calcula y guarda el servidor (SQL 21).
+const RETURN_ERRORS = {
+  SIN_PERMISO: "Tu usuario no puede hacer devoluciones (solo Caja y Administración).", MOTIVO_REQUERIDO: "Escribe el motivo.",
+  YA_DEVUELTO: "Esa cantidad ya fue devuelta antes.", NO_ESTA_EN_LA_VENTA: "Esa prenda no está en esta venta.", VENTA_ANULADA: "La venta está anulada.",
+  PEDIDO_SIN_PAGO: "El pedido aún no tiene el pago validado: cancélalo en Pedidos Web.", SIN_STOCK: "No hay stock de la prenda nueva.",
+  CAJA_CERRADA: "Para devolver o cobrar en efectivo, la caja tiene que estar abierta.", VENDEDOR_INVALIDO: "Ese código de vendedora no existe o está inactivo.",
+  NADA_PARA_DEVOLVER: "Elige al menos una prenda que vuelve.", NUMERO_INVALIDO: "Escribe el número así: B001-000123.",
+};
+const returnErrorText = (e) => {
+  if (e?.code === "PGRST202") return "Falta correr el SQL 21 en Supabase.";
+  const m = e?.message || "";
+  const k = Object.keys(RETURN_ERRORS).find((x) => m.includes(x));
+  if (k === "YA_DEVUELTO") return `Solo quedan ${m.split("YA_DEVUELTO:")[1] || 0} por devolver de esa prenda.`;
+  return k ? RETURN_ERRORS[k] : "No se pudo guardar. Revisa tu conexión e intenta de nuevo (no se duplica).";
+};
+// Venta "neta" para reportes: resta lo devuelto y suma lo que se llevó en un cambio (SQL 21).
+// Total, prendas y pagos quedan como si la venta hubiera sido así desde el inicio.
+const netSale = (s) => {
+  if (!s || !(s.returns || []).length) return s;
+  const back = {};
+  s.returns.forEach((r) => (r.lines || []).forEach((l) => { back[l.variantId] = (back[l.variantId] || 0) + l.qty; }));
+  const items = s.items.map((i) => { const take = Math.min(back[i.variantId] || 0, i.qty); back[i.variantId] = (back[i.variantId] || 0) - take; return { ...i, qty: i.qty - take }; })
+    .concat(s.returns.flatMap((r) => r.newItems || [])).filter((i) => i.qty > 0);
+  const basePays = s.payments && s.payments.length ? s.payments : [{ method: s.paymentMethod || "—", amount: s.total }];
+  const payments = basePays.concat(s.returns.filter((r) => r.difference).map((r) => ({ method: r.method, amount: -r.difference })));
+  return { ...s, items, payments, total: Math.round(((Number(s.total) || 0) - (Number(s.refundedTotal) || 0)) * 100) / 100 };
+};
+const saleLabel = (s) => `${s.serie}-${String(s.numero).padStart(6, "0")}`;
+const returnedQtyOf = (s, variantId) => (s.returns || []).reduce((a, r) => a + (r.lines || []).filter((l) => l.variantId === variantId).reduce((b, l) => b + l.qty, 0), 0);
+
+const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
+  const [doc, setDoc] = useState(initialSale ? saleLabel(initialSale) : "");
+  const [sale, setSale] = useState(initialSale || null);
+  const [ret, setRet] = useState({});
+  const [newItems, setNewItems] = useState([]);
+  const [pq, setPq] = useState("");
+  const [reason, setReason] = useState("");
+  const [method, setMethod] = useState("Efectivo");
+  const [loc, setLoc] = useState("");
+  const [seller, setSeller] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [done, setDone] = useState(null);
+  const reqId = useRef(genId("dev"));
+  const locs = stockLocations(catalog.settings);
+  const reset = () => { setRet({}); setNewItems([]); setReason(""); setMsg(""); setDone(null); reqId.current = genId("dev"); };
+  const find = async () => {
+    setMsg(""); setBusy(true);
+    const local = (catalog.sales || []).find((x) => saleLabel(x).toLowerCase() === doc.trim().toLowerCase());
+    const { data, error } = await supabase.rpc("find_sale_for_return", { p_doc: doc.trim() });
+    setBusy(false);
+    const found = data || (error?.code === "PGRST202" ? local : null);
+    if (error && error.code !== "PGRST202") { setMsg(returnErrorText(error)); return; }
+    if (!found) { setMsg("No encontramos esa venta. Revisa el número."); return; }
+    reset(); setSale(found); setLoc(locs.some((l) => l.id === found.storeId) ? found.storeId : locs[0]?.id || "principal");
+  };
+  useEffect(() => { if (initialSale) setLoc(locs.some((l) => l.id === initialSale.storeId) ? initialSale.storeId : locs[0]?.id || "principal"); }, []);
+
+  const txt = { fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft };
+  const head = (t) => <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, color: C.stone, margin: "16px 0 8px" }}>{t}</div>;
+  const stepBtn = { width: 30, height: 30, borderRadius: 8, border: `1px solid ${C.line}`, background: C.white, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" };
+
+  if (done) {
+    const r = done.returns[done.returns.length - 1];
+    return (
+      <div style={{ padding: "18px 18px 100px", maxWidth: 560, margin: "0 auto" }}>
+        <div className="print-area">
+          <AdminCard>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>{r.newItems?.length ? "Cambio registrado" : "Devolución registrada"}</div>
+            <div style={{ ...txt, marginTop: 4 }}>Venta {saleLabel(done)} · {new Date(r.at).toLocaleString("es-PE")} · {r.by}{r.seller ? ` · ${r.seller}` : ""}</div>
+            <div style={{ ...txt, marginTop: 10 }}>Vuelve: {r.lines.map((l) => `${l.name} ${l.size}/${l.colorName} ×${l.qty}`).join(" · ")}</div>
+            {r.newItems?.length > 0 && <div style={{ ...txt, marginTop: 4 }}>Se lleva: {r.newItems.map((l) => `${l.name} ${l.size}/${l.colorName} ×${l.qty}`).join(" · ")}</div>}
+            <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: C.ink, marginTop: 12 }}>
+              {r.difference > 0 ? `Devolver ${moneyExact(r.difference)} (${r.method})` : r.difference < 0 ? `Cobrar ${moneyExact(-r.difference)} (${r.method})` : "Sin diferencia de dinero"}
+            </div>
+            <div style={{ ...txt, marginTop: 4 }}>Motivo: {r.reason}{r.pointsRemoved ? ` · Se quitaron ${r.pointsRemoved} puntos del Club` : ""}</div>
+            <div style={{ ...txt, marginTop: 8, fontSize: 10.5 }}>Documento interno. No es nota de crédito electrónica (SUNAT).</div>
+          </AdminCard>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button onClick={() => window.print()} style={{ ...quickLinkStyle, flex: 1, justifyContent: "center" }}><Receipt size={15} /> Imprimir</button>
+          <button onClick={() => { setSale(null); setDoc(""); reset(); }} style={{ ...quickLinkStyle, flex: 1, justifyContent: "center" }}>Otra devolución</button>
+        </div>
+      </div>
+    );
+  }
+
+  const retLines = sale ? sale.items.map((it) => ({ it, max: Math.max(0, it.qty - returnedQtyOf(sale, it.variantId)), q: ret[it.variantId] || 0 })) : [];
+  const sub = sale ? (Number(sale.subtotal) || sale.items.reduce((a, i) => a + i.unitPrice * i.qty, 0)) : 0;
+  const ratio = sale && sub > 0 ? Math.min(Math.max(((Number(sale.total) || 0) - (Number(sale.shipping) || 0)) / sub, 0), 1) : 1;
+  const retAmount = retLines.reduce((a, l) => a + Math.round(l.it.unitPrice * ratio * 100) / 100 * l.q, 0);
+  const newAmount = newItems.reduce((a, n) => a + n.price * n.qty, 0);
+  const diff = Math.round((retAmount - newAmount) * 100) / 100;
+  const anyRet = retLines.some((l) => l.q > 0);
+  const hasOutlet = sale && retLines.some((l) => l.q > 0 && isOutlet(catalog.products.find((p) => p.id === l.it.productId)));
+  const nq = pq.trim().toLowerCase();
+  const results = nq.length >= 2 ? catalog.products.flatMap((p) => p.variants.filter((v) => v.stock > 0 && (`${p.name} ${v.sku || ""}`.toLowerCase().includes(nq))).map((v) => ({ p, v }))).slice(0, 12) : [];
+  const addNew = (p, v) => { setNewItems((xs) => xs.some((x) => x.variantId === v.id) ? xs.map((x) => (x.variantId === v.id && x.qty < v.stock ? { ...x, qty: x.qty + 1 } : x)) : [...xs, { variantId: v.id, name: p.name, size: v.size, colorName: v.colorName, price: Number(p.price) || 0, qty: 1, max: v.stock }]); setPq(""); };
+  const save = async () => {
+    if (!anyRet) { setMsg(RETURN_ERRORS.NADA_PARA_DEVOLVER); return; }
+    if (!reason.trim()) { setMsg(RETURN_ERRORS.MOTIVO_REQUERIDO); return; }
+    setBusy(true); setMsg("");
+    const { data, error } = await supabase.rpc("return_sale", {
+      p_sale_id: sale.id, p_lines: retLines.filter((l) => l.q > 0).map((l) => ({ variantId: l.it.variantId, qty: l.q })), p_reason: reason.trim(),
+      p_method: method, p_new_items: newItems.map((n) => ({ variantId: n.variantId, qty: n.qty })), p_location: loc || null, p_request_id: reqId.current, p_seller: seller.trim() || null,
+    });
+    setBusy(false);
+    if (error || !data) { setMsg(returnErrorText(error)); return; }
+    setDone(data); setSale(data);
+    onSaved && onSaved(data);
+  };
+
+  return (
+    <div style={{ padding: "18px 18px 100px", maxWidth: 620, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Devolución o cambio</h1>
+      <div style={{ ...txt, marginBottom: 12 }}>Elige qué prendas vuelven y, si es un cambio, cuál se lleva. El sistema calcula la diferencia, ajusta el stock y la caja.</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={doc} onChange={(e) => setDoc(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find()} placeholder="N.° de la venta (ej. B001-000123)" style={inputStyle} />
+        <button onClick={find} disabled={busy || !doc.trim()} style={{ padding: "0 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Buscar</button>
+      </div>
+      {msg && !sale && <div style={{ ...txt, color: C.accent, marginTop: 8 }}>{msg}</div>}
+      {sale && (
+        <>
+          <AdminCard style={{ marginTop: 14, padding: 12 }}>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink }}>{saleLabel(sale)} · {moneyExact(sale.total)}{sale.status === "anulado" ? " · ANULADA" : ""}</div>
+            <div style={txt}>{new Date(sale.createdAt).toLocaleString("es-PE")} · {sale.channel === "online" ? "Web" : "Tienda"}{sale.customerName ? ` · ${sale.customerName}` : ""}{sale.discount > 0 ? ` · Descuento ${moneyExact(sale.discount)}` : ""}</div>
+            {(sale.returns || []).length > 0 && <div style={{ ...txt, marginTop: 4 }}>Ya tuvo {sale.returns.length} devolución(es)/cambio(s).</div>}
+          </AdminCard>
+          {head("1. ¿Qué prendas vuelven?")}
+          {retLines.map(({ it, max, q }) => (
+            <div key={it.variantId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{it.name} — {it.size}/{it.colorName}</div>
+                <div style={{ ...txt, fontSize: 11 }}>Compró {it.qty} · {max === 0 ? "ya devuelta" : `puede devolver ${max}`} · pagó {moneyExact(Math.round(it.unitPrice * ratio * 100) / 100)} c/u</div>
+              </div>
+              <button aria-label="Menos" disabled={q <= 0} onClick={() => setRet((r) => ({ ...r, [it.variantId]: Math.max(0, q - 1) }))} style={stepBtn}><Minus size={13} /></button>
+              <span style={{ width: 18, textAlign: "center", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700 }}>{q}</span>
+              <button aria-label="Más" disabled={q >= max} onClick={() => setRet((r) => ({ ...r, [it.variantId]: Math.min(max, q + 1) }))} style={stepBtn}><Plus size={13} /></button>
+            </div>
+          ))}
+          {hasOutlet && <div style={{ ...txt, color: C.accent, marginTop: 8 }}>Prenda Outlet: sin cambios ni devoluciones, salvo falla de fábrica. Anótalo en el motivo.</div>}
+
+          {head("2. ¿Se lleva otra prenda? (cambio, opcional)")}
+          <input value={pq} onChange={(e) => setPq(e.target.value)} onKeyDown={(e) => { if (e.key !== "Enter") return; const code = pq.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v && v.stock > 0) { addNew(p, v); return; } } }} placeholder="Busca por nombre o escanea el código" style={inputStyle} />
+          {results.length > 0 && (
+            <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, marginTop: 6, maxHeight: 220, overflowY: "auto" }}>
+              {results.map(({ p, v }) => (
+                <button key={v.id} onClick={() => addNew(p, v)} style={{ display: "flex", width: "100%", justifyContent: "space-between", padding: "9px 10px", border: "none", borderBottom: `1px solid ${C.line}`, background: C.white, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textAlign: "left" }}>
+                  <span>{p.name} — {v.size}/{v.colorName}</span><span>{moneyExact(p.price)} · stock {v.stock}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {newItems.map((n) => (
+            <div key={n.variantId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ flex: 1, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{n.name} — {n.size}/{n.colorName} · {moneyExact(n.price)}</div>
+              <button aria-label="Menos" onClick={() => setNewItems((xs) => xs.map((x) => (x.variantId === n.variantId ? { ...x, qty: x.qty - 1 } : x)).filter((x) => x.qty > 0))} style={stepBtn}><Minus size={13} /></button>
+              <span style={{ width: 18, textAlign: "center", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700 }}>{n.qty}</span>
+              <button aria-label="Más" disabled={n.qty >= n.max} onClick={() => setNewItems((xs) => xs.map((x) => (x.variantId === n.variantId ? { ...x, qty: x.qty + 1 } : x)))} style={stepBtn}><Plus size={13} /></button>
+            </div>
+          ))}
+
+          {head("3. Dinero y datos")}
+          <AdminCard style={{ padding: 12, marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", ...txt }}><span>Vuelve</span><span>{moneyExact(retAmount)}</span></div>
+            {newItems.length > 0 && <div style={{ display: "flex", justifyContent: "space-between", ...txt }}><span>Se lleva</span><span>− {moneyExact(newAmount)}</span></div>}
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: C.ink, marginTop: 6 }}>
+              <span>{diff > 0 ? "Devolver a la persona" : diff < 0 ? "Cobrar a la persona" : "Diferencia"}</span><span>{moneyExact(Math.abs(diff))}</span>
+            </div>
+            {sale.shipping > 0 && <div style={{ ...txt, fontSize: 10.5, marginTop: 4 }}>El envío ({moneyExact(sale.shipping)}) no se devuelve.</div>}
+          </AdminCard>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Cómo se paga o devuelve" style={inputStyle}>
+              {["Efectivo", "Yape", "Plin", "Tarjeta", "Transferencia", "Vale"].map((m) => <option key={m} value={m}>{m === "Vale" ? "Vale de compra (sin dinero)" : m}</option>)}
+            </select>
+            <select value={loc} onChange={(e) => setLoc(e.target.value)} aria-label="Dónde queda la prenda devuelta" style={inputStyle}>
+              {locs.map((l) => <option key={l.id} value={l.id}>Queda en {l.name}</option>)}
+            </select>
+          </div>
+          <input value={reason} onChange={(e) => setReason(e.target.value.slice(0, 200))} placeholder="Motivo (obligatorio): talla, color, falla…" style={{ ...inputStyle, marginBottom: 8 }} />
+          <input value={seller} onChange={(e) => setSeller(e.target.value.toUpperCase().slice(0, 5))} placeholder="Código de quien atiende (ej. MA01, opcional)" style={{ ...inputStyle, marginBottom: 8 }} />
+          {method === "Efectivo" && diff !== 0 && <div style={{ ...txt, fontSize: 11, marginBottom: 8 }}>Quedará como {diff > 0 ? "salida" : "entrada"} de efectivo en la caja abierta.</div>}
+          {msg && <div style={{ ...txt, color: C.accent, marginBottom: 8 }}>{msg}</div>}
+          <PrimaryButton disabled={busy || !anyRet} onClick={save}>{busy ? "Guardando…" : newItems.length ? "Registrar cambio" : "Registrar devolución"}</PrimaryButton>
+        </>
+      )}
+    </div>
+  );
+};
+
+const AdminInvoicesScreen = ({ sales, onVoid, storesSettings, onReturn }) => {
   const [selected, setSelected] = useState(null);
   const [tipoFilter, setTipoFilter] = useState("todos");
   const [estadoFilter, setEstadoFilter] = useState("todos");
@@ -6561,7 +6751,24 @@ const AdminInvoicesScreen = ({ sales, onVoid, storesSettings }) => {
           const lines = [`Comprobante Fly Boutique ${selected.serie}-${String(selected.numero).padStart(6, "0")}`, "", ...selected.items.map((i) => `• ${i.name} — ${i.size}/${i.colorName} × ${i.qty} — ${money(i.unitPrice * i.qty)}`), "", `Total: ${money(selected.total)}`];
           window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
         }} />
-        {selected.status !== "anulado" && (
+        {(selected.returns || []).length > 0 && (
+          <AdminCard style={{ marginTop: -60, marginBottom: 70 }}>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>Devoluciones y cambios</div>
+            {selected.returns.map((r) => (
+              <div key={r.id} style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 6 }}>
+                {new Date(r.at).toLocaleString("es-PE")} · {r.by}: vuelve {r.lines.map((l) => `${l.name} ${l.size}/${l.colorName} ×${l.qty}`).join(", ")}
+                {r.newItems?.length ? `; se lleva ${r.newItems.map((l) => `${l.name} ${l.size}/${l.colorName} ×${l.qty}`).join(", ")}` : ""}
+                {" · "}{r.difference > 0 ? `devuelto ${moneyExact(r.difference)}` : r.difference < 0 ? `cobrado ${moneyExact(-r.difference)}` : "sin diferencia"} ({r.method}) · «{r.reason}»
+              </div>
+            ))}
+          </AdminCard>
+        )}
+        {selected.status !== "anulado" && onReturn && (
+          <button onClick={() => onReturn(selected)} style={{ ...quickLinkStyle, width: "100%", justifyContent: "center", marginTop: (selected.returns || []).length ? -60 : -70, marginBottom: 80 }}>
+            <RotateCcw size={15} /> Devolución o cambio de prendas
+          </button>
+        )}
+        {selected.status !== "anulado" && !(selected.returns || []).length && (
           <button onClick={() => { onVoid(selected.id); setSelected(null); }} style={{ width: "100%", marginTop: -70, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
             <Undo2 size={15} /> Anular (nota de crédito) y devolver stock
           </button>
@@ -6793,14 +7000,14 @@ const AdminReportsScreen = ({ catalog }) => {
   const stores = storesOf(catalog.settings);
   const sellers = [...new Set(catalog.sales.map((s) => s.staffName || "Sin asignar"))].sort();
   const list = filterSales(catalog.sales, f);
-  const valid = list.filter((s) => s.status !== "anulado");
+  const valid = list.filter((s) => s.status !== "anulado").map(netSale);
   const total = valid.reduce((a, s) => a + (s.total || 0), 0);
   // Mismo periodo anterior (ej. este mes vs. el mes pasado), con los mismos filtros
   const [ra, rb] = periodRange(f);
   const prevTotal = f.period === "todo" ? null : catalog.sales.filter((s) => {
     const t = new Date(s.createdAt).getTime(), len = rb - ra;
     return t >= ra.getTime() - len && t < ra.getTime() && s.status !== "anulado";
-  }).filter((s) => filterSales([{ ...s, createdAt: ra.getTime() }], f).length).reduce((a, s) => a + (s.total || 0), 0);
+  }).filter((s) => filterSales([{ ...s, createdAt: ra.getTime() }], f).length).map(netSale).reduce((a, s) => a + (s.total || 0), 0);
   const vsPrev = prevTotal === null ? null : prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
   const storeName = (id) => (id === "web" ? "Tienda online" : (stores.find((x) => x.id === id)?.name || id));
   const byStore = {}; valid.forEach((s) => { const k = storeName(s.storeId || (s.channel === "online" ? "web" : "principal")); byStore[k] = byStore[k] || { count: 0, total: 0 }; byStore[k].count++; byStore[k].total += s.total || 0; });
@@ -6960,6 +7167,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("returns")} style={quickLinkStyle}><Undo2 size={16} color={C.ink} /> Devolución o cambio de prendas <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("customers")} style={quickLinkStyle}><Users size={16} color={C.ink} /> Clientas (Club Fly y permisos de publicidad) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("sellers")} style={quickLinkStyle}><User size={16} color={C.ink} /> Vendedores (códigos MA01) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -7127,7 +7335,7 @@ const AdminUsersScreen = ({ currentUserId }) => {
 };
 
 const MySalesScreen = ({ sales, staffName }) => {
-  const mine = sales.filter((s) => s.staffName === staffName && s.status !== "anulado");
+  const mine = sales.filter((s) => s.staffName === staffName && s.status !== "anulado").map(netSale);
   const total = mine.reduce((a, s) => a + s.total, 0);
   const now = new Date();
   const thisMonth = mine.filter((s) => { const d = new Date(s.createdAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
@@ -7250,7 +7458,7 @@ const BigAction = ({ icon: Icon, title, hint, onClick, dark = false, disabled = 
   </button>
 );
 
-const CashScreen = ({ catalog, role, onGoSell }) => {
+const CashScreen = ({ catalog, role, onGoSell, onReturns }) => {
   const canManage = ["superadmin", "administrador", "cajero"].includes(role);
   const isAdmin = role === "superadmin" || role === "administrador";
   const { stores, store, choose } = useStoreChoice(catalog.settings);
@@ -7374,6 +7582,7 @@ const CashScreen = ({ catalog, role, onGoSell }) => {
             <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
                 {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint="Ir al punto de venta" onClick={onGoSell} dark />}
+                {onReturns && <BigAction icon={Undo2} title="Devolución o cambio" hint="De una venta ya hecha" onClick={onReturns} />}
                 <BigAction icon={Plus} title="Entrada" hint="Meter efectivo (ej. sencillo)" onClick={() => { setMove({ type: "entrada", amount: "", reason: "" }); setClosing(null); }} />
                 <BigAction icon={Minus} title="Salida" hint="Sacar efectivo (ej. compras)" onClick={() => { setMove({ type: "salida", amount: "", reason: "" }); setClosing(null); }} />
                 <BigAction icon={RotateCcw} title="Cambio de turno" hint="Entregar la caja a otra vendedora" onClick={() => { setClosing({ counted: "", notes: "", shift: true, next: "" }); setMove(null); }} />
@@ -7486,7 +7695,7 @@ const CustomersScreen = ({ catalog, refreshData }) => {
     (catalog.sales || []).forEach((s) => {
       if (!s.customerPhone || s.status === "anulado") return;
       const x = m.get(s.customerPhone) || { n: 0, total: 0, last: 0 };
-      x.n += 1; x.total += Number(s.total) || 0; x.last = Math.max(x.last, s.createdAt || 0);
+      x.n += 1; x.total += Number(netSale(s).total) || 0; x.last = Math.max(x.last, s.createdAt || 0);
       m.set(s.customerPhone, x);
     });
     return m;
@@ -7714,6 +7923,12 @@ const STAFF_GUIDES = {
   ] },
   promocodes: { title: "Códigos promocionales", steps: [["Gift", "Crea un código (ej. FLY10) con % o monto. Puede ser solo para el Club Fly. Desactívalo cuando termine la promoción."]] },
   complaints: { title: "Libro de Reclamaciones", steps: [["BookOpen", "Responde cada reclamo dentro del plazo legal (15 días hábiles). La respuesta queda guardada."]] },
+  returns: { title: "Devolución o cambio", steps: [
+    ["Search", "Escribe el número de la venta (está en el ticket, ej. B001-000123) y toca «Buscar»."],
+    ["Undo2", "Marca con + las prendas que vuelven. Si se lleva otra (cambio de talla o color), búscala o escanéala."],
+    ["Banknote", "El sistema dice cuánto devolver o cobrar. En efectivo queda solo en la caja abierta. Escribe el motivo."],
+    ["ShieldCheck", "No se puede devolver más de lo vendido y reintentar no duplica. Una venta con devoluciones ya no se anula entera."],
+  ] },
   customers: { title: "Clientas", steps: [
     ["User", "Busca a una clienta para ver sus compras, puntos y si acepta publicidad."],
     ["ShieldCheck", "Ofertas y campañas SOLO a quienes aceptaron (botón «Descargar las que tienen permiso»). Quien no respondió cuenta como «no»."],
@@ -7725,7 +7940,7 @@ const STAFF_GUIDES = {
     ["X", "Si alguien deja de trabajar, desactívalo. No se borra, para no perder sus ventas en los reportes."],
   ] },
 };
-const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2, RotateCcw, BookOpen, Layers, ImageIcon, Eye, Gift };
+const GUIDE_ICONS = { Banknote, Plus, ShoppingCart, Minus, Receipt, Scan, ShoppingBag, User, Star, CreditCard, Check, BarChart3, Package, Navigation, Pencil, LayoutDashboard, Menu, ShieldCheck, X, Undo2, RotateCcw, BookOpen, Layers, ImageIcon, Eye, Gift, Search };
 
 // Captura de una pantalla para las guías (si la imagen no existe, no se muestra nada)
 const GuideImage = ({ src, alt }) => {
@@ -7879,7 +8094,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, customers: STAFF_ADMIN, users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -7912,6 +8127,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   }, []);
   useEffect(() => { scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); }, [screen]);
   const [editingProductId, setEditingProductId] = useState(undefined);
+  const [returnSale, setReturnSale] = useState(null);
   const [editingBannerId, setEditingBannerId] = useState(undefined);
   const [editingCollectionId, setEditingCollectionId] = useState(undefined);
 
@@ -7981,6 +8197,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   // Anular y validar se hacen en el servidor: stock, puntos e historial quedan consistentes.
   const missingSql = (e) => e?.code === "PGRST202" ? "Falta correr el archivo 08-fase2a-parches.sql en Supabase." : "";
   const voidSale = async (saleId) => {
+    if ((catalog.sales || []).some((x) => x.id === saleId && (x.returns || []).length)) { alert("Esta venta ya tiene devoluciones: usa «Devolución o cambio» para las prendas que faltan."); return; }
     const reason = prompt("Motivo de la anulación (obligatorio). Se devolverá el stock y se generará una nota de crédito interna:");
     if (!reason || !reason.trim()) return;
     const { data, error } = await supabase.rpc("void_sale", { p_sale_id: saleId, p_reason: reason.trim() });
@@ -8079,7 +8296,9 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" role={role} onGoCash={() => setScreen("caja")} />}
         {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
-        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} />}
+        {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} onReturns={canOpenScreen(role, "returns") ? () => { setReturnSale(null); setScreen("returns"); } : null} />}
+        {canOpenScreen(role, "returns") && screen === "returns" && <ReturnsScreen key={returnSale?.id || "nueva"} catalog={catalog} initialSale={returnSale}
+          onSaved={(data) => { patchCatalog((c) => ({ ...c, sales: c.sales.some((x) => x.id === data.id) ? c.sales.map((x) => (x.id === data.id ? data : x)) : c.sales })); refreshData && refreshData(); }} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {isAdminRole && screen === "customers" && <CustomersScreen catalog={catalog} refreshData={refreshData} />}
         {screen === "manual" && <StaffManual role={role} />}
@@ -8092,7 +8311,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}
         {(role === "administrador" || role === "superadmin") && screen === "collections" && <AdminCollectionList collections={catalog.collections} openEditor={(id) => { setEditingCollectionId(id); setScreen("collectionEditor"); }} deleteCollection={deleteCollection} />}
         {(role === "administrador" || role === "superadmin") && screen === "collectionEditor" && <AdminCollectionEditor collection={catalog.collections.find((c) => c.id === editingCollectionId) || null} products={catalog.products} onSave={saveCollection} onCancel={() => setScreen("collections")} />}
-        {(role === "administrador" || role === "superadmin") && screen === "invoices" && <AdminInvoicesScreen storesSettings={catalog.settings} sales={catalog.sales} onVoid={voidSale} />}
+        {(role === "administrador" || role === "superadmin") && screen === "invoices" && <AdminInvoicesScreen storesSettings={catalog.settings} sales={catalog.sales} onVoid={voidSale} onReturn={(sale) => { setReturnSale(sale); setScreen("returns"); }} />}
         {(role === "administrador" || role === "superadmin") && screen === "reports" && <AdminReportsScreen catalog={catalog} />}
         {(role === "administrador" || role === "superadmin") && screen === "more" && <AdminMoreScreen setScreen={setScreen} onExit={onExit} role={role} />}
         {role === "superadmin" && screen === "users" && <AdminUsersScreen currentUserId={currentUserId} />}
