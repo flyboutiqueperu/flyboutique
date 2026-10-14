@@ -1,18 +1,19 @@
 -- =====================================================================
---  FLY BOUTIQUE — 19: STOCK POR UBICACIÓN (Larco / Casa) Y TRASPASOS
+--  FLY BOUTIQUE — 19: STOCK POR SEDE (Larco / Almacén) Y GUÍAS DE TRASLADO
 --  Pegar TODO en Supabase → SQL Editor → New query (vacía) → Run. Después, Merge del PR.
 --  - Cada talla/color guarda cuántas unidades hay en cada lugar (stockBy). El total (stock) es la suma,
 --    y es lo que vende la web. La caja de Larco descuenta de Larco.
 --  - Si una prenda aún no tiene ubicaciones, todo su stock cuenta como Larco (no se toca nada de lo que hay).
---  - transfer_stock: mueve unidades entre lugares sin cambiar el total; queda en el historial.
+--  - Guías de traslado: quien envía emite la guía (las prendas quedan EN CAMINO, no se venden);
+--    la sede que recibe la confirma al llegar (quién y a qué hora). Si falta algo, queda anotado.
 --  No borra datos. Para volver atrás: 19-ubicaciones-VOLVER-ATRAS.sql
 -- =====================================================================
 
--- Lugares donde se guarda stock (se pueden renombrar en Configuración). 'principal' = Larco.
+-- Sedes donde se guarda stock. 'principal' = Larco (tienda), 'almacen' = Almacén.
 create or replace function public.stock_locations(d jsonb) returns text[]
 language sql immutable as $$
   select coalesce((select array_agg(x->>'id') from jsonb_array_elements(case when jsonb_typeof(d->'settings'->'locations') = 'array' then d->'settings'->'locations' else '[]'::jsonb end) x where coalesce(x->>'id', '') <> ''),
-                  array['principal', 'casa'])
+                  array['principal', 'almacen'])
 $$;
 
 -- Unidades por lugar de una talla/color (si no tiene, todo está en Larco)
@@ -60,35 +61,142 @@ end $$;
 drop trigger if exists trg_reconcile_locations on public.store_data;
 create trigger trg_reconcile_locations before insert or update on public.store_data for each row execute function public.reconcile_stock_locations();
 
--- Traspaso entre lugares (Larco ↔ Casa): no cambia el total, pero queda anotado quién movió qué
-create or replace function public.transfer_stock(p_variant text, p_from text, p_to text, p_qty int, p_note text default null) returns jsonb
+-- ---------- Guías de traslado entre sedes ----------
+create table if not exists public.stock_transfers (
+  id bigint generated always as identity primary key,
+  code text unique,
+  from_loc text not null, to_loc text not null,
+  items jsonb not null,                      -- [{variantId, productId, name, size, color, sku, qty, received}]
+  status text not null default 'en_camino' check (status in ('en_camino', 'recibido', 'anulado')),
+  note text,
+  created_at timestamptz not null default now(), created_by text, created_user uuid,
+  received_at timestamptz, received_by text, received_user uuid, receive_note text,
+  voided_at timestamptz, voided_by text, void_reason text
+);
+alter table public.stock_transfers enable row level security;
+revoke all on public.stock_transfers from anon, authenticated;
+grant select on public.stock_transfers to authenticated;
+drop policy if exists "guias_ver" on public.stock_transfers;
+create policy "guias_ver" on public.stock_transfers for select
+  using (public.has_role('superadmin', 'administrador', 'almacen', 'cajero', 'vendedora_tienda'));
+
+-- Emitir la guía: las prendas salen de la sede de origen y quedan EN CAMINO (no se venden en ningún lado)
+create or replace function public.create_transfer(p_from text, p_to text, p_items jsonb, p_note text default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare d jsonb; pidx int; vidx int; v jsonb; p jsonb; sb jsonb; st int; avail int; locs text[];
+declare d jsonb; locs text[]; it jsonb; pidx int; vidx int; v jsonb; p jsonb; sb jsonb; st int; avail int; q int;
+        lines jsonb := '[]'::jsonb; n int; code text; t jsonb; tid bigint; prices jsonb := '{}'::jsonb;
 begin
-  if not public.has_role('superadmin', 'administrador', 'almacen') then raise exception 'SIN_PERMISO'; end if;
-  if coalesce(p_qty, 0) <= 0 then raise exception 'CANTIDAD_INVALIDA'; end if;
+  if not public.has_role('superadmin', 'administrador', 'almacen', 'cajero') then raise exception 'SIN_PERMISO'; end if;
+  if jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 or jsonb_array_length(p_items) > 200 then raise exception 'GUIA_VACIA'; end if;
   select data into d from public.store_data where id = 'main' for update;
   locs := public.stock_locations(d);
   if p_from = p_to or not (p_from = any(locs)) or not (p_to = any(locs)) then raise exception 'UBICACION_INVALIDA'; end if;
-  select (pp.ord - 1)::int, (vv.ord - 1)::int, vv.val, pp.val into pidx, vidx, v, p
-    from jsonb_array_elements(d->'products') with ordinality pp(val, ord), jsonb_array_elements(pp.val->'variants') with ordinality vv(val, ord)
-   where vv.val->>'id' = p_variant limit 1;
-  if pidx is null then raise exception 'PRODUCTO_NO_EXISTE'; end if;
-  st := coalesce(public.fly_num(v->>'stock'), 0)::int;
-  sb := public.variant_stock_by(v);
-  avail := coalesce((sb->>p_from)::int, 0);
-  if p_qty > avail then raise exception 'STOCK_INSUFICIENTE:%', avail; end if;
-  sb := sb || jsonb_build_object(p_from, avail - p_qty, p_to, coalesce((sb->>p_to)::int, 0) + p_qty);
-  d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stockBy'], sb);
+  for it in select * from jsonb_array_elements(p_items) loop
+    q := coalesce(public.fly_num(it->>'qty'), 0)::int;
+    if q <= 0 then raise exception 'CANTIDAD_INVALIDA'; end if;
+    pidx := null;
+    select (pp.ord - 1)::int, (vv.ord - 1)::int, vv.val, pp.val into pidx, vidx, v, p
+      from jsonb_array_elements(d->'products') with ordinality pp(val, ord), jsonb_array_elements(pp.val->'variants') with ordinality vv(val, ord)
+     where vv.val->>'id' = it->>'variantId' limit 1;
+    if pidx is null then raise exception 'PRODUCTO_NO_EXISTE'; end if;
+    st := coalesce(public.fly_num(v->>'stock'), 0)::int;
+    sb := public.variant_stock_by(v);
+    avail := coalesce((sb->>p_from)::int, 0);
+    if q > avail then raise exception 'STOCK_INSUFICIENTE:%:%', coalesce(p->>'name', '') || ' ' || coalesce(v->>'size', ''), avail; end if;
+    d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stockBy'], sb || jsonb_build_object(p_from, avail - q));
+    d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stock'], to_jsonb(st - q));
+    lines := lines || jsonb_build_array(jsonb_build_object('variantId', v->>'id', 'productId', p->>'id', 'name', p->>'name', 'size', v->>'size',
+      'color', v->>'colorName', 'sku', v->>'sku', 'qty', q, 'received', null));
+  end loop;
+  insert into public.doc_counters (serie, next_number) values ('T001', 1) on conflict (serie) do nothing;
+  update public.doc_counters set next_number = next_number + 1 where serie = 'T001' returning next_number - 1 into n;
+  code := 'T001-' || lpad(n::text, 6, '0');
+  perform public.set_stock_context(jsonb_build_object('type', 'traslado enviado', 'doc', code, 'staff', public.my_staff_name(),
+    'location', p_from, 'store', p_from, 'note', 'En camino a ' || p_to || coalesce(' · ' || nullif(trim(p_note), ''), '')));
   update public.store_data set data = d, updated_at = now() where id = 'main';
-  insert into public.stock_movements (product_id, product_name, variant_id, size, color, sku, type, qty, stock_before, stock_after, unit_price, staff_name, user_id, store_id, note, source)
-  values (p->>'id', p->>'name', p_variant, v->>'size', v->>'colorName', v->>'sku', 'traslado', p_qty, st, st, public.fly_num(p->>'price'),
-          public.my_staff_name(), auth.uid(), p_to, coalesce(p_from, '') || ' → ' || coalesce(p_to, '') || coalesce(' · ' || nullif(trim(p_note), ''), ''), 'sistema');
-  perform public.audit('traslado_stock', jsonb_build_object('variante', p_variant, 'de', p_from, 'a', p_to, 'cantidad', p_qty));
-  return sb;
+  insert into public.stock_transfers (code, from_loc, to_loc, items, note, created_by, created_user)
+  values (code, p_from, p_to, lines, nullif(trim(coalesce(p_note, '')), ''), public.my_staff_name(), auth.uid())
+  returning to_jsonb(stock_transfers.*) into t;
+  perform public.audit('guia_emitida', jsonb_build_object('guia', code, 'de', p_from, 'a', p_to));
+  return t;
 end $$;
-revoke execute on function public.transfer_stock(text, text, text, int, text) from public, anon;
-grant execute on function public.transfer_stock(text, text, text, int, text) to authenticated;
+
+-- Recibir la guía en destino: suma lo que llegó; si falta algo, queda anotado como faltante
+create or replace function public.receive_transfer(p_id bigint, p_received jsonb default null, p_note text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare tr public.stock_transfers; d jsonb; it jsonb; pidx int; vidx int; v jsonb; sb jsonb; st int; q int; got int;
+        lines jsonb := '[]'::jsonb; t jsonb; missing int := 0;
+begin
+  if not public.has_role('superadmin', 'administrador', 'almacen', 'cajero', 'vendedora_tienda') then raise exception 'SIN_PERMISO'; end if;
+  select * into tr from public.stock_transfers where id = p_id for update;
+  if tr.id is null then raise exception 'GUIA_NO_EXISTE'; end if;
+  if tr.status <> 'en_camino' then raise exception 'GUIA_YA_CERRADA:%', tr.status; end if;
+  select data into d from public.store_data where id = 'main' for update;
+  for it in select * from jsonb_array_elements(tr.items) loop
+    q := (it->>'qty')::int;
+    got := least(q, greatest(0, coalesce(public.fly_num(coalesce(p_received, '{}'::jsonb)->>(it->>'variantId')), q)::int));
+    missing := missing + (q - got);
+    pidx := null;
+    select (pp.ord - 1)::int, (vv.ord - 1)::int, vv.val into pidx, vidx, v
+      from jsonb_array_elements(d->'products') with ordinality pp(val, ord), jsonb_array_elements(pp.val->'variants') with ordinality vv(val, ord)
+     where vv.val->>'id' = it->>'variantId' limit 1;
+    if pidx is not null and got > 0 then
+      st := coalesce(public.fly_num(v->>'stock'), 0)::int;
+      sb := public.variant_stock_by(v);
+      d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stockBy'], sb || jsonb_build_object(tr.to_loc, coalesce((sb->>tr.to_loc)::int, 0) + got));
+      d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stock'], to_jsonb(st + got));
+    end if;
+    lines := lines || jsonb_build_array(it || jsonb_build_object('received', got));
+  end loop;
+  if missing > 0 and coalesce(trim(p_note), '') = '' then raise exception 'MOTIVO_FALTANTE'; end if;
+  perform public.set_stock_context(jsonb_build_object('type', 'traslado recibido', 'doc', tr.code, 'staff', public.my_staff_name(),
+    'location', tr.to_loc, 'store', tr.to_loc, 'note', 'Llegó de ' || tr.from_loc || case when missing > 0 then ' · faltaron ' || missing else '' end));
+  update public.store_data set data = d, updated_at = now() where id = 'main';
+  update public.stock_transfers set status = 'recibido', items = lines, received_at = now(), received_by = public.my_staff_name(),
+         received_user = auth.uid(), receive_note = nullif(trim(coalesce(p_note, '')), '')
+   where id = p_id returning to_jsonb(stock_transfers.*) into t;
+  perform public.audit('guia_recibida', jsonb_build_object('guia', tr.code, 'faltantes', missing));
+  return t;
+end $$;
+
+-- Anular una guía que aún no llegó (error al emitirla): las prendas vuelven a la sede de origen
+create or replace function public.cancel_transfer(p_id bigint, p_reason text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare tr public.stock_transfers; d jsonb; it jsonb; pidx int; vidx int; v jsonb; sb jsonb; st int; q int; t jsonb;
+begin
+  if not public.has_role('superadmin', 'administrador', 'almacen', 'cajero') then raise exception 'SIN_PERMISO'; end if;
+  if coalesce(trim(p_reason), '') = '' then raise exception 'MOTIVO_REQUERIDO'; end if;
+  select * into tr from public.stock_transfers where id = p_id for update;
+  if tr.id is null then raise exception 'GUIA_NO_EXISTE'; end if;
+  if tr.status <> 'en_camino' then raise exception 'GUIA_YA_CERRADA:%', tr.status; end if;
+  -- solo quien la emitió o Administración
+  if tr.created_user is distinct from auth.uid() and not public.has_role('superadmin', 'administrador') then raise exception 'SIN_PERMISO'; end if;
+  select data into d from public.store_data where id = 'main' for update;
+  for it in select * from jsonb_array_elements(tr.items) loop
+    q := (it->>'qty')::int; pidx := null;
+    select (pp.ord - 1)::int, (vv.ord - 1)::int, vv.val into pidx, vidx, v
+      from jsonb_array_elements(d->'products') with ordinality pp(val, ord), jsonb_array_elements(pp.val->'variants') with ordinality vv(val, ord)
+     where vv.val->>'id' = it->>'variantId' limit 1;
+    if pidx is not null then
+      st := coalesce(public.fly_num(v->>'stock'), 0)::int; sb := public.variant_stock_by(v);
+      d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stockBy'], sb || jsonb_build_object(tr.from_loc, coalesce((sb->>tr.from_loc)::int, 0) + q));
+      d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stock'], to_jsonb(st + q));
+    end if;
+  end loop;
+  perform public.set_stock_context(jsonb_build_object('type', 'traslado anulado', 'doc', tr.code, 'staff', public.my_staff_name(),
+    'location', tr.from_loc, 'store', tr.from_loc, 'note', 'Guía anulada: ' || trim(p_reason)));
+  update public.store_data set data = d, updated_at = now() where id = 'main';
+  update public.stock_transfers set status = 'anulado', voided_at = now(), voided_by = public.my_staff_name(), void_reason = trim(p_reason)
+   where id = p_id returning to_jsonb(stock_transfers.*) into t;
+  perform public.audit('guia_anulada', jsonb_build_object('guia', tr.code, 'motivo', p_reason));
+  return t;
+end $$;
+revoke execute on function public.create_transfer(text, text, jsonb, text) from public, anon;
+revoke execute on function public.receive_transfer(bigint, jsonb, text) from public, anon;
+revoke execute on function public.cancel_transfer(bigint, text) from public, anon;
+grant execute on function public.create_transfer(text, text, jsonb, text) to authenticated;
+grant execute on function public.receive_transfer(bigint, jsonb, text) to authenticated;
+grant execute on function public.cancel_transfer(bigint, text) to authenticated;
 
 -- Entradas/salidas/conteos ahora pueden decir en qué lugar
 drop function if exists public.move_stock(text, text, int, text, int);
@@ -146,7 +254,7 @@ begin
   select coalesce(jsonb_object_agg(v->>'id', coalesce(public.fly_num(v->>'stock'), 0)), '{}'::jsonb) into stocks
     from jsonb_array_elements(coalesce(cur->'products', '[]'::jsonb)) p, jsonb_array_elements(coalesce(p->'variants', '[]'::jsonb)) v
    where v->>'id' is not null;
-  -- Dónde está cada unidad (Larco / Casa): lo manda el servidor, nunca la pantalla de quien guarda
+  -- Dónde está cada unidad (Larco / Almacén): lo manda el servidor, nunca la pantalla de quien guarda
   select coalesce(jsonb_object_agg(v->>'id', v->'stockBy'), '{}'::jsonb) into sbmap
     from jsonb_array_elements(coalesce(cur->'products', '[]'::jsonb)) p, jsonb_array_elements(coalesce(p->'variants', '[]'::jsonb)) v
    where v->>'id' is not null and jsonb_typeof(v->'stockBy') = 'object';

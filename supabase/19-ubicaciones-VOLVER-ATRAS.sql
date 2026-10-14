@@ -1,6 +1,9 @@
--- FLY BOUTIQUE — VOLVER ATRÁS EL 19: se deja de cuadrar el stock por lugar. No borra datos (el detalle por lugar queda guardado, sin uso).
+-- FLY BOUTIQUE — VOLVER ATRÁS EL 19: se deja de cuadrar el stock por sede y de usar guías. No borra datos.
+-- OJO: antes de correrlo, recibe o anula las guías EN CAMINO (si no, esas prendas no vuelven al stock).
 drop trigger if exists trg_reconcile_locations on public.store_data;
-revoke execute on function public.transfer_stock(text, text, text, int, text) from authenticated;
+revoke execute on function public.create_transfer(text, text, jsonb, text) from authenticated;
+revoke execute on function public.receive_transfer(bigint, jsonb, text) from authenticated;
+revoke execute on function public.cancel_transfer(bigint, text) from authenticated;
 drop function if exists public.move_stock(text, text, int, text, int, text);
 create or replace function public.move_stock(p_variant text, p_type text, p_qty int, p_note text default null, p_expected int default null) returns int
 language plpgsql security definer set search_path = public as $$

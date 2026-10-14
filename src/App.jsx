@@ -3754,18 +3754,18 @@ const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
 );
 
 // Lo que hace cada sección (aparece al dejar el mouse encima)
-const NAV_HINTS = { caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
+const NAV_HINTS = { transfers: "Guías para enviar y recibir prendas entre Larco y el Almacén", caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
 const AdminNav = ({ screen, setScreen, role }) => {
   const items = (role === "administrador" || role === "superadmin")
     ? [["dashboard", "Panel", LayoutDashboard], ["pos", "Ventas", ShoppingCart], ["stock", "Stock", Package], ["products", "Productos", LayoutGrid], ["more", "Más", Menu]]
     : role === "cajero"
-    ? [["caja", "Caja", Banknote], ["pos", "Vender", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
+    ? [["caja", "Caja", Banknote], ["pos", "Vender", ShoppingCart], ["transfers", "Traslados", Navigation], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
     : role === "vendedora_tienda"
-    ? [["pos", "Vender", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
+    ? [["pos", "Vender", ShoppingCart], ["transfers", "Traslados", Navigation], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
     : role === "almacen"
-    ? [["stock", "Stock", Package], ["onlineorders", "Pedidos", Ticket]]
+    ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -5061,41 +5061,186 @@ const StockMovementSheet = ({ product, variant, settings, onClose, onSubmit }) =
   );
 };
 
-// ---- Lugares donde se guarda el stock (Larco = tienda, Casa = almacén). La web vende de todos; la caja de Larco, de Larco ----
-const DEFAULT_LOCATIONS = [{ id: "principal", name: "Larco" }, { id: "casa", name: "Casa" }];
+// ---- Sedes donde se guarda el stock (Larco = tienda, Almacén). La web vende de todas; la caja de Larco, de Larco ----
+const DEFAULT_LOCATIONS = [{ id: "principal", name: "Larco" }, { id: "almacen", name: "Almacén" }];
 const stockLocations = (settings) => (Array.isArray(settings?.locations) && settings.locations.length ? settings.locations : DEFAULT_LOCATIONS);
 const locationName = (settings, id) => stockLocations(settings).find((l) => l.id === id)?.name || id;
 const variantStockBy = (v) => (v?.stockBy && typeof v.stockBy === "object" ? v.stockBy : { principal: Number(v?.stock) || 0 });
 
-const TransferSheet = ({ product, variant, settings, onClose, onSubmit }) => {
-  const locs = stockLocations(settings);
-  const sb = variantStockBy(variant);
-  const [from, setFrom] = useState(locs.find((l) => (sb[l.id] || 0) > 0)?.id || locs[0].id);
-  const [to, setTo] = useState(locs.find((l) => l.id !== from)?.id || locs[0].id);
-  const [qty, setQty] = useState("");
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const n = parseInt(qty || "0", 10) || 0;
-  const avail = Number(sb[from]) || 0;
-  const ok = n > 0 && n <= avail && from !== to && !busy;
+// ---- Guías de traslado entre sedes: quien envía emite la guía (prendas EN CAMINO); la otra sede confirma al recibir ----
+const fmtDT = (d) => (d ? new Date(d).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+const TRANSFER_STATUS = { en_camino: "En camino", recibido: "Recibida", anulado: "Anulada" };
+const TransferDoc = ({ t, settings }) => {
+  const sent = t.items.reduce((a, i) => a + i.qty, 0);
+  const got = t.items.reduce((a, i) => a + (i.received ?? 0), 0);
+  const cell = { padding: "6px 4px", borderBottom: "1px solid #ddd", textAlign: "left", fontSize: 12 };
   return (
-    <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 55, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
-      <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", padding: "20px 22px 28px", animation: "slideUp .25s ease", maxHeight: "92vh", overflowY: "auto" }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>Traspasar · {product.name}</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, margin: "2px 0 16px" }}>Talla {variant.size} · {variant.colorName} · {locs.map((l) => `${l.name}: ${Number(sb[l.id]) || 0}`).join(" · ")}</div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 130px" }}><Field label="Desde"><select style={inputStyle} value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value === to) setTo(locs.find((l) => l.id !== e.target.value)?.id || to); }}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name} (hay {Number(sb[l.id]) || 0})</option>)}</select></Field></div>
-          <div style={{ flex: "1 1 130px" }}><Field label="Hacia"><select style={inputStyle} value={to} onChange={(e) => setTo(e.target.value)}>{locs.filter((l) => l.id !== from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field></div>
-        </div>
-        <Field label="Cantidad *"><input inputMode="numeric" style={inputStyle} value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="0" /></Field>
-        <Field label="Nota (opcional)"><input style={inputStyle} maxLength={140} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. guardar temporada pasada en casa" /></Field>
-        {n > avail && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginBottom: 10 }}>En {locationName(settings, from)} solo hay {avail}.</div>}
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
-          <PrimaryButton disabled={!ok} style={{ flex: 2, width: "auto" }} onClick={async () => { setBusy(true); const done = await onSubmit({ from, to, qty: n, note: note.trim() }); setBusy(false); if (done) onClose(); }}>{busy ? "Traspasando…" : "Traspasar"}</PrimaryButton>
-        </div>
+    <div className="print-area" style={{ background: "#fff", color: "#000", border: "1px solid #000", borderRadius: 10, padding: "16px 16px", fontFamily: FONT_BODY }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+        <div><div style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: 22 }}>FLY</div><div style={{ fontSize: 11 }}>{settings?.company?.legalName || "Fly Boutique"}</div></div>
+        <div style={{ textAlign: "right" }}><div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 13, letterSpacing: "0.06em" }}>GUÍA DE TRASLADO INTERNO</div><div style={{ fontSize: 15, fontWeight: 700 }}>{t.code}</div><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>{TRANSFER_STATUS[t.status]}</div></div>
       </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px", fontSize: 12, margin: "14px 0" }}>
+        <div><strong>Desde:</strong> {locationName(settings, t.from_loc)}</div><div><strong>Hacia:</strong> {locationName(settings, t.to_loc)}</div>
+        <div><strong>Enviado:</strong> {fmtDT(t.created_at)}</div><div><strong>Por:</strong> {t.created_by || "—"}</div>
+        {t.status === "recibido" && <><div><strong>Recibido:</strong> {fmtDT(t.received_at)}</div><div><strong>Por:</strong> {t.received_by || "—"}</div></>}
+        {t.status === "anulado" && <><div><strong>Anulado:</strong> {fmtDT(t.voided_at)}</div><div><strong>Por:</strong> {t.voided_by || "—"} · {t.void_reason}</div></>}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" }}>
+          <thead><tr><th style={cell}>Código</th><th style={cell}>Prenda</th><th style={cell}>Talla / color</th><th style={{ ...cell, textAlign: "right" }}>Enviado</th><th style={{ ...cell, textAlign: "right" }}>Recibido</th></tr></thead>
+          <tbody>{t.items.map((i) => <tr key={i.variantId}><td style={cell}>{i.sku || "—"}</td><td style={cell}>{i.name}</td><td style={cell}>{i.size} · {i.color}</td><td style={{ ...cell, textAlign: "right" }}>{i.qty}</td><td style={{ ...cell, textAlign: "right", fontWeight: i.received != null && i.received < i.qty ? 700 : 400 }}>{i.received ?? "—"}</td></tr>)}</tbody>
+          <tfoot><tr><td style={cell} colSpan={3}><strong>Total</strong></td><td style={{ ...cell, textAlign: "right" }}><strong>{sent}</strong></td><td style={{ ...cell, textAlign: "right" }}><strong>{t.status === "recibido" ? got : "—"}</strong></td></tr></tfoot>
+        </table>
+      </div>
+      {t.note && <div style={{ fontSize: 12, marginTop: 10 }}><strong>Nota:</strong> {t.note}</div>}
+      {t.receive_note && <div style={{ fontSize: 12, marginTop: 4 }}><strong>Al recibir:</strong> {t.receive_note}</div>}
+      {t.status === "recibido" && got < sent && <div style={{ fontSize: 12, marginTop: 4, fontWeight: 700 }}>{sent - got === 1 ? "Faltó 1 prenda." : `Faltaron ${sent - got} prendas.`}</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 30, fontSize: 11, textAlign: "center" }}>
+        <div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>Entrega</div><div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>Recibe</div>
+      </div>
+    </div>
+  );
+};
+
+const TransfersScreen = ({ catalog, role, refreshData }) => {
+  const settings = catalog.settings;
+  const locs = stockLocations(settings);
+  const canSend = ["superadmin", "administrador", "almacen", "cajero"].includes(role);
+  const [list, setList] = useState(null);
+  const [view, setView] = useState(null); // guía abierta
+  const [mode, setMode] = useState("list"); // list | new | receive
+  const [from, setFrom] = useState(role === "almacen" ? "almacen" : locs[0].id);
+  const [to, setTo] = useState(role === "almacen" ? "principal" : (locs.find((l) => l.id !== locs[0].id) || locs[0]).id);
+  const [q, setQ] = useState("");
+  const [lines, setLines] = useState([]); // {variant, product, qty}
+  const [note, setNote] = useState("");
+  const [recv, setRecv] = useState({});
+  const [recvNote, setRecvNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const { data, error } = await supabase.from("stock_transfers").select("*").order("id", { ascending: false }).limit(200);
+    setList(error ? (error.code === "42P01" || error.code === "PGRST205" ? "no" : []) : data || []);
+  };
+  useEffect(() => { load(); }, []);
+  const errText = (m) => m.includes("STOCK_INSUFICIENTE") ? `No alcanza: ${m.split("STOCK_INSUFICIENTE:")[1]?.replace(/:(\d+)$/, " (hay $1 en esa sede)") || ""}.` : m.includes("MOTIVO_FALTANTE") ? "Si falta algo, escribe qué pasó." : m.includes("GUIA_YA_CERRADA") ? "Esta guía ya fue recibida o anulada." : m.includes("SIN_PERMISO") ? "Tu usuario no puede hacer esto." : m;
+  if (list === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 19 en Supabase para usar las guías de traslado.</div>;
+
+  // --- ver una guía
+  if (view) {
+    const t = view;
+    const startReceive = () => { setRecv(Object.fromEntries(t.items.map((i) => [i.variantId, String(i.qty)]))); setRecvNote(""); setMode("receive"); };
+    const missing = t.items.reduce((a, i) => a + Math.max(0, i.qty - (parseInt(recv[i.variantId] || "0", 10) || 0)), 0);
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        <button onClick={() => { setView(null); setMode("list"); }} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver a Traslados</button>
+        <TransferDoc t={t} settings={settings} />
+        {mode === "receive" ? (
+          <AdminCard style={{ marginTop: 14 }}>
+            <span style={labelStyle}>Confirmar lo que llegó</span>
+            {t.items.map((i) => (
+              <div key={i.variantId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5 }}>
+                <span style={{ minWidth: 0 }}>{i.name} · {i.size} {i.color} <span style={{ color: C.stone }}>(enviadas {i.qty})</span></span>
+                <input inputMode="numeric" value={recv[i.variantId] ?? ""} onChange={(e) => setRecv({ ...recv, [i.variantId]: e.target.value.replace(/\D/g, "").slice(0, 4) })} aria-label={`Recibidas de ${i.name}`} style={{ ...inputStyle, width: 64, padding: "6px 8px", textAlign: "center" }} />
+              </div>
+            ))}
+            {missing > 0 && <Field label={`Faltan ${missing}: ¿qué pasó? *`}><input style={inputStyle} maxLength={200} value={recvNote} onChange={(e) => setRecvNote(e.target.value)} placeholder="Ej. llegó una con mancha y se quedó en almacén" /></Field>}
+            <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+              <button onClick={() => setMode("list")} style={{ flex: 1, padding: "13px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", color: C.ink }}>Cancelar</button>
+              <PrimaryButton disabled={busy || (missing > 0 && recvNote.trim().length < 3)} style={{ flex: 2, width: "auto" }} onClick={async () => {
+                setBusy(true);
+                const { data, error } = await supabase.rpc("receive_transfer", { p_id: t.id, p_received: Object.fromEntries(Object.entries(recv).map(([k, v]) => [k, parseInt(v || "0", 10) || 0])), p_note: recvNote.trim() || null });
+                setBusy(false);
+                if (error) { alert("No se pudo recibir: " + errText(error.message || "")); return; }
+                setView(data); setMode("list"); load(); refreshData && refreshData();
+              }}>{busy ? "Guardando…" : "Confirmar recepción"}</PrimaryButton>
+            </div>
+          </AdminCard>
+        ) : (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+            <button onClick={() => window.print()} style={{ ...quickLinkStyle, flex: 1, justifyContent: "center" }}><Receipt size={15} /> Imprimir guía</button>
+            {t.status === "en_camino" && <PrimaryButton style={{ flex: 2, width: "auto" }} onClick={startReceive}>Recibir en {locationName(settings, t.to_loc)}</PrimaryButton>}
+            {t.status === "en_camino" && canSend && <button onClick={async () => {
+              const why = prompt("¿Por qué anulas la guía? Las prendas vuelven a " + locationName(settings, t.from_loc) + ".", "Error al emitirla");
+              if (!why || !why.trim()) return;
+              const { data, error } = await supabase.rpc("cancel_transfer", { p_id: t.id, p_reason: why.trim() });
+              if (error) { alert("No se pudo anular: " + errText(error.message || "")); return; }
+              setView(data); load(); refreshData && refreshData();
+            }} style={{ padding: "11px 14px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Anular guía</button>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- nueva guía
+  if (mode === "new") {
+    const nq = q.trim().toLowerCase();
+    const options = nq.length < 2 ? [] : catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq)).slice(0, 12);
+    const availAt = (v) => Number(variantStockBy(v)[from]) || 0;
+    const add = (p, v) => { setLines((ls) => ls.some((l) => l.v.id === v.id) ? ls : [...ls, { p, v, qty: "1" }]); setQ(""); };
+    const onScan = (e) => { if (e.key !== "Enter") return; const code = q.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { add(p, v); return; } } };
+    const bad = lines.find((l) => !(parseInt(l.qty, 10) > 0) || parseInt(l.qty, 10) > availAt(l.v));
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        <button onClick={() => setMode("list")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver</button>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 14px" }}>Nueva guía de traslado</h1>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 140px" }}><Field label="Desde"><select style={inputStyle} value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value === to) setTo(locs.find((l) => l.id !== e.target.value)?.id || to); setLines([]); }}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field></div>
+          <div style={{ flex: "1 1 140px" }}><Field label="Hacia"><select style={inputStyle} value={to} onChange={(e) => setTo(e.target.value)}>{locs.filter((l) => l.id !== from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field></div>
+        </div>
+        <Field label="Agregar prendas"><input style={inputStyle} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onScan} placeholder="Escanea el código + Enter, o busca por nombre" /></Field>
+        {options.length > 0 && (
+          <AdminCard style={{ marginBottom: 12, padding: 8 }}>
+            {options.map(({ p, v }) => <button key={v.id} onClick={() => add(p, v)} disabled={availAt(v) <= 0} style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 8, padding: "8px 6px", background: "none", border: "none", borderBottom: `1px solid ${C.paperDeep}`, cursor: availAt(v) > 0 ? "pointer" : "default", fontFamily: FONT_BODY, fontSize: 12.5, color: availAt(v) > 0 ? C.ink : C.stone, textAlign: "left" }}><span>{p.name} · {v.size} {v.colorName}{v.sku ? ` · ${v.sku}` : ""}</span><span>hay {availAt(v)}</span></button>)}
+          </AdminCard>
+        )}
+        {lines.map((l) => (
+          <div key={l.v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+            <span style={{ flex: 1, minWidth: 0 }}>{l.p.name} · {l.v.size} {l.v.colorName}<span style={{ display: "block", fontSize: 11, color: parseInt(l.qty, 10) > availAt(l.v) ? C.accent : C.stone }}>En {locationName(settings, from)}: {availAt(l.v)}</span></span>
+            <input inputMode="numeric" value={l.qty} onChange={(e) => setLines((ls) => ls.map((x) => x.v.id === l.v.id ? { ...x, qty: e.target.value.replace(/\D/g, "").slice(0, 4) } : x))} aria-label={`Cantidad de ${l.p.name}`} style={{ ...inputStyle, width: 64, padding: "6px 8px", textAlign: "center" }} />
+            <button onClick={() => setLines((ls) => ls.filter((x) => x.v.id !== l.v.id))} aria-label="Quitar" style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={15} color={C.stone} /></button>
+          </div>
+        ))}
+        <Field label="Nota (opcional)"><input style={inputStyle} maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. reposición para el fin de semana" /></Field>
+        <PrimaryButton disabled={busy || !lines.length || !!bad} onClick={async () => {
+          setBusy(true);
+          const { data, error } = await supabase.rpc("create_transfer", { p_from: from, p_to: to, p_items: lines.map((l) => ({ variantId: l.v.id, qty: parseInt(l.qty, 10) })), p_note: note.trim() || null });
+          setBusy(false);
+          if (error) { alert("No se pudo emitir la guía: " + errText(error.message || "")); return; }
+          setLines([]); setNote(""); setMode("list"); setView(data); load(); refreshData && refreshData();
+        }}>{busy ? "Emitiendo…" : `Emitir guía (${lines.reduce((a, l) => a + (parseInt(l.qty, 10) || 0), 0)} prendas)`}</PrimaryButton>
+      </div>
+    );
+  }
+
+  // --- lista
+  const pending = (list || []).filter((t) => t.status === "en_camino");
+  const done = (list || []).filter((t) => t.status !== "en_camino");
+  const row = (t) => (
+    <button key={t.id} onClick={() => setView(t)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", marginBottom: 8, borderRadius: 10, border: `1px solid ${t.status === "en_camino" ? C.ink : C.line}`, background: C.paper, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY }}>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{t.code} · {locationName(settings, t.from_loc)} → {locationName(settings, t.to_loc)}</span>
+        <span style={{ display: "block", fontSize: 11.5, color: C.stone }}>{t.items.reduce((a, i) => a + i.qty, 0)} prendas · enviada {fmtDT(t.created_at)} por {t.created_by}{t.status === "recibido" ? ` · recibida por ${t.received_by}` : ""}</span>
+      </span>
+      <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: t.status === "anulado" ? C.stone : C.ink, whiteSpace: "nowrap" }}>{TRANSFER_STATUS[t.status]}</span>
+    </button>
+  );
+  return (
+    <div style={{ padding: "18px 18px 90px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: 0 }}>Traslados</h1>
+        {canSend && <button onClick={() => { setLines([]); setMode("new"); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Nueva guía</button>}
+      </div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 16 }}>Las prendas de una guía quedan en camino (no se venden) hasta que la otra sede confirma que llegaron.</div>
+      {list === null ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Cargando…</div> : (
+        <>
+          <span style={labelStyle}>En camino ({pending.length})</span>
+          {pending.length ? pending.map(row) : <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 16 }}>No hay guías por recibir.</div>}
+          <span style={labelStyle}>Historial</span>
+          {done.length ? done.map(row) : <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Aún no hay guías.</div>}
+        </>
+      )}
     </div>
   );
 };
@@ -5178,8 +5323,7 @@ const StockHistory = ({ product, catalog, onBack }) => {
 };
 
 /* ---- Stock: main screen (shared by Vendedor + Administrador) ---- */
-const StockScreen = ({ catalog, staffName, onRegisterMovement, onTransfer, canEdit }) => {
-  const [activeTransfer, setActiveTransfer] = useState(null);
+const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, canEdit }) => {
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [activeMove, setActiveMove] = useState(null); // {product, variant}
@@ -5220,7 +5364,10 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onTransfer, canEd
         </div>
       )}
 
-      <button onClick={() => setShowHistory(true)} style={{ ...quickLinkStyle, width: "100%", marginBottom: 16, justifyContent: "center" }}><FileSpreadsheet size={15} /> Ver historial de movimientos</button>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+        <button onClick={() => setShowHistory(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><FileSpreadsheet size={15} /> Ver historial de movimientos</button>
+        {onOpenTransfers && <button onClick={onOpenTransfers} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Navigation size={15} /> Traslados entre sedes</button>}
+      </div>
 
       <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={handleSearchKeyDown} placeholder="Buscar por nombre o escanea un código + Enter" style={{ ...inputStyle, marginBottom: 16 }} />
 
@@ -5250,7 +5397,6 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onTransfer, canEd
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink }}>{v.stock}</span>
                         {canEdit && <button onClick={() => setActiveMove({ product: p, variant: v })} style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer" }}>Movimiento</button>}
-                        {canEdit && onTransfer && v.stock > 0 && stockLocations(catalog.settings).length > 1 && <button onClick={() => setActiveTransfer({ product: p, variant: v })} style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer" }}>Traspasar</button>}
                       </div>
                     </div>
                   ))}
@@ -5269,7 +5415,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onTransfer, canEd
           onSubmit={(mv) => onRegisterMovement(activeMove.product, activeMove.variant, mv)}
         />
       )}
-      {activeTransfer && <TransferSheet product={activeTransfer.product} variant={activeTransfer.variant} settings={catalog.settings} onClose={() => setActiveTransfer(null)} onSubmit={(t) => onTransfer(activeTransfer.product, activeTransfer.variant, t)} />}
+
     </div>
   );
 };
@@ -6473,6 +6619,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("collections")} style={quickLinkStyle}><Layers size={16} color={C.ink} /> Colecciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("invoices")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Comprobantes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("reports")} style={quickLinkStyle}><BarChart3 size={16} color={C.ink} /> Reportes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("transfers")} style={quickLinkStyle}><Navigation size={16} color={C.ink} /> Traslados entre sedes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -7080,13 +7227,19 @@ const STAFF_GUIDES = {
     ["X", "Si la clienta no pagó, toca «Cancelar: no pagó»: la prenda vuelve al stock. Si nadie lo hace, se cancela sola pasadas las horas configuradas."],
     ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento e imprime la etiqueta."],
   ] },
+  transfers: { title: "Traslados entre sedes", steps: [
+    ["Plus", "Quien envía: «Nueva guía» → elige desde y hacia → escanea o busca las prendas → cantidad → «Emitir guía». Puedes imprimirla y enviarla con la mercadería."],
+    ["Package", "Las prendas de la guía quedan «en camino»: no se venden en ninguna sede hasta que lleguen."],
+    ["Check", "Quien recibe: abre la guía → «Recibir» → confirma cuántas llegaron. Si falta algo, escribe qué pasó. Queda tu nombre y la hora."],
+    ["X", "Si la guía se emitió por error y aún no llega: «Anular guía» (solo quien la emitió o Administración). Las prendas vuelven a la sede de origen."],
+  ] },
   stock: { title: "Stock", steps: [
     ["Scan", "Escanea el código de la etiqueta (cada talla y color tiene el suyo) o busca por nombre."],
     ["Plus", "Llegó mercadería: «Movimiento» → «Entrada» y la cantidad. Se SUMA a lo que hay (si alguien vende mientras tanto, no se pierde)."],
     ["Minus", "Prenda malograda o que no se puede vender: «Dañada». Si se regaló: «Regalo» y a quién. Ambos piden motivo."],
     ["Pencil", "Contaste las prendas: «Conteo» y el total. Si alguien vendió mientras contabas, te avisa para que vuelvas a contar."],
     ["BarChart3", "«Historial de esta prenda»: cuántas entraron, se vendieron, se devolvieron; a quién, a qué precio, con qué comprobante y quién lo hizo."],
-    ["Navigation", "Cada talla/color muestra cuántas hay en Larco y en Casa. «Traspasar» mueve prendas de un lugar a otro (el total no cambia). La web vende de los dos; la caja de Larco, de Larco."],
+    ["Navigation", "Cada talla/color muestra cuántas hay en Larco y en el Almacén. Para mover prendas usa «Traslados entre sedes» (guía). La web vende de las dos sedes; la caja de Larco, de Larco."],
   ] },
   dashboard: { title: "Panel", steps: [
     ["LayoutDashboard", "Resumen de ventas, pedidos y stock bajo."],
@@ -7285,6 +7438,7 @@ const SCREEN_ACCESS = {
   complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
+  transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
 };
 const canOpenScreen = (role, sc) => (SCREEN_ACCESS[sc] || []).includes(role);
 // Pantalla con la que se abre el panel según el enlace: #caja → Caja; #staff/<pantalla> → esa pantalla (si su rol puede)
@@ -7344,17 +7498,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     refreshData && refreshData(); // trae cómo quedó cada lugar
     return true;
   };
-  // Traspaso Larco ↔ Casa: no cambia el total, solo dónde están las prendas
-  const transferStock = async (product, variant, t) => {
-    const { data, error } = await supabase.rpc("transfer_stock", { p_variant: variant.id, p_from: t.from, p_to: t.to, p_qty: t.qty, p_note: t.note || null });
-    if (error) {
-      const m = error.message || "";
-      alert(error.code === "PGRST202" ? "Falta correr el SQL 19 (ubicaciones) en Supabase." : m.includes("STOCK_INSUFICIENTE") ? `No alcanza: en ese lugar solo hay ${(m.match(/:(\d+)/) || [])[1]}.` : m.includes("SIN_PERMISO") ? "Tu usuario no puede traspasar stock." : "No se pudo traspasar: " + m);
-      return false;
-    }
-    patchCatalog((c) => ({ ...c, products: c.products.map((p) => p.id !== product.id ? p : { ...p, variants: p.variants.map((v) => v.id === variant.id ? { ...v, stockBy: data } : v) }) }));
-    return true;
-  };
+
 
 
   const saveCustomer = (cu) => updateCatalog((c) => {
@@ -7494,7 +7638,8 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {screen === "manual" && <StaffManual role={role} />}
-        {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onTransfer={transferStock} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
+        {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
+        {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
         {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList onPatchProduct={patchProduct} catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
         {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => setScreen("products")} />}
