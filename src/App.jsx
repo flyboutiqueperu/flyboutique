@@ -4112,7 +4112,38 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
 };
 
 /* ---- Admin: Products list ---- */
-const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulkPhotos, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate }) => {
+// Pasar una prenda al Outlet con su precio final (o cambiarlo, o sacarla). El precio de antes queda tachado.
+const OutletControl = ({ product, onPatch }) => {
+  const [open, setOpen] = useState(false);
+  const [price, setPrice] = useState(String(product.price));
+  const out = isOutlet(product);
+  const n = Number(price);
+  const original = Number(product.compareAtPrice) > Number(product.price) ? Number(product.compareAtPrice) : Number(product.price);
+  const save = () => {
+    if (!(n > 0)) { alert("Escribe el precio final del Outlet."); return; }
+    onPatch(product.id, { outlet: true, price: n, compareAtPrice: original > n ? original : null });
+    setOpen(false);
+  };
+  const btn = { padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer" };
+  if (!open) return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+      {!out && <button type="button" onClick={() => { setPrice(String(product.price)); setOpen(true); }} style={btn}>Pasar al Outlet</button>}
+      {out && <button type="button" onClick={() => { setPrice(String(product.price)); setOpen(true); }} style={btn}>Outlet · cambiar precio</button>}
+      {out && <button type="button" onClick={() => { if (confirm(`¿Sacar «${product.name}» del Outlet? Vuelve a la colección${Number(product.compareAtPrice) > Number(product.price) ? ` con su precio de antes (S/ ${product.compareAtPrice})` : ""}.`)) onPatch(product.id, { outlet: false, ...(Number(product.compareAtPrice) > Number(product.price) ? { price: Number(product.compareAtPrice), compareAtPrice: null } : {}) }); }} style={{ ...btn, borderColor: C.line }}>Sacar del Outlet</button>}
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 6, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>
+      Precio final S/
+      <input inputMode="decimal" autoFocus value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ""))} onKeyDown={(e) => e.key === "Enter" && save()} aria-label="Precio final del Outlet" style={{ ...inputStyle, width: 80, padding: "6px 8px" }} />
+      {n > 0 && original > n && <span>({Math.round((1 - n / original) * 100)}% menos que S/ {original})</span>}
+      <button type="button" onClick={save} style={{ ...btn, background: C.ink, color: C.paper }}>{out ? "Guardar" : "Pasar al Outlet"}</button>
+      <button type="button" onClick={() => setOpen(false)} style={{ ...btn, borderColor: C.line }}>Cancelar</button>
+    </div>
+  );
+};
+
+const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulkPhotos, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate, onPatchProduct }) => {
   const [q, setQ] = useState("");
   const [importing, setImporting] = useState(false);
   const [matchingPhotos, setMatchingPhotos] = useState(false);
@@ -4205,6 +4236,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
                   <Switch on={p.featured !== false} onClick={() => onToggleFeatured(p.id)} label="Destacado" />
                   <Switch on={p.showOnline !== false} onClick={() => onToggleOnline(p.id)} label={p.showOnline !== false ? "Web" : "Solo tienda"} />
                 </div>
+                {onPatchProduct && <OutletControl product={p} onPatch={onPatchProduct} />}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <button onClick={() => openEditor(p.id)} style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Pencil size={13} color={C.ink} /></button>
@@ -4969,15 +5001,19 @@ const MOVEMENT_TYPES = [
   { key: "ajuste", label: "Conteo", sign: 0, hint: "Contaste las prendas: escribe cuántas hay en total. Si alguien vende mientras cuentas, te avisa." },
 ];
 
-const StockMovementSheet = ({ product, variant, onClose, onSubmit }) => {
+const StockMovementSheet = ({ product, variant, settings, onClose, onSubmit }) => {
+  const locs = stockLocations(settings);
+  const sb = variantStockBy(variant);
+  const [loc, setLoc] = useState("principal");
   const [type, setType] = useState("entrada");
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const t = MOVEMENT_TYPES.find((x) => x.key === type);
   const n = Math.max(0, parseInt(qty || "0", 10) || 0);
-  const newStock = t.sign > 0 ? variant.stock + n : t.sign < 0 ? variant.stock - n : n;
-  const tooMany = t.sign < 0 && n > variant.stock;
+  const here = Number(sb[loc]) || 0;
+  const newStock = t.sign > 0 ? variant.stock + n : t.sign < 0 ? variant.stock - n : variant.stock - here + n;
+  const tooMany = t.sign < 0 && n > here;
   const canSubmit = qty !== "" && (type === "ajuste" || n > 0) && !tooMany && (!t.needsNote || note.trim().length >= 3) && !busy;
 
   return (
@@ -4995,20 +5031,27 @@ const StockMovementSheet = ({ product, variant, onClose, onSubmit }) => {
         </div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 16, marginTop: -8, lineHeight: 1.45 }}>{t.hint}</div>
 
-        <Field label={type === "ajuste" ? "Cuántas hay en total (contadas) *" : "Cantidad *"}>
+        {locs.length > 1 && (
+          <Field label="¿Dónde?">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {locs.map((l) => <button key={l.id} type="button" onClick={() => setLoc(l.id)} style={{ padding: "9px 13px", borderRadius: 8, border: `1px solid ${loc === l.id ? C.ink : C.line}`, background: loc === l.id ? C.ink : "transparent", color: loc === l.id ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{l.name} ({Number(sb[l.id]) || 0})</button>)}
+            </div>
+          </Field>
+        )}
+        <Field label={type === "ajuste" ? `Cuántas hay en ${locationName(settings, loc)} (contadas) *` : "Cantidad *"}>
           <input inputMode="numeric" style={inputStyle} value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="0" />
         </Field>
         <Field label={t.needsNote ? "Motivo *" : "Nota (opcional)"}><input style={inputStyle} value={note} maxLength={140} onChange={(e) => setNote(e.target.value)} placeholder={type === "regalo" ? "Ej. regalo a @influencer" : type === "merma" ? "Ej. mancha que no sale" : "Ej. reposición proveedor"} /></Field>
 
         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: tooMany ? C.accent : C.inkSoft, marginBottom: 18 }}>
-          {tooMany ? `Solo hay ${variant.stock} en stock.` : <>Quedará en stock: <strong>{newStock}</strong></>}
+          {tooMany ? `En ${locationName(settings, loc)} solo hay ${here}.` : <>Quedará en total: <strong>{newStock}</strong></>}
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
           <PrimaryButton disabled={!canSubmit} style={{ flex: 2, width: "auto" }} onClick={async () => {
             setBusy(true);
-            const ok = await onSubmit({ type, qty: n, note: note.trim(), expected: variant.stock, newStock });
+            const ok = await onSubmit({ type, qty: n, note: note.trim(), expected: locs.length > 1 ? here : variant.stock, newStock, location: locs.length > 1 ? loc : null });
             setBusy(false);
             if (ok) onClose();
           }}>{busy ? "Guardando…" : "Registrar"}</PrimaryButton>
@@ -5018,9 +5061,49 @@ const StockMovementSheet = ({ product, variant, onClose, onSubmit }) => {
   );
 };
 
+// ---- Lugares donde se guarda el stock (Larco = tienda, Casa = almacén). La web vende de todos; la caja de Larco, de Larco ----
+const DEFAULT_LOCATIONS = [{ id: "principal", name: "Larco" }, { id: "casa", name: "Casa" }];
+const stockLocations = (settings) => (Array.isArray(settings?.locations) && settings.locations.length ? settings.locations : DEFAULT_LOCATIONS);
+const locationName = (settings, id) => stockLocations(settings).find((l) => l.id === id)?.name || id;
+const variantStockBy = (v) => (v?.stockBy && typeof v.stockBy === "object" ? v.stockBy : { principal: Number(v?.stock) || 0 });
+
+const TransferSheet = ({ product, variant, settings, onClose, onSubmit }) => {
+  const locs = stockLocations(settings);
+  const sb = variantStockBy(variant);
+  const [from, setFrom] = useState(locs.find((l) => (sb[l.id] || 0) > 0)?.id || locs[0].id);
+  const [to, setTo] = useState(locs.find((l) => l.id !== from)?.id || locs[0].id);
+  const [qty, setQty] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const n = parseInt(qty || "0", 10) || 0;
+  const avail = Number(sb[from]) || 0;
+  const ok = n > 0 && n <= avail && from !== to && !busy;
+  return (
+    <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 55, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
+      <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", padding: "20px 22px 28px", animation: "slideUp .25s ease", maxHeight: "92vh", overflowY: "auto" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>Traspasar · {product.name}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, margin: "2px 0 16px" }}>Talla {variant.size} · {variant.colorName} · {locs.map((l) => `${l.name}: ${Number(sb[l.id]) || 0}`).join(" · ")}</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 130px" }}><Field label="Desde"><select style={inputStyle} value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value === to) setTo(locs.find((l) => l.id !== e.target.value)?.id || to); }}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name} (hay {Number(sb[l.id]) || 0})</option>)}</select></Field></div>
+          <div style={{ flex: "1 1 130px" }}><Field label="Hacia"><select style={inputStyle} value={to} onChange={(e) => setTo(e.target.value)}>{locs.filter((l) => l.id !== from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field></div>
+        </div>
+        <Field label="Cantidad *"><input inputMode="numeric" style={inputStyle} value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="0" /></Field>
+        <Field label="Nota (opcional)"><input style={inputStyle} maxLength={140} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. guardar temporada pasada en casa" /></Field>
+        {n > avail && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginBottom: 10 }}>En {locationName(settings, from)} solo hay {avail}.</div>}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+          <PrimaryButton disabled={!ok} style={{ flex: 2, width: "auto" }} onClick={async () => { setBusy(true); const done = await onSubmit({ from, to, qty: n, note: note.trim() }); setBusy(false); if (done) onClose(); }}>{busy ? "Traspasando…" : "Traspasar"}</PrimaryButton>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ---- Historial de una prenda (o de toda la tienda): lo anota la base de datos en cada cambio ----
-const MOVE_LABEL = (t) => ({ entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
+const MOVE_LABEL = (t) => ({ traslado: "Traspaso", entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
 const StockHistory = ({ product, catalog, onBack }) => {
+  // (los traspasos no cambian el total: se muestran pero no suman en ingresadas/vendidas)
   const [rows, setRows] = useState(null);
   const [legacy, setLegacy] = useState(false);
   const [variantId, setVariantId] = useState("");
@@ -5085,7 +5168,7 @@ const StockHistory = ({ product, catalog, onBack }) => {
             </div>
             {(m.doc || m.customer || m.seller) && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 2 }}>{[m.doc, m.customer && `Clienta: ${m.customer}`, m.seller && `Vendió: ${m.seller}`].filter(Boolean).join(" · ")}</div>}
             {m.note && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 2, fontStyle: "italic" }}>{m.note}</div>}
-            <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 3 }}>{m.staff_name || "Sistema"}{m.channel ? ` · ${m.channel}` : ""} · {new Date(m.created_at).toLocaleString("es-PE")}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 3 }}>{m.staff_name || "Sistema"}{m.channel ? ` · ${m.channel}` : ""}{m.store_id && m.store_id !== "web" ? ` · ${locationName(catalog.settings, m.store_id)}` : ""} · {new Date(m.created_at).toLocaleString("es-PE")}</div>
           </AdminCard>
         ))}
         {rows && list.length === 0 && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Aún no hay movimientos registrados.</div>}
@@ -5095,7 +5178,8 @@ const StockHistory = ({ product, catalog, onBack }) => {
 };
 
 /* ---- Stock: main screen (shared by Vendedor + Administrador) ---- */
-const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
+const StockScreen = ({ catalog, staffName, onRegisterMovement, onTransfer, canEdit }) => {
+  const [activeTransfer, setActiveTransfer] = useState(null);
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [activeMove, setActiveMove] = useState(null); // {product, variant}
@@ -5161,10 +5245,12 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
                       <div>
                         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{v.size} · {v.colorName}</div>
                         <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone }}>{v.sku} {v.stock <= (p.minStock ?? 3) && v.stock > 0 && <span style={{ color: C.accent }}> · stock bajo</span>}{v.stock === 0 && <span style={{ color: C.accent }}> · agotado</span>}</div>
+                        {v.stock > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.inkSoft }}>{stockLocations(catalog.settings).map((l) => `${l.name} ${Number(variantStockBy(v)[l.id]) || 0}`).join(" · ")}</div>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink }}>{v.stock}</span>
                         {canEdit && <button onClick={() => setActiveMove({ product: p, variant: v })} style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer" }}>Movimiento</button>}
+                        {canEdit && onTransfer && v.stock > 0 && stockLocations(catalog.settings).length > 1 && <button onClick={() => setActiveTransfer({ product: p, variant: v })} style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer" }}>Traspasar</button>}
                       </div>
                     </div>
                   ))}
@@ -5178,11 +5264,12 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
 
       {activeMove && (
         <StockMovementSheet
-          product={activeMove.product} variant={activeMove.variant} staffName={staffName}
+          product={activeMove.product} variant={activeMove.variant} staffName={staffName} settings={catalog.settings}
           onClose={() => setActiveMove(null)}
           onSubmit={(mv) => onRegisterMovement(activeMove.product, activeMove.variant, mv)}
         />
       )}
+      {activeTransfer && <TransferSheet product={activeTransfer.product} variant={activeTransfer.variant} settings={catalog.settings} onClose={() => setActiveTransfer(null)} onSubmit={(t) => onTransfer(activeTransfer.product, activeTransfer.variant, t)} />}
     </div>
   );
 };
@@ -6999,6 +7086,7 @@ const STAFF_GUIDES = {
     ["Minus", "Prenda malograda o que no se puede vender: «Dañada». Si se regaló: «Regalo» y a quién. Ambos piden motivo."],
     ["Pencil", "Contaste las prendas: «Conteo» y el total. Si alguien vendió mientras contabas, te avisa para que vuelvas a contar."],
     ["BarChart3", "«Historial de esta prenda»: cuántas entraron, se vendieron, se devolvieron; a quién, a qué precio, con qué comprobante y quién lo hizo."],
+    ["Navigation", "Cada talla/color muestra cuántas hay en Larco y en Casa. «Traspasar» mueve prendas de un lugar a otro (el total no cambia). La web vende de los dos; la caja de Larco, de Larco."],
   ] },
   dashboard: { title: "Panel", steps: [
     ["LayoutDashboard", "Resumen de ventas, pedidos y stock bajo."],
@@ -7010,7 +7098,7 @@ const STAFF_GUIDES = {
     ["Layers", "Agrega tallas (botones XS a XXL) y colores: cada combinación tiene su propio stock y su propio código de barras. El sistema no deja repetir códigos."],
     ["ImageIcon", "Sube fotos verticales (ideal 1080×1440) y asigna cada foto a su color. Puedes subir un video."],
     ["Eye", "Usa «Activo / Borrador» y «Mostrar en la web» para publicar u ocultar sin borrar."],
-    ["Gift", "Para liquidar: activa «Outlet» en el producto y pon el precio final. Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo de la clienta, sin cambios)."],
+    ["Gift", "Para liquidar: en la lista toca «Pasar al Outlet» y escribe el precio final (luego puedes cambiarlo o «Sacar del Outlet»). También desde editar → «Outlet». Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo de la clienta, sin cambios)."],
   ] },
   productEditor: { title: "Editar un producto", steps: [
     ["Pencil", "Cambia lo que necesites y toca «Guardar». El stock real no se pisa: las ventas hechas mientras editas se respetan."],
@@ -7231,7 +7319,9 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
 
   // Entradas y salidas suman o restan en el servidor (si otra persona vendió, no se pierde esa venta).
   const registerMovement = async (product, variant, mv) => {
-    let { data, error } = await supabase.rpc("move_stock", { p_variant: variant.id, p_type: mv.type, p_qty: mv.qty, p_note: mv.note || null, p_expected: mv.type === "ajuste" ? mv.expected : null });
+    const args = { p_variant: variant.id, p_type: mv.type, p_qty: mv.qty, p_note: mv.note || null, p_expected: mv.type === "ajuste" ? mv.expected : null };
+    let { data, error } = await supabase.rpc("move_stock", mv.location ? { ...args, p_location: mv.location } : args);
+    if (error?.code === "PGRST202" && mv.location) ({ data, error } = await supabase.rpc("move_stock", args)); // aún sin el SQL 19
     if (error?.code === "PGRST202") { // aún no se corrió el SQL 14
       ({ error } = await supabase.rpc("adjust_stock", { p_variant: variant.id, p_new_stock: mv.newStock, p_type: mv.type === "devolucion" ? "entrada" : mv.type === "regalo" ? "salida" : mv.type, p_note: mv.note || "" }));
       data = mv.newStock;
@@ -7251,6 +7341,18 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
       ...c,
       products: c.products.map((p) => p.id !== product.id ? p : { ...p, variants: p.variants.map((v) => v.id === variant.id ? { ...v, stock: Number.isFinite(finalStock) ? finalStock : mv.newStock } : v) }),
     }));
+    refreshData && refreshData(); // trae cómo quedó cada lugar
+    return true;
+  };
+  // Traspaso Larco ↔ Casa: no cambia el total, solo dónde están las prendas
+  const transferStock = async (product, variant, t) => {
+    const { data, error } = await supabase.rpc("transfer_stock", { p_variant: variant.id, p_from: t.from, p_to: t.to, p_qty: t.qty, p_note: t.note || null });
+    if (error) {
+      const m = error.message || "";
+      alert(error.code === "PGRST202" ? "Falta correr el SQL 19 (ubicaciones) en Supabase." : m.includes("STOCK_INSUFICIENTE") ? `No alcanza: en ese lugar solo hay ${(m.match(/:(\d+)/) || [])[1]}.` : m.includes("SIN_PERMISO") ? "Tu usuario no puede traspasar stock." : "No se pudo traspasar: " + m);
+      return false;
+    }
+    patchCatalog((c) => ({ ...c, products: c.products.map((p) => p.id !== product.id ? p : { ...p, variants: p.variants.map((v) => v.id === variant.id ? { ...v, stockBy: data } : v) }) }));
     return true;
   };
 
@@ -7359,6 +7461,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   };
   const toggleProductActive = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, status: p.status === "active" ? "borrador" : "active" } : p)) }));
   const toggleProductFeatured = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, featured: !(p.featured !== false) } : p)) }));
+  const patchProduct = (id, patch) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p)) }));
   const toggleProductOnline = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, showOnline: !(p.showOnline !== false) } : p)) }));
   const duplicateProduct = (id) => updateCatalog((c) => {
     const original = c.products.find((p) => p.id === id);
@@ -7391,9 +7494,9 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {screen === "manual" && <StaffManual role={role} />}
-        {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
+        {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onTransfer={transferStock} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
-        {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
+        {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList onPatchProduct={patchProduct} catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
         {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => setScreen("products")} />}
         {(role === "administrador" || role === "superadmin") && screen === "banners" && <AdminBannerList banners={catalog.banners} openEditor={(id) => { setEditingBannerId(id); setScreen("bannerEditor"); }} toggleActive={toggleBannerActive} deleteBanner={deleteBanner} />}
         {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}
