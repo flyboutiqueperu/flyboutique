@@ -607,6 +607,7 @@ const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId })
     return catalog ? availableStock(catalog, v, cartSessionId) : v.stock;
   };
   const canAdd = size && color && effStock(size, color.n) > 0;
+  const pickColor = (c) => { setColor(c); if (size && effStock(size, c.n) <= 0) setSize(null); };
   return (
     <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", flexDirection: "column", justifyContent: "flex-end" }} onClick={(e) => e.stopPropagation()}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
@@ -623,7 +624,7 @@ const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId })
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.07em", textTransform: "uppercase", color: C.stone, marginBottom: 8 }}>Color — {color?.n}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {colors.map((c) => <button key={c.n} onClick={() => setColor(c)} style={{ width: 28, height: 28, borderRadius: "50%", background: c.h, border: color?.n === c.n ? `2px solid ${C.ink}` : `1px solid ${C.line}`, cursor: "pointer" }} />)}
+              {colors.map((c) => <button key={c.n} onClick={() => pickColor(c)} style={{ width: 28, height: 28, borderRadius: "50%", background: c.h, border: color?.n === c.n ? `2px solid ${C.ink}` : `1px solid ${C.line}`, cursor: "pointer" }} />)}
             </div>
           </div>
         )}
@@ -1433,33 +1434,98 @@ const productGallery = (product, colorName) => {
 // flechas y un clic para acercar donde apuntas (sin lupa deforme). En celular se pellizca para ampliar.
 const PhotoViewer = ({ items, start = 0, alt, onClose }) => {
   const [idx, setIdx] = useState(start);
-  const [zoom, setZoom] = useState(null);
+  const [zoom, setZoom] = useState(null);          // PC: punto donde se acerca con el clic
+  const [tz, setTz] = useState({ s: 1, x: 0, y: 0 }); // celular: zoom propio con los dedos (solo la foto, nunca la página)
+  const areaRef = useRef(null);
+  const tzRef = useRef(tz); tzRef.current = tz;
+  const lastTouch = useRef(0);
   const imgs = items.filter((m) => m.type !== "video");
   const cur = imgs[idx];
-  const go = (d) => { setZoom(null); setIdx((i) => (i + d + imgs.length) % imgs.length); };
+  const go = (d) => { setZoom(null); setTz({ s: 1, x: 0, y: 0 }); setIdx((i) => (i + d + imgs.length) % imgs.length); };
+  const goRef = useRef(go); goRef.current = go;
   useEffect(() => {
     const k = (e) => { if (["Escape", "ArrowRight", "ArrowLeft"].includes(e.key)) { e.stopImmediatePropagation(); e.preventDefault(); } if (e.key === "Escape") onClose(); if (e.key === "ArrowRight") go(1); if (e.key === "ArrowLeft") go(-1); };
     window.addEventListener("keydown", k, true); return () => window.removeEventListener("keydown", k, true);
   }, [imgs.length]);
+  // Gestos del celular: pellizcar acerca SOLO la foto (antes se agrandaba/achicaba toda la página y quedaba descuadrada),
+  // arrastrar mueve la foto acercada, deslizar cambia de foto y doble toque acerca/aleja.
+  useEffect(() => {
+    const el = areaRef.current; if (!el) return undefined;
+    const g = { mode: null, d0: 0, s0: 1, x0: 0, y0: 0, px: 0, py: 0, sx: 0, sy: 0, t: 0, tap: 0 };
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const clamp = (z) => {
+      const r = el.getBoundingClientRect(); const mx = ((z.s - 1) * r.width) / 2, my = ((z.s - 1) * r.height) / 2;
+      return z.s <= 1.01 ? { s: 1, x: 0, y: 0 } : { s: z.s, x: Math.max(-mx, Math.min(mx, z.x)), y: Math.max(-my, Math.min(my, z.y)) };
+    };
+    const onStart = (e) => {
+      lastTouch.current = Date.now();
+      const z = tzRef.current;
+      if (e.touches.length === 2) { g.mode = "pinch"; g.d0 = dist(e.touches[0], e.touches[1]); g.s0 = z.s; g.x0 = z.x; g.y0 = z.y; }
+      else if (e.touches.length === 1) { g.mode = z.s > 1 ? "pan" : "swipe"; g.px = e.touches[0].clientX; g.py = e.touches[0].clientY; g.sx = g.px; g.sy = g.py; g.x0 = z.x; g.y0 = z.y; g.t = Date.now(); }
+    };
+    const onMove = (e) => {
+      e.preventDefault(); // nunca deja que el navegador haga zoom o mueva la página
+      if (g.mode === "pinch" && e.touches.length === 2) {
+        const s2 = Math.max(1, Math.min(4, (g.s0 * dist(e.touches[0], e.touches[1])) / (g.d0 || 1)));
+        setTz(clamp({ s: s2, x: g.x0, y: g.y0 }));
+      } else if (g.mode === "pan" && e.touches.length === 1) {
+        setTz(clamp({ s: tzRef.current.s, x: g.x0 + e.touches[0].clientX - g.px, y: g.y0 + e.touches[0].clientY - g.py }));
+      }
+    };
+    const onEnd = (e) => {
+      lastTouch.current = Date.now();
+      if (g.mode === "swipe" && e.changedTouches.length) {
+        const dx = e.changedTouches[0].clientX - g.sx, dy = e.changedTouches[0].clientY - g.sy;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) && imgs.length > 1) goRef.current(dx < 0 ? 1 : -1);
+        else if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && Date.now() - g.t < 300) {
+          if (Date.now() - g.tap < 300) { setTz({ s: 2.5, x: 0, y: 0 }); g.tap = 0; } else g.tap = Date.now();
+        }
+      } else if (g.mode === "pan" && e.changedTouches.length) {
+        const dx = e.changedTouches[0].clientX - g.sx, dy = e.changedTouches[0].clientY - g.sy;
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) { if (Date.now() - g.tap < 300) { setTz({ s: 1, x: 0, y: 0 }); g.tap = 0; } else g.tap = Date.now(); }
+      }
+      if (e.touches.length === 0) g.mode = null;
+      else if (e.touches.length === 1) { g.mode = tzRef.current.s > 1 ? "pan" : null; g.px = e.touches[0].clientX; g.py = e.touches[0].clientY; g.x0 = tzRef.current.x; g.y0 = tzRef.current.y; }
+    };
+    // Safari (iPhone) tiene su propio gesto de zoom: también se bloquea mientras el visor está abierto
+    const stopGesture = (e) => e.preventDefault();
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd, { passive: true });
+    el.addEventListener("touchcancel", onEnd, { passive: true });
+    document.addEventListener("gesturestart", stopGesture, { passive: false });
+    document.addEventListener("gesturechange", stopGesture, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onStart); el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd); el.removeEventListener("touchcancel", onEnd);
+      document.removeEventListener("gesturestart", stopGesture); document.removeEventListener("gesturechange", stopGesture);
+    };
+  }, [imgs.length]);
   const point = (e) => { const r = e.currentTarget.getBoundingClientRect(); return `${((e.clientX - r.left) / r.width) * 100}% ${((e.clientY - r.top) / r.height) * 100}%`; };
   const round = { width: 42, height: 42, borderRadius: "50%", background: C.paper, border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" };
   if (!cur) return null;
+  const touchZoomed = tz.s > 1;
+  const imgTransform = touchZoomed ? `translate(${tz.x}px, ${tz.y}px) scale(${tz.s})` : zoom ? "scale(2.3)" : "none";
   return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 95, background: C.white, display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px" }}>
-        <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>{imgs.length > 1 ? `${idx + 1} / ${imgs.length}` : ""} · {zoom ? "Clic para alejar" : "Clic en la foto para acercar"}</span>
+    <div style={{ position: "fixed", inset: 0, zIndex: 95, background: C.white, display: "flex", flexDirection: "column", touchAction: "none", overscrollBehavior: "contain" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", paddingTop: "max(10px, env(safe-area-inset-top))" }}>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>
+          {imgs.length > 1 ? `${idx + 1} / ${imgs.length} · ` : ""}
+          <span className="hint-mouse">{zoom ? "Clic para alejar" : "Clic en la foto para acercar"}</span>
+          <span className="hint-touch">{touchZoomed ? "Doble toque para alejar" : "Pellizca o toca dos veces para acercar"}</span>
+        </span>
         <button onClick={onClose} aria-label="Cerrar" style={round}><X size={18} /></button>
       </div>
       <div className="viewer-body" style={{ flex: 1, minHeight: 0, display: "flex", gap: 12, padding: "0 16px 16px" }}>
         {imgs.length > 1 && (
-          <div className="viewer-thumbs hscroll" style={{ display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", width: 72, flexShrink: 0 }}>
-            {imgs.map((m, i) => <button key={i} onClick={() => { setZoom(null); setIdx(i); }} style={{ width: 68, height: 88, flexShrink: 0, padding: 0, borderRadius: 6, overflow: "hidden", border: `2px solid ${i === idx ? C.ink : "transparent"}`, background: C.paperDeep, cursor: "pointer" }}><ProductImg src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></button>)}
+          <div className="viewer-thumbs hscroll" style={{ display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", width: 72, flexShrink: 0, touchAction: "pan-x pan-y" }}>
+            {imgs.map((m, i) => <button key={i} onClick={() => { setZoom(null); setTz({ s: 1, x: 0, y: 0 }); setIdx(i); }} style={{ width: 68, height: 88, flexShrink: 0, padding: 0, borderRadius: 6, overflow: "hidden", border: `2px solid ${i === idx ? C.ink : "transparent"}`, background: C.paperDeep, cursor: "pointer" }}><ProductImg src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></button>)}
           </div>
         )}
-        <div style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden", touchAction: "pinch-zoom", cursor: zoom ? "zoom-out" : "zoom-in" }}
-          onClick={(e) => setZoom(zoom ? null : point(e))} onMouseMove={(e) => zoom && setZoom(point(e))}>
-          <img src={cur.url} alt={alt} draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: zoom ? "scale(2.3)" : "none", transformOrigin: zoom || "center", transition: zoom ? "transform-origin .05s linear" : "transform .2s ease" }} />
-          {imgs.length > 1 && <>
+        <div ref={areaRef} style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden", touchAction: "none", cursor: zoom ? "zoom-out" : "zoom-in" }}
+          onClick={(e) => { if (Date.now() - lastTouch.current < 700) return; setZoom(zoom ? null : point(e)); }} onMouseMove={(e) => zoom && setZoom(point(e))}>
+          <img src={cur.url} alt={alt} draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: imgTransform, transformOrigin: touchZoomed ? "center" : zoom || "center", transition: touchZoomed ? "none" : zoom ? "transform-origin .05s linear" : "transform .2s ease", userSelect: "none", WebkitUserSelect: "none" }} />
+          {imgs.length > 1 && !touchZoomed && <>
             <button onClick={(e) => { e.stopPropagation(); go(-1); }} aria-label="Anterior" style={{ ...round, position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)" }}><ArrowLeft size={17} /></button>
             <button onClick={(e) => { e.stopPropagation(); go(1); }} aria-label="Siguiente" style={{ ...round, position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)" }}><ChevronRight size={18} /></button>
           </>}
@@ -1655,6 +1721,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
   const [showSizeGuide, setShowSizeGuide] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [hoverColor, setHoverColor] = useState(null);
+  const [sizeNote, setSizeNote] = useState("");
   const [recSize, setRecSize] = useState(() => recommendSize(loadMeasures()));
   const scrollRef = useRef(null);
   const soldOut = productSoldOut(product);
@@ -1662,8 +1729,8 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
   useEffect(() => {
     const firstColor = (initialColor && colors.find((c) => c.n === initialColor)) || colors.find((c) => colorTotalStock(product, c.n) > 0) || colors[0] || null;
     setColor(firstColor);
-    setSize(sizes.find((s) => variantStock(product, s, firstColor?.n) > 0) || sizes[0]);
-    setQty(1); setShowReviewForm(false);
+    setSize(sizes.find((s) => variantStock(product, s, firstColor?.n) > 0) || null);
+    setQty(1); setShowReviewForm(false); setSizeNote("");
     scrollAllTop();
   }, [product.id]);
 
@@ -1679,7 +1746,15 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
     return catalog ? availableStock(catalog, v, cartSessionId) : v.stock;
   };
   const stock = product.variants.length ? effectiveVariantStock(size, color?.n) : 0;
-  const canAdd = !soldOut && stock > 0;
+  const canAdd = !soldOut && stock > 0 && qty <= stock;
+  // Al cambiar de color, si la talla elegida no existe (o no tiene stock) en ese color, se quita: no se puede seguir con algo que no hay
+  const pickColor = (c) => {
+    setColor(c);
+    if (size && effectiveVariantStock(size, c.n) <= 0) { setSizeNote(`La talla ${size} no está disponible en ${c.n}. Elige otra.`); setSize(null); setQty(1); return; }
+    setSizeNote("");
+    if (size) setQty((q) => Math.max(1, Math.min(q, effectiveVariantStock(size, c.n))));
+  };
+  const pickSize = (sz) => { setSize(sz); setSizeNote(""); setQty((q) => Math.max(1, Math.min(q, effectiveVariantStock(sz, color?.n)))); };
   const shownColor = hoverColor && hasColorPhoto(product, hoverColor) ? hoverColor : color?.n;
   const gallery = productGallery(product, shownColor);
   const productReviews = reviews?.[product.id] || [];
@@ -1754,13 +1829,13 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                       return (
                         // Con foto de ese color: miniatura de la prenda (como Zalando). Sin foto: círculo del color.
                         tilePhoto ? (
-                          <button key={c.n} onClick={() => setColor(c)} onMouseEnter={() => setHoverColor(c.n)} onFocus={() => setHoverColor(c.n)} title={outOfStock ? `${c.n} (agotado)` : c.n} aria-label={c.n} aria-pressed={active}
+                          <button key={c.n} onClick={() => pickColor(c)} onMouseEnter={() => setHoverColor(c.n)} onFocus={() => setHoverColor(c.n)} title={outOfStock ? `${c.n} (agotado)` : c.n} aria-label={c.n} aria-pressed={active}
                             style={{ position: "relative", width: 60, height: 80, borderRadius: 8, overflow: "hidden", background: C.paperDeep, cursor: "pointer", border: `2px solid ${active ? C.ink : C.line}`, opacity: outOfStock ? 0.45 : 1, transition: "border-color .15s ease", padding: 0 }}>
                             <ProductImg src={tilePhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                             {outOfStock && <span style={{ position: "absolute", inset: 0, background: `linear-gradient(to top right, transparent calc(50% - 1px), ${C.ink} calc(50% - 1px), ${C.ink} calc(50% + 1px), transparent calc(50% + 1px))` }} />}
                           </button>
                         ) : (
-                        <button key={c.n} onClick={() => setColor(c)} onMouseEnter={() => setHoverColor(c.n)} title={outOfStock ? `${c.n} (agotado)` : c.n} aria-label={c.n}
+                        <button key={c.n} onClick={() => pickColor(c)} onMouseEnter={() => setHoverColor(c.n)} title={outOfStock ? `${c.n} (agotado)` : c.n} aria-label={c.n}
                           style={{ position: "relative", width: active ? 42 : 36, height: active ? 42 : 36, borderRadius: "50%", background: c.h, cursor: "pointer", border: `1px solid ${C.line}`, boxShadow: active ? `0 0 0 3px ${C.paper}, 0 0 0 4px ${C.ink}` : "none", opacity: outOfStock ? 0.4 : 1, transition: "all .15s ease", padding: 0, alignSelf: "center" }}>
                           {outOfStock && <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: `linear-gradient(to top right, transparent calc(50% - 1px), ${C.ink} calc(50% - 1px), ${C.ink} calc(50% + 1px), transparent calc(50% + 1px))` }} />}
                         </button>
@@ -1780,15 +1855,16 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                   {sizes.map((s) => {
                     const sStock = effectiveVariantStock(s, color?.n);
                     const active = size === s;
-                    return <button key={s} onClick={() => setSize(s)} disabled={sStock === 0} style={{ minWidth: 52, height: 46, padding: "0 10px", borderRadius: 8, cursor: sStock === 0 ? "not-allowed" : "pointer", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 500, border: `1px solid ${active ? C.ink : C.line}`, background: active ? C.ink : "transparent", color: sStock === 0 ? C.line : active ? C.paper : C.ink, textDecoration: sStock === 0 ? "line-through" : "none" }}>{s}</button>;
+                    return <button key={s} onClick={() => pickSize(s)} disabled={sStock === 0} style={{ minWidth: 52, height: 46, padding: "0 10px", borderRadius: 8, cursor: sStock === 0 ? "not-allowed" : "pointer", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 500, border: `1px solid ${active ? C.ink : C.line}`, background: active ? C.ink : "transparent", color: sStock === 0 ? C.line : active ? C.paper : C.ink, textDecoration: sStock === 0 ? "line-through" : "none" }}>{s}</button>;
                   })}
                 </div>
                 {recSize && product.category !== "Calzado" && sizes.length > 1 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, background: C.paperDeep, borderRadius: 8, padding: "8px 12px", fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>
                     <Ruler size={14} color={C.ink} /> Según tus medidas, te recomendamos la talla <strong>{recSize === "XL+" ? "XL" : recSize}</strong>
-                    {sizes.includes(recSize) && size !== recSize && <button onClick={() => setSize(recSize)} style={{ marginLeft: "auto", background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Elegir</button>}
+                    {sizes.includes(recSize) && size !== recSize && effectiveVariantStock(recSize, color?.n) > 0 && <button onClick={() => pickSize(recSize)} style={{ marginLeft: "auto", background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Elegir</button>}
                   </div>
                 )}
+                {sizeNote && !size && <div role="status" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, fontWeight: 600, marginTop: 10 }}>{sizeNote}</div>}
                 {stock > 0 && stock <= 5 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, fontWeight: 600, marginTop: 10 }}>{stock === 1 ? "¡Última unidad en esta talla!" : `¡Solo quedan ${stock} unidades en esta talla!`}</div>}
                 {stock === 0 && size && (() => {
                   const v = product.variants.find((vv) => vv.size === size && vv.colorName === color?.n);
@@ -1892,7 +1968,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
         <PrimaryButton disabled={!canAdd} onClick={addNow} style={{ flex: 1, width: "auto", padding: "14px 16px" }}><ShoppingBag size={16} /> {buyLabel}</PrimaryButton>
       </div>
 
-      {showSizeGuide && createPortal(<SizeGuideModal category={product.category} onClose={() => setShowSizeGuide(false)} onRecommend={(r) => { setRecSize(r); if (r && sizes.includes(r)) setSize(r); }} />, document.body)}
+      {showSizeGuide && createPortal(<SizeGuideModal category={product.category} onClose={() => setShowSizeGuide(false)} onRecommend={(r) => { setRecSize(r); if (r && sizes.includes(r) && effectiveVariantStock(r, color?.n) > 0) pickSize(r); }} />, document.body)}
     </div>
     </div>
   );
@@ -5764,10 +5840,11 @@ const PAYMENT_METHODS = ["Efectivo", "Yape", "Plin", "Transferencia", "Tarjeta"]
 
 const PosVariantPicker = ({ product, onClose, onAdd }) => {
   const colors = productColors(product);
-  const [color, setColor] = useState(colors[0]);
-  const [size, setSize] = useState(productSizes(product)[0]);
+  const [color, setColor] = useState(() => colors.find((c) => colorTotalStock(product, c.n) > 0) || colors[0]);
+  const [size, setSize] = useState(() => productSizes(product).find((s) => variantStock(product, s, (colors.find((c) => colorTotalStock(product, c.n) > 0) || colors[0])?.n) > 0) || null);
   const [qty, setQty] = useState(1);
-  const stock = variantStock(product, size, color?.n);
+  const stock = size ? variantStock(product, size, color?.n) : 0;
+  const pickColor = (c) => { setColor(c); if (size && variantStock(product, size, c.n) <= 0) setSize(null); setQty(1); };
   return (
     <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
@@ -5781,7 +5858,7 @@ const PosVariantPicker = ({ product, onClose, onAdd }) => {
           {colors.map((c) => {
             const outOfStock = colorTotalStock(product, c.n) === 0;
             return (
-              <button key={c.n} onClick={() => setColor(c)} title={outOfStock ? `${c.n} — agotado` : c.n} style={{ position: "relative", width: 30, height: 30, borderRadius: "50%", background: c.h, border: color?.n === c.n ? `2px solid ${C.ink}` : `1px solid ${C.line}`, cursor: "pointer", opacity: outOfStock ? 0.35 : 1 }}>
+              <button key={c.n} onClick={() => pickColor(c)} title={outOfStock ? `${c.n} — agotado` : c.n} style={{ position: "relative", width: 30, height: 30, borderRadius: "50%", background: c.h, border: color?.n === c.n ? `2px solid ${C.ink}` : `1px solid ${C.line}`, cursor: "pointer", opacity: outOfStock ? 0.35 : 1 }}>
                 {outOfStock && <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: `linear-gradient(to top right, transparent calc(50% - 1px), ${C.ink} calc(50% - 1px), ${C.ink} calc(50% + 1px), transparent calc(50% + 1px))` }} />}
               </button>
             );
@@ -5789,9 +5866,9 @@ const PosVariantPicker = ({ product, onClose, onAdd }) => {
         </div>
         <span style={labelStyle}>Talla</span>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          {productSizes(product).map((s) => { const st = variantStock(product, s, color?.n); return <button key={s} disabled={st === 0} onClick={() => setSize(s)} style={{ minWidth: 42, padding: "9px 6px", borderRadius: 8, border: `1px solid ${size === s ? C.ink : C.line}`, background: size === s ? C.ink : "transparent", color: st === 0 ? C.line : size === s ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: st === 0 ? "not-allowed" : "pointer" }}>{s}</button>; })}
+          {productSizes(product).map((s) => { const st = variantStock(product, s, color?.n); return <button key={s} disabled={st === 0} onClick={() => { setSize(s); setQty(1); }} style={{ minWidth: 42, padding: "9px 6px", borderRadius: 8, border: `1px solid ${size === s ? C.ink : C.line}`, background: size === s ? C.ink : "transparent", color: st === 0 ? C.line : size === s ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: st === 0 ? "not-allowed" : "pointer" }}>{s}</button>; })}
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: stock === 0 ? C.accent : C.stone, marginBottom: 16 }}>Stock disponible: {stock}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: stock === 0 ? C.accent : C.stone, marginBottom: 16 }}>{size ? `Stock disponible: ${stock}` : "Elige una talla con stock en este color"}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
           <span style={labelStyle}>Cantidad</span>
           <div style={{ display: "flex", alignItems: "center", gap: 14, border: `1px solid ${C.line}`, borderRadius: 999, padding: "6px 14px" }}>
@@ -5800,7 +5877,7 @@ const PosVariantPicker = ({ product, onClose, onAdd }) => {
             <button onClick={() => setQty((q) => Math.min(stock || 1, q + 1))} style={{ background: "none", border: "none", cursor: "pointer" }}><Plus size={14} /></button>
           </div>
         </div>
-        <PrimaryButton disabled={stock === 0} onClick={() => onAdd(product, size, color, qty)}>Agregar a la venta</PrimaryButton>
+        <PrimaryButton disabled={!size || stock === 0 || qty > stock} onClick={() => onAdd(product, size, color, qty)}>{size ? "Agregar a la venta" : "Elige una talla"}</PrimaryButton>
       </div>
     </div>
   );
