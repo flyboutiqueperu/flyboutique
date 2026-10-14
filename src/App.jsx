@@ -6067,7 +6067,8 @@ function periodRange(f) {
   if (f.period === "rango") return [f.from ? new Date(f.from + "T00:00:00") : new Date(2000, 0, 1), f.to ? new Date(new Date(f.to + "T00:00:00").getTime() + 864e5) : new Date(2100, 0, 1)];
   return [new Date(2000, 0, 1), new Date(2100, 0, 1)];
 }
-const defaultSalesFilter = () => { const n = new Date(); return { period: "mes", month: n.getMonth(), year: n.getFullYear(), from: "", to: "", store: "todas", channel: "todos", tipo: "todos", estado: "emitido", seller: "todos" }; };
+const defaultSalesFilter = () => { const n = new Date(); return { period: "mes", month: n.getMonth(), year: n.getFullYear(), from: "", to: "", store: "todas", channel: "todos", tipo: "todos", estado: "emitido", seller: "todos", pay: "todos" }; };
+const payMethodsOf = (s) => (s.payments && s.payments.length ? s.payments.map((p) => p.method) : [s.paymentMethod || "—"]);
 function filterSales(sales, f) {
   const [a, b] = periodRange(f);
   return sales.filter((s) => {
@@ -6081,6 +6082,7 @@ function filterSales(sales, f) {
     if (f.estado === "emitido" && s.status === "anulado") return false;
     if (f.estado === "anulado" && s.status !== "anulado") return false;
     if (f.seller !== "todos" && (s.staffName || "Sin asignar") !== f.seller) return false;
+    if (f.pay && f.pay !== "todos" && !payMethodsOf(s).includes(f.pay)) return false;
     return true;
   });
 }
@@ -6101,6 +6103,7 @@ const SalesFilterBar = ({ f, setF, stores, sellers, showSeller = true }) => {
         <select value={f.channel} onChange={(e) => set("channel", e.target.value)} style={sel}><option value="todos">Tienda física y web</option><option value="tienda">Solo tienda física</option><option value="web">Solo web</option></select>
         <select value={f.tipo} onChange={(e) => set("tipo", e.target.value)} style={sel}><option value="todos">Boletas y facturas</option><option value="boleta">Solo boletas</option><option value="factura">Solo facturas</option></select>
         <select value={f.estado} onChange={(e) => set("estado", e.target.value)} style={sel}><option value="emitido">Emitidos</option><option value="anulado">Anulados</option><option value="todos">Todos los estados</option></select>
+        <select value={f.pay || "todos"} onChange={(e) => set("pay", e.target.value)} style={sel} aria-label="Medio de pago"><option value="todos">Todos los pagos</option>{PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select>
         {showSeller && <select value={f.seller} onChange={(e) => set("seller", e.target.value)} style={sel}><option value="todos">Todas las vendedoras</option>{sellers.map((n) => <option key={n}>{n}</option>)}</select>}
         <button onClick={() => setF(defaultSalesFilter())} style={{ background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Restablecer</button>
       </div>
@@ -6211,6 +6214,17 @@ const AdminReportsScreen = ({ catalog }) => {
   const list = filterSales(catalog.sales, f);
   const valid = list.filter((s) => s.status !== "anulado");
   const total = valid.reduce((a, s) => a + (s.total || 0), 0);
+  // Mismo periodo anterior (ej. este mes vs. el mes pasado), con los mismos filtros
+  const [ra, rb] = periodRange(f);
+  const prevTotal = f.period === "todo" ? null : catalog.sales.filter((s) => {
+    const t = new Date(s.createdAt).getTime(), len = rb - ra;
+    return t >= ra.getTime() - len && t < ra.getTime() && s.status !== "anulado";
+  }).filter((s) => filterSales([{ ...s, createdAt: ra.getTime() }], f).length).reduce((a, s) => a + (s.total || 0), 0);
+  const vsPrev = prevTotal === null ? null : prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
+  const storeName = (id) => (id === "web" ? "Tienda online" : (stores.find((x) => x.id === id)?.name || id));
+  const byStore = {}; valid.forEach((s) => { const k = storeName(s.storeId || (s.channel === "online" ? "web" : "principal")); byStore[k] = byStore[k] || { count: 0, total: 0 }; byStore[k].count++; byStore[k].total += s.total || 0; });
+  const soldIds = new Set(valid.flatMap((s) => s.items.map((i) => i.productId)));
+  const stale = catalog.products.filter((p) => productTotalStock(p) > 0 && !soldIds.has(p.id));
   const units = valid.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0);
   const web = valid.filter((s) => s.channel === "online"); const tienda = valid.filter((s) => s.channel !== "online");
   const sum = (arr) => arr.reduce((a, s) => a + (s.total || 0), 0);
@@ -6253,16 +6267,18 @@ const AdminReportsScreen = ({ catalog }) => {
       </div>
       <SalesFilterBar f={f} setF={setF} stores={stores} sellers={sellers} />
       <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        {card("Ventas", money(total), `${valid.length} comprobantes`)}
+        {card("Ventas", money(total), `${valid.length} comprobantes${vsPrev !== null ? ` · ${vsPrev >= 0 ? "+" : ""}${vsPrev}% vs. periodo anterior` : prevTotal === 0 && total > 0 ? " · sin ventas el periodo anterior" : ""}`)}
         {card("Ticket promedio", money(valid.length ? total / valid.length : 0), `${units} prendas vendidas`)}
         {card("Tienda física", money(sum(tienda)), `${tienda.length} ventas`)}
         {card("Web", money(sum(web)), `${web.length} pedidos`)}
       </div>
       <ProfitSection catalog={catalog} sales={valid} all={list} range={periodRange(f)} />
       {table("Por vendedora", Object.entries(bySeller).sort((a, b) => b[1].total - a[1].total).map(([n, v]) => [n, v.count, v.units, money(v.total)]), ["Ventas", "Prendas", "Total"])}
+      {table("Por sede", Object.entries(byStore).sort((x, y) => y[1].total - x[1].total).map(([n, v]) => [n, v.count, money(v.total)]), ["Ventas", "Total"])}
       {table("Por día", Object.entries(byDay).sort((a, b) => { const p = (x) => x.split("/").reverse().join(""); return p(b[0]).localeCompare(p(a[0])); }).map(([d, v]) => [d, money(v)]), ["Total"])}
       {table("Por medio de pago", Object.entries(byPay).sort((a, b) => b[1] - a[1]).map(([m, v]) => [m, money(v)]), ["Total"])}
       {table("Prendas más vendidas", Object.entries(byProduct).sort((a, b) => b[1].qty - a[1].qty).slice(0, 10).map(([n, v]) => [n, v.qty, money(v.total)]), ["Unid.", "Total"])}
+      {f.period !== "todo" && table("Sin ventas en el periodo (con stock)", stale.sort((x, y) => productTotalStock(y) - productTotalStock(x)).slice(0, 12).map((p) => [`${p.name}${isOutlet(p) ? " · Outlet" : ""}`, productTotalStock(p)]), ["En stock"])}
       <AdminCard>
         <span style={labelStyle}>Inventario actual</span>
         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.8 }}>{totalUnidades} unidades en stock · {agotados} productos agotados</div>
