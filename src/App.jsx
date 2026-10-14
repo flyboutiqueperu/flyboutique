@@ -3257,16 +3257,115 @@ const formatAddress = (a) => a.type === "provincia"
     ? [a.address, a.city, a.state, a.zip && `CP ${a.zip}`, a.country].filter(Boolean).join(", ")
     : [a.address, a.district, "Trujillo"].filter(Boolean).join(", ");
 
+// ---- Ubicación para la entrega: mapa (OpenStreetMap, gratis), distritos del Perú (INEI) y enlaces para el repartidor ----
+const TRUJILLO_CENTER = { lat: -8.1116, lng: -79.0288 };
+const latLngOf = (d) => {
+  if (d && Number.isFinite(Number(d.lat)) && Number.isFinite(Number(d.lng)) && d.lat !== "" && d.lng !== "") return { lat: Number(d.lat), lng: Number(d.lng) };
+  const m = String(d?.mapsUrl || "").match(/q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  return m ? { lat: Number(m[1]), lng: Number(m[2]) } : null;
+};
+const mapsLink = (p) => `https://www.google.com/maps?q=${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+const wazeLink = (p) => `https://waze.com/ul?ll=${p.lat.toFixed(6)},${p.lng.toFixed(6)}&navigate=yes`;
+let ubigeoCache = null;
+const loadUbigeo = () => (ubigeoCache ||= import("./data/ubigeo-peru.json").then((m) => m.default || m));
+
+// Mapa para marcar dónde se entrega: toca el mapa o arrastra el pin
+const MapPicker = ({ value, onClose, onPick }) => {
+  const boxRef = useRef(null);
+  const mapRef = useRef(null);
+  const [pt, setPt] = useState(value || null);
+  const [err, setErr] = useState("");
+  const [locating, setLocating] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([import("leaflet"), import("leaflet/dist/leaflet.css")]).then(([mod]) => {
+      if (!alive || !boxRef.current) return;
+      const L = mod.default || mod;
+      const start = value || TRUJILLO_CENTER;
+      const map = L.map(boxRef.current, { zoomControl: true, attributionControl: true }).setView([start.lat, start.lng], value ? 17 : 13);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+      const icon = L.divIcon({ className: "fly-pin", html: '<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;background:#111;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>', iconSize: [22, 22], iconAnchor: [11, 22] });
+      let marker = value ? L.marker([value.lat, value.lng], { icon, draggable: true }).addTo(map) : null;
+      const put = (lat, lng) => {
+        if (!marker) { marker = L.marker([lat, lng], { icon, draggable: true }).addTo(map); marker.on("dragend", () => { const p = marker.getLatLng(); setPt({ lat: p.lat, lng: p.lng }); }); }
+        else marker.setLatLng([lat, lng]);
+        setPt({ lat, lng });
+      };
+      if (marker) marker.on("dragend", () => { const p = marker.getLatLng(); setPt({ lat: p.lat, lng: p.lng }); });
+      map.on("click", (e) => put(e.latlng.lat, e.latlng.lng));
+      mapRef.current = { map, put };
+      setTimeout(() => map.invalidateSize(), 200);
+    }).catch(() => setErr("No se pudo cargar el mapa. Revisa tu conexión."));
+    return () => { alive = false; try { mapRef.current?.map.remove(); } catch (e) { /* nada */ } };
+  }, []);
+  const locateMe = () => {
+    if (!navigator.geolocation) { setErr("Tu navegador no permite compartir ubicación."); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition((pos) => {
+      setLocating(false);
+      const { latitude: lat, longitude: lng } = pos.coords;
+      mapRef.current?.put(lat, lng); mapRef.current?.map.setView([lat, lng], 17);
+    }, () => { setLocating(false); setErr("No pudimos obtener tu ubicación. Activa el permiso de ubicación o marca el punto en el mapa."); }, { enableHighAccuracy: true, timeout: 12000 });
+  };
+  return (
+    <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}88` }} />
+      <div className="sheet-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: "16px 16px 20px", maxHeight: "94vh", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink }}>¿Dónde entregamos?</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Toca el mapa en la puerta de tu casa o arrastra el pin. El repartidor llegará a ese punto.</div>
+        <div ref={boxRef} style={{ width: "100%", height: "min(56vh, 420px)", borderRadius: 12, overflow: "hidden", background: C.paperDeep }} />
+        {err && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" onClick={locateMe} disabled={locating} style={{ flex: "1 1 160px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}><Navigation size={14} /> {locating ? "Buscando…" : "Estoy aquí (usar mi ubicación)"}</button>
+          <PrimaryButton disabled={!pt} style={{ flex: "1 1 160px", width: "auto" }} onClick={() => { onPick(pt); onClose(); }}>Confirmar ubicación</PrimaryButton>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Departamento → Provincia → Distrito (lista oficial del INEI)
+const PeruPlaceSelects = ({ v, set }) => {
+  const [ubigeo, setUbigeo] = useState(null);
+  useEffect(() => { loadUbigeo().then(setUbigeo).catch(() => setUbigeo({})); }, []);
+  const provs = ubigeo && v.department ? Object.keys(ubigeo[v.department] || {}).sort((a, b) => a.localeCompare(b, "es")) : [];
+  const dists = ubigeo && v.department && v.city ? (ubigeo[v.department]?.[v.city] || []) : [];
+  const grid = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 };
+  const sel = (val, onCh, label, opts, disabled) => (
+    <select value={val || ""} onChange={(e) => onCh(e.target.value)} disabled={disabled} style={{ ...inputStyle, opacity: disabled ? 0.6 : 1 }} aria-label={label}>
+      <option value="">{label}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+  return (
+    <>
+      <div style={grid}>
+        {sel(v.department, (x) => set({ department: x, city: "", district: "" }), "Departamento *", PERU_DEPARTMENTS)}
+        {ubigeo && Object.keys(ubigeo).length ? sel(v.city, (x) => set({ city: x, district: "" }), "Provincia *", provs, !v.department)
+          : <input value={v.city || ""} onChange={(e) => set({ city: e.target.value })} placeholder="Provincia / ciudad *" style={inputStyle} />}
+      </div>
+      <div style={grid}>
+        {ubigeo && Object.keys(ubigeo).length ? sel(v.district, (x) => set({ district: x }), "Distrito *", dists, !v.city)
+          : <input value={v.district || ""} onChange={(e) => set({ district: e.target.value })} placeholder="Distrito *" style={inputStyle} />}
+        <input value={v.zip || ""} inputMode="numeric" onChange={(e) => set({ zip: e.target.value.replace(/\D/g, "").slice(0, 5) })} placeholder="Código postal (opcional)" style={inputStyle} />
+      </div>
+    </>
+  );
+};
+
 // Formulario de dirección (se usa en "Mis direcciones" y en la cesta)
 const AddressFields = ({ value, onChange, type }) => {
   const v = value || {};
   const set = (k, x) => onChange({ ...v, type, [k]: x });
+  const setMany = (patch) => onChange({ ...v, type, ...patch });
   const [locating, setLocating] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const here = latLngOf(v);
+  const pick = (p) => setMany({ lat: Number(p.lat.toFixed(6)), lng: Number(p.lng.toFixed(6)), mapsUrl: mapsLink(p) });
   const locate = () => {
     if (!navigator.geolocation) { alert("Tu navegador no permite compartir ubicación."); return; }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setLocating(false); onChange({ ...v, type, mapsUrl: `https://www.google.com/maps?q=${pos.coords.latitude.toFixed(6)},${pos.coords.longitude.toFixed(6)}` }); },
+      (pos) => { setLocating(false); pick({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
       () => { setLocating(false); alert("No pudimos obtener tu ubicación. Revisa que el permiso de ubicación esté activado."); },
       { enableHighAccuracy: true, timeout: 12000 }
     );
@@ -3287,19 +3386,7 @@ const AddressFields = ({ value, onChange, type }) => {
           <input value={v.zip || ""} onChange={(e) => set("zip", e.target.value.replace(/[^0-9A-Za-z -]/g, "").slice(0, 10))} placeholder="Código postal *" style={{ ...inputStyle, marginBottom: 8 }} />
         </>
       ) : type === "provincia" ? (
-        <>
-          <div style={grid}>
-            <select value={v.department || ""} onChange={(e) => set("department", e.target.value)} style={inputStyle}>
-              <option value="">Departamento</option>
-              {PERU_DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <input value={v.city || ""} onChange={(e) => set("city", e.target.value)} placeholder="Provincia / ciudad *" style={inputStyle} />
-          </div>
-          <div style={grid}>
-            <input value={v.district || ""} onChange={(e) => set("district", e.target.value)} placeholder="Distrito *" style={inputStyle} />
-            <input value={v.zip || ""} inputMode="numeric" onChange={(e) => set("zip", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="Código postal (opcional)" style={inputStyle} />
-          </div>
-        </>
+        <PeruPlaceSelects v={v} set={setMany} />
       ) : (
         <select value={v.district || ""} onChange={(e) => set("district", e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
           <option value="">Distrito en Trujillo</option>
@@ -3314,12 +3401,18 @@ const AddressFields = ({ value, onChange, type }) => {
           {SHIPPING_AGENCIES.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
       )}
-      {type === "local" && (
+      {(type === "local" || type === "provincia") && (
+        <button type="button" onClick={() => setMapOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "center", padding: "11px 12px", borderRadius: 8, border: `1px solid ${here ? C.ink : C.line}`, background: here ? C.paperDeep : C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", marginBottom: 8 }}>
+          <MapPin size={14} /> {here ? "Punto marcado en el mapa ✓ (tocar para cambiar)" : type === "local" ? "Marcar en el mapa dónde entregamos" : "Marcar en el mapa (opcional, para delivery a domicilio)"}
+        </button>
+      )}
+      {mapOpen && <MapPicker value={here} onClose={() => setMapOpen(false)} onPick={pick} />}
+      {type === "local" && !here && (
         <button type="button" onClick={locate} disabled={locating} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "center", padding: "11px 12px", borderRadius: 8, border: `1px solid ${v.mapsUrl ? C.ink : C.line}`, background: v.mapsUrl ? C.paperDeep : "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
           <Navigation size={14} /> {locating ? "Buscando tu ubicación…" : v.mapsUrl ? "Ubicación exacta agregada ✓ (tocar para actualizar)" : "Usar mi ubicación actual (para el repartidor)"}
         </button>
       )}
-      {v.mapsUrl && <a href={v.mapsUrl} target="_blank" rel="noreferrer" style={{ display: "block", textAlign: "center", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 8 }}>Ver en Google Maps</a>}
+      {here && <a href={mapsLink(here)} target="_blank" rel="noreferrer" style={{ display: "block", textAlign: "center", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 8 }}>Ver en Google Maps</a>}
     </div>
   );
 };
@@ -4823,6 +4916,55 @@ const labelMissing = (o) => {
   return miss;
 };
 
+// Texto para el repartidor / mensajero (WhatsApp) con todos los datos y la ubicación
+const riderMessage = (o) => {
+  const d = o.deliveryDetails || {};
+  const pt = latLngOf(d);
+  const place = [d.district, d.city, d.department || d.state, d.country].filter(Boolean).join(", ");
+  return [
+    `*Entrega FLY ${o.serie}-${String(o.numero).padStart(6, "0")}*`,
+    o.customerName && `Recibe: ${o.customerName}`,
+    o.customerPhone && `Celular: +${o.customerPhone}`,
+    (d.address || o.deliveryAddress) && `Dirección: ${d.address || o.deliveryAddress}`,
+    place && `Lugar: ${place}`,
+    d.reference && `Referencia: ${d.reference}`,
+    pt && `Ubicación: ${mapsLink(pt)}`,
+    pt && `Waze: ${wazeLink(pt)}`,
+    `Paquete: ${o.items.reduce((a, i) => a + i.qty, 0)} prenda(s)`,
+    `Pago: ${o.paymentStatus === "confirmado" ? "ya pagado, no cobrar" : `consultar con la tienda antes de entregar (${money(o.total)})`}`,
+  ].filter(Boolean).join("\n");
+};
+
+const RiderShare = ({ o }) => {
+  const pt = latLngOf(o.deliveryDetails);
+  if (o.deliveryMethod === "recojo") return null;
+  const btn = { display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, textDecoration: "none" };
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "4px 0 8px" }}>
+      {pt && <a href={mapsLink(pt)} target="_blank" rel="noreferrer" style={btn}><MapPin size={13} /> Google Maps</a>}
+      {pt && <a href={wazeLink(pt)} target="_blank" rel="noreferrer" style={btn}><Navigation size={13} /> Waze</a>}
+      <a href={`https://wa.me/?text=${encodeURIComponent(riderMessage(o))}`} target="_blank" rel="noreferrer" style={{ ...btn, background: C.ink, color: C.paper, borderColor: C.ink }}>Enviar al repartidor por WhatsApp</a>
+    </div>
+  );
+};
+
+// QR en la etiqueta: el repartidor lo escanea y se abre el mapa
+const LocationQR = ({ url }) => {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    let alive = true;
+    import("qrcode").then((m) => (m.default || m).toDataURL(url, { margin: 0, width: 220, errorCorrectionLevel: "M" })).then((d) => { if (alive) setSrc(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [url]);
+  if (!src) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, borderTop: "1px dashed #000", marginTop: 8, paddingTop: 8 }}>
+      <img src={src} alt="QR de la ubicación" style={{ width: 92, height: 92 }} />
+      <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.35 }}>Escanea para ver la ubicación en el mapa</div>
+    </div>
+  );
+};
+
 const ShippingLabel = ({ order, orders, settings, onClose }) => {
   const list = orders || [order];
   return (
@@ -4866,7 +5008,7 @@ const LabelCard = ({ o, settings }) => {
           {line("Cód. postal", d.zip)}
           {line("Referencia", d.reference)}
           {line("Agencia", d.agency || d.carrier)}
-          {d.mapsUrl && line("Ubicación", d.mapsUrl)}
+          {latLngOf(d) && <LocationQR url={mapsLink(latLngOf(d))} />}
           <div style={{ borderTop: "1px dashed #000", margin: "8px 0", paddingTop: 6, fontSize: 12 }}>
             <strong>Contenido ({o.items.reduce((a, i) => a + i.qty, 0)}):</strong> {o.items.map((i) => `${i.name} ${i.size}/${i.colorName} x${i.qty}`).join(" · ")}
           </div>
@@ -4950,7 +5092,7 @@ const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, can
               {o.deliveryDetails?.reference && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 4 }}>Referencia: {o.deliveryDetails.reference}</div>}
               {o.deliveryDetails?.carrier && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 4 }}>Envío internacional: {o.deliveryDetails.carrier}{o.deliveryDetails.toQuote ? " (costo por cotizar)" : ""}</div>}
               {o.deliveryDetails?.agency && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 4 }}>Agencia: {o.deliveryDetails.agency}</div>}
-              {o.deliveryDetails?.mapsUrl && <a href={o.deliveryDetails.mapsUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 4 }}>Ver ubicación en Google Maps</a>}
+              <RiderShare o={o} />
               {o.paymentRef && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, fontWeight: 600, margin: "4px 0 8px" }}>N.° de operación: {o.paymentRef}</div>}
               {o.pointsUsed > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 6 }}>Usó {o.pointsUsed} puntos ({money(o.pointsDiscount)} de descuento)</div>}
               <div style={{ borderTop: `1px solid ${C.paperDeep}`, paddingTop: 8, marginBottom: 10 }}>
