@@ -8,6 +8,7 @@ import {
   MessageCircle, Download, FileSpreadsheet, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import JsBarcode from "jsbarcode";
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { supabase, setStaffSessionMode, clearStaffSessionMode } from "./supabaseClient.js";
@@ -5322,8 +5323,86 @@ const StockHistory = ({ product, catalog, onBack }) => {
   );
 };
 
+// ---- Etiquetas con código de barras (para pistolear en caja, stock y guías). NO son comprobantes ----
+const LABEL_FORMATS = {
+  r5025: { name: "Rollo 50 × 25 mm", w: "50mm", h: "25mm", page: "50mm 25mm", roll: true, bar: 1.1, barH: 26 },
+  r4030: { name: "Rollo 40 × 30 mm", w: "40mm", h: "30mm", page: "40mm 30mm", roll: true, bar: 0.9, barH: 34 },
+  a4: { name: "Hoja A4 adhesiva (3 × 8)", w: "63.5mm", h: "33.9mm", page: "A4", roll: false, bar: 1.3, barH: 34 },
+};
+const Barcode = ({ value, width = 1.2, height = 30 }) => {
+  const ref = useRef(null);
+  const [bad, setBad] = useState(false);
+  useEffect(() => {
+    if (!ref.current || !value) return;
+    try { JsBarcode(ref.current, value, { format: "CODE128", width, height, margin: 0, displayValue: true, fontSize: 9, textMargin: 1, background: "#ffffff", lineColor: "#000000" }); setBad(false); }
+    catch (e) { setBad(true); }
+  }, [value, width, height]);
+  if (!value || bad) return <div style={{ fontSize: 9, color: "#b3261e" }}>Sin código válido</div>;
+  return <svg ref={ref} style={{ maxWidth: "100%", height: "auto", display: "block" }} />;
+};
+const LabelsScreen = ({ catalog, onBack }) => {
+  const [q, setQ] = useState("");
+  const [qty, setQty] = useState({}); // variantId -> cantidad de etiquetas
+  const [fmt, setFmt] = useState(() => { try { return localStorage.getItem("flyboutique:etiquetas") || "r5025"; } catch (e) { return "r5025"; } });
+  const [showPrice, setShowPrice] = useState(true);
+  const F = LABEL_FORMATS[fmt];
+  const nq = q.trim().toLowerCase();
+  const rows = catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => !nq || `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq));
+  const labels = catalog.products.flatMap((p) => p.variants.flatMap((v) => Array.from({ length: Math.min(500, parseInt(qty[v.id] || "0", 10) || 0) }, (_, k) => ({ key: `${v.id}-${k}`, p, v }))));
+  const setN = (id, n) => setQty((x) => ({ ...x, [id]: String(n) }));
+  const onScan = (e) => {
+    if (e.key !== "Enter") return;
+    const code = q.trim().toLowerCase();
+    for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { setN(v.id, (parseInt(qty[v.id] || "0", 10) || 0) + 1); setQ(""); return; } }
+  };
+  const label = ({ key, p, v }) => (
+    <div key={key} className="fly-label" style={{ width: F.w, height: F.h, boxSizing: "border-box", padding: "1.5mm 2mm", background: "#fff", color: "#000", fontFamily: "'Jost', Arial, sans-serif", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden", border: "1px dashed #bbb" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 4 }}>
+        <span style={{ fontFamily: "'Archivo', Arial, sans-serif", fontWeight: 900, fontSize: 10 }}>FLY</span>
+        {showPrice && <span style={{ fontWeight: 700, fontSize: 10 }}>S/ {Number(p.price).toFixed(2)}</span>}
+      </div>
+      <div style={{ fontSize: 8.5, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+      <div style={{ fontSize: 8.5, fontWeight: 600 }}>Talla {v.size} · {v.colorName}</div>
+      <Barcode value={v.sku} width={F.bar} height={F.barH} />
+    </div>
+  );
+  const choose = (k) => { setFmt(k); try { localStorage.setItem("flyboutique:etiquetas", k); } catch (e) { /* nada */ } };
+  return (
+    <div style={{ padding: "18px 18px 90px" }}>
+      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver a Stock</button>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Etiquetas con código de barras</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14 }}>Para pegar en las prendas y pistolearlas en caja, stock y traslados. Cada talla y color lleva su propio código.</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {Object.entries(LABEL_FORMATS).map(([k, x]) => <Chip key={k} active={fmt === k} onClick={() => choose(k)}>{x.name}</Chip>)}
+      </div>
+      <div style={{ marginBottom: 12 }}><Switch on={showPrice} onClick={() => setShowPrice((x) => !x)} label="Mostrar precio en la etiqueta" /></div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onScan} placeholder="Busca la prenda o escanea su código + Enter (suma 1)" style={{ ...inputStyle, marginBottom: 10 }} />
+      <AdminCard style={{ padding: 8, marginBottom: 14, maxHeight: 360, overflowY: "auto" }}>
+        {rows.slice(0, 80).map(({ p, v }) => (
+          <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 4px", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+            <span style={{ flex: 1, minWidth: 0 }}>{p.name} · {v.size} {v.colorName}<span style={{ display: "block", fontSize: 11, color: v.sku ? C.stone : C.accent }}>{v.sku || "Sin código: ponlo en Productos → editar"} · stock {v.stock}</span></span>
+            <button type="button" onClick={() => setN(v.id, v.stock)} disabled={!v.stock} style={{ padding: "5px 8px", borderRadius: 6, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer", color: C.ink }}>= stock</button>
+            <input inputMode="numeric" value={qty[v.id] || ""} onChange={(e) => setN(v.id, e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="0" aria-label={`Etiquetas de ${p.name} ${v.size}`} style={{ ...inputStyle, width: 56, padding: "6px 8px", textAlign: "center" }} />
+          </div>
+        ))}
+        {rows.length === 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, padding: 8 }}>Sin resultados.</div>}
+      </AdminCard>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <button onClick={() => window.print()} disabled={!labels.length} style={{ ...quickLinkStyle, justifyContent: "center", fontWeight: 600, opacity: labels.length ? 1 : 0.4 }}><Receipt size={15} /> Imprimir {labels.length} etiquetas</button>
+        {labels.length > 0 && <button onClick={() => setQty({})} style={{ background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Vaciar</button>}
+      </div>
+      {labels.length > 0 && <span style={labelStyle}>Vista previa</span>}
+      <div className="print-area labels-sheet" style={{ display: "flex", flexWrap: "wrap", gap: F.roll ? 8 : 0, background: "#fff", padding: F.roll ? 0 : 0 }}>
+        <style>{`@media print { @page { size: ${F.page}; margin: ${F.roll ? "0" : "13mm 7mm"}; } .labels-sheet { gap: 0 !important; display: ${F.roll ? "block" : "grid"} !important; grid-template-columns: repeat(3, 63.5mm); } .fly-label { border: none !important; ${F.roll ? "page-break-after: always; break-after: page;" : ""} } }`}</style>
+        {labels.map(label)}
+      </div>
+    </div>
+  );
+};
+
 /* ---- Stock: main screen (shared by Vendedor + Administrador) ---- */
 const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, canEdit }) => {
+  const [showLabels, setShowLabels] = useState(false);
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [activeMove, setActiveMove] = useState(null); // {product, variant}
@@ -5343,6 +5422,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, 
     if (found) { setExpanded(found.id); setQ(""); }
   };
 
+  if (showLabels) return <LabelsScreen catalog={catalog} onBack={() => setShowLabels(false)} />;
   if (showHistory) return <StockHistory product={showHistory === true ? null : showHistory} catalog={catalog} onBack={() => setShowHistory(false)} />;
 
   return (
@@ -5367,6 +5447,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
         <button onClick={() => setShowHistory(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><FileSpreadsheet size={15} /> Ver historial de movimientos</button>
         {onOpenTransfers && <button onClick={onOpenTransfers} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Navigation size={15} /> Traslados entre sedes</button>}
+        {canEdit && <button onClick={() => setShowLabels(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Scan size={15} /> Imprimir etiquetas</button>}
       </div>
 
       <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={handleSearchKeyDown} placeholder="Buscar por nombre o escanea un código + Enter" style={{ ...inputStyle, marginBottom: 16 }} />
