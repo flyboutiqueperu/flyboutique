@@ -526,7 +526,7 @@ const isOutlet = (p) => p?.outlet === true;
 // El Outlet se abre o se pausa en Panel → Configuración. Pausado: sus prendas no se ven ni se venden en la web.
 const outletOn = (settings = SHOP_SETTINGS) => settings?.outletEnabled !== false;
 const webVisible = (p) => p.showOnline !== false && (!isOutlet(p) || outletOn());
-const OUTLET_RULES = ["Precio final: no aplican cupones ni puntos del Club, y no suman puntos.", "El envío lo paga la clienta (no cuenta para el envío gratis).", "Sin cambios ni devoluciones, salvo falla de fábrica."];
+const OUTLET_RULES = ["Precio final: no aplican cupones ni puntos del Club, y no suman puntos.", "El envío se paga aparte (no cuenta para el envío gratis).", "Sin cambios ni devoluciones, salvo falla de fábrica."];
 const OutletRules = ({ compact }) => (
   <div style={{ background: C.paperDeep, borderRadius: 10, padding: compact ? "10px 12px" : "12px 14px", fontFamily: FONT_BODY, fontSize: compact ? 11.5 : 12, color: C.inkSoft, lineHeight: 1.55 }}>
     <strong style={{ color: C.ink, letterSpacing: "0.08em", textTransform: "uppercase", fontSize: 10.5 }}>Outlet · Venta final</strong>
@@ -1791,7 +1791,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                 {stock === 0 && size && (() => {
                   const v = product.variants.find((vv) => vv.size === size && vv.colorName === color?.n);
                   const reservedElsewhere = v && v.stock > 0;
-                  return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 10 }}>{reservedElsewhere ? "Otra clienta la tiene en su cesta ahora mismo. Vuelve a intentar en unos minutos." : "Sin stock en esta combinación."}</div>;
+                  return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 10 }}>{reservedElsewhere ? "Otra persona la tiene en su cesta ahora mismo. Vuelve a intentar en unos minutos." : "Sin stock en esta combinación."}</div>;
                 })()}
               </div>
 
@@ -2085,14 +2085,14 @@ const CartHoldNotice = ({ cart, onRenew }) => {
   if (left <= 0) return (
     <div style={box}>
       <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
-      <span style={{ flex: 1 }}>Pasó el tiempo de reserva: tus prendas siguen en la cesta, pero otra clienta podría llevárselas.</span>
+      <span style={{ flex: 1 }}>Pasó el tiempo de reserva: tus prendas siguen en la cesta, pero otra persona podría llevárselas.</span>
       {onRenew && <button onClick={onRenew} style={{ padding: "7px 10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>Apartar de nuevo</button>}
     </div>
   );
   return (
     <div style={box}>
       <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
-      <span>Te apartamos estas prendas <strong style={{ color: C.ink }}>{left} min más</strong> (hasta las {new Date(until).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}). Después quedan libres para otras clientas.</span>
+      <span>Te apartamos estas prendas <strong style={{ color: C.ink }}>{left} min más</strong> (hasta las {new Date(until).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}). Después quedan libres para otras personas.</span>
     </div>
   );
 };
@@ -2138,7 +2138,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
   const applyPromo = () => {
     const promo = findPromo(promoCodes, promoInput);
     if (!promo) { setPromoMsg({ ok: false, text: "Código no válido" }); return; }
-    if (promo.clubOnly && !clubMember) { setPromoMsg({ ok: false, text: "Este código es solo para miembras del Club Fly — regístrate gratis en la pestaña Club Fly." }); return; }
+    if (promo.clubOnly && !clubMember) { setPromoMsg({ ok: false, text: "Este código es solo para el Club Fly — únete gratis en la pestaña Club Fly." }); return; }
     setAppliedPromo(promo);
     setPromoMsg({ ok: true, text: `Código ${promo.code} aplicado` });
   };
@@ -3411,11 +3411,11 @@ const ProfileScreen = ({ points, favCount, onStaffClick, clubMember, onLogoutClu
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
         <div style={{ width: 62, height: 62, borderRadius: "50%", background: C.paperDeep, border: `1.5px solid ${C.ink}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800 }}>{initials}</div>
         <div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800 }}>{clubMember ? clubMember.name : "Invitada"}</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800 }}>{clubMember ? clubMember.name : "Hola"}</div>
           {clubMember ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}><Award size={12} color={C.brass} /><span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}>Miembra Club Fly</span></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}><Award size={12} color={C.brass} /><span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}>Club Fly</span></div>
           ) : (
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 3 }}>Aún no eres del Club Fly</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 3 }}>Inicia sesión o únete al Club Fly</div>
           )}
         </div>
       </div>
@@ -3754,18 +3754,18 @@ const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
 );
 
 // Lo que hace cada sección (aparece al dejar el mouse encima)
-const NAV_HINTS = { caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
+const NAV_HINTS = { transfers: "Guías para enviar y recibir prendas entre Larco y el Almacén", caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
 const AdminNav = ({ screen, setScreen, role }) => {
   const items = (role === "administrador" || role === "superadmin")
     ? [["dashboard", "Panel", LayoutDashboard], ["pos", "Ventas", ShoppingCart], ["stock", "Stock", Package], ["products", "Productos", LayoutGrid], ["more", "Más", Menu]]
     : role === "cajero"
-    ? [["caja", "Caja", Banknote], ["pos", "Vender", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
+    ? [["caja", "Caja", Banknote], ["pos", "Vender", ShoppingCart], ["transfers", "Traslados", Navigation], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
     : role === "vendedora_tienda"
-    ? [["pos", "Vender", ShoppingCart], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
+    ? [["pos", "Vender", ShoppingCart], ["transfers", "Traslados", Navigation], ["mysales", "Mis ventas", BarChart3], ["onlineorders", "Pedidos", Ticket]]
     : role === "almacen"
-    ? [["stock", "Stock", Package], ["onlineorders", "Pedidos", Ticket]]
+    ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -4112,7 +4112,38 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
 };
 
 /* ---- Admin: Products list ---- */
-const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulkPhotos, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate }) => {
+// Pasar una prenda al Outlet con su precio final (o cambiarlo, o sacarla). El precio de antes queda tachado.
+const OutletControl = ({ product, onPatch }) => {
+  const [open, setOpen] = useState(false);
+  const [price, setPrice] = useState(String(product.price));
+  const out = isOutlet(product);
+  const n = Number(price);
+  const original = Number(product.compareAtPrice) > Number(product.price) ? Number(product.compareAtPrice) : Number(product.price);
+  const save = () => {
+    if (!(n > 0)) { alert("Escribe el precio final del Outlet."); return; }
+    onPatch(product.id, { outlet: true, price: n, compareAtPrice: original > n ? original : null });
+    setOpen(false);
+  };
+  const btn = { padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer" };
+  if (!open) return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+      {!out && <button type="button" onClick={() => { setPrice(String(product.price)); setOpen(true); }} style={btn}>Pasar al Outlet</button>}
+      {out && <button type="button" onClick={() => { setPrice(String(product.price)); setOpen(true); }} style={btn}>Outlet · cambiar precio</button>}
+      {out && <button type="button" onClick={() => { if (confirm(`¿Sacar «${product.name}» del Outlet? Vuelve a la colección${Number(product.compareAtPrice) > Number(product.price) ? ` con su precio de antes (S/ ${product.compareAtPrice})` : ""}.`)) onPatch(product.id, { outlet: false, ...(Number(product.compareAtPrice) > Number(product.price) ? { price: Number(product.compareAtPrice), compareAtPrice: null } : {}) }); }} style={{ ...btn, borderColor: C.line }}>Sacar del Outlet</button>}
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 6, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>
+      Precio final S/
+      <input inputMode="decimal" autoFocus value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ""))} onKeyDown={(e) => e.key === "Enter" && save()} aria-label="Precio final del Outlet" style={{ ...inputStyle, width: 80, padding: "6px 8px" }} />
+      {n > 0 && original > n && <span>({Math.round((1 - n / original) * 100)}% menos que S/ {original})</span>}
+      <button type="button" onClick={save} style={{ ...btn, background: C.ink, color: C.paper }}>{out ? "Guardar" : "Pasar al Outlet"}</button>
+      <button type="button" onClick={() => setOpen(false)} style={{ ...btn, borderColor: C.line }}>Cancelar</button>
+    </div>
+  );
+};
+
+const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulkPhotos, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate, onPatchProduct }) => {
   const [q, setQ] = useState("");
   const [importing, setImporting] = useState(false);
   const [matchingPhotos, setMatchingPhotos] = useState(false);
@@ -4205,6 +4236,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
                   <Switch on={p.featured !== false} onClick={() => onToggleFeatured(p.id)} label="Destacado" />
                   <Switch on={p.showOnline !== false} onClick={() => onToggleOnline(p.id)} label={p.showOnline !== false ? "Web" : "Solo tienda"} />
                 </div>
+                {onPatchProduct && <OutletControl product={p} onPatch={onPatchProduct} />}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <button onClick={() => openEditor(p.id)} style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Pencil size={13} color={C.ink} /></button>
@@ -4237,6 +4269,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
   const [form, setForm] = useState(emptyProductForm());
   // Costo de compra y proveedor: privados (tabla product_costs), nunca en el catálogo público
   const [cost, setCost] = useState({ value: "", supplier: "", loaded: false, original: null, unavailable: false });
+  const [pct, setPct] = useState("");
   useEffect(() => {
     if (!product?.id) { setCost({ value: "", supplier: "", loaded: true, original: null, unavailable: false }); return; }
     supabase.from("product_costs").select("cost,supplier").eq("product_id", product.id).maybeSingle().then(({ data, error }) => {
@@ -4354,6 +4387,16 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}><Field label="Precio (S/)"><input type="number" style={inputStyle} value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="189" /></Field></div>
           <div style={{ flex: 1 }}><Field label="Precio anterior (opcional)"><input type="number" style={inputStyle} value={form.compareAtPrice} onChange={(e) => set("compareAtPrice", e.target.value)} placeholder="—" /></Field></div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 10 }}>
+          Poner en oferta:
+          <input inputMode="numeric" value={pct} onChange={(e) => setPct(e.target.value.replace(/\D/g, "").slice(0, 2))} placeholder="%" aria-label="Porcentaje de descuento" style={{ ...inputStyle, width: 64, padding: "7px 8px", textAlign: "center" }} />
+          <button type="button" disabled={!(Number(pct) > 0)} onClick={() => {
+            const base = Number(form.compareAtPrice) > Number(form.price) ? Number(form.compareAtPrice) : Number(form.price);
+            if (!(base > 0)) return;
+            setForm((x) => ({ ...x, compareAtPrice: String(base), price: String(Math.round(base * (1 - Number(pct) / 100))) })); setPct("");
+          }} style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", opacity: Number(pct) > 0 ? 1 : 0.4 }}>Aplicar % de descuento</button>
+          {Number(form.compareAtPrice) > Number(form.price) && <button type="button" onClick={() => setForm((x) => ({ ...x, price: String(x.compareAtPrice), compareAtPrice: "" }))} style={{ background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Quitar oferta</button>}
         </div>
         {!cost.unavailable && (
           <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginTop: 4 }}>
@@ -4659,7 +4702,7 @@ const AdminPromoCodesScreen = ({ promoCodes, onSave, onDelete }) => {
             <div style={{ flex: 1 }}><Field label="Valor"><input type="number" style={inputStyle} value={editing.value} onChange={(e) => set("value", Number(e.target.value))} /></Field></div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 6 }}>
-            <Switch on={editing.clubOnly} onClick={() => set("clubOnly", !editing.clubOnly)} label="Solo para miembras del Club Fly" />
+            <Switch on={editing.clubOnly} onClick={() => set("clubOnly", !editing.clubOnly)} label="Solo para el Club Fly" />
             <Switch on={editing.active} onClick={() => set("active", !editing.active)} label="Código activo" />
           </div>
         </AdminCard>
@@ -4958,15 +5001,19 @@ const MOVEMENT_TYPES = [
   { key: "ajuste", label: "Conteo", sign: 0, hint: "Contaste las prendas: escribe cuántas hay en total. Si alguien vende mientras cuentas, te avisa." },
 ];
 
-const StockMovementSheet = ({ product, variant, onClose, onSubmit }) => {
+const StockMovementSheet = ({ product, variant, settings, onClose, onSubmit }) => {
+  const locs = stockLocations(settings);
+  const sb = variantStockBy(variant);
+  const [loc, setLoc] = useState("principal");
   const [type, setType] = useState("entrada");
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const t = MOVEMENT_TYPES.find((x) => x.key === type);
   const n = Math.max(0, parseInt(qty || "0", 10) || 0);
-  const newStock = t.sign > 0 ? variant.stock + n : t.sign < 0 ? variant.stock - n : n;
-  const tooMany = t.sign < 0 && n > variant.stock;
+  const here = Number(sb[loc]) || 0;
+  const newStock = t.sign > 0 ? variant.stock + n : t.sign < 0 ? variant.stock - n : variant.stock - here + n;
+  const tooMany = t.sign < 0 && n > here;
   const canSubmit = qty !== "" && (type === "ajuste" || n > 0) && !tooMany && (!t.needsNote || note.trim().length >= 3) && !busy;
 
   return (
@@ -4984,20 +5031,27 @@ const StockMovementSheet = ({ product, variant, onClose, onSubmit }) => {
         </div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 16, marginTop: -8, lineHeight: 1.45 }}>{t.hint}</div>
 
-        <Field label={type === "ajuste" ? "Cuántas hay en total (contadas) *" : "Cantidad *"}>
+        {locs.length > 1 && (
+          <Field label="¿Dónde?">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {locs.map((l) => <button key={l.id} type="button" onClick={() => setLoc(l.id)} style={{ padding: "9px 13px", borderRadius: 8, border: `1px solid ${loc === l.id ? C.ink : C.line}`, background: loc === l.id ? C.ink : "transparent", color: loc === l.id ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{l.name} ({Number(sb[l.id]) || 0})</button>)}
+            </div>
+          </Field>
+        )}
+        <Field label={type === "ajuste" ? `Cuántas hay en ${locationName(settings, loc)} (contadas) *` : "Cantidad *"}>
           <input inputMode="numeric" style={inputStyle} value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="0" />
         </Field>
         <Field label={t.needsNote ? "Motivo *" : "Nota (opcional)"}><input style={inputStyle} value={note} maxLength={140} onChange={(e) => setNote(e.target.value)} placeholder={type === "regalo" ? "Ej. regalo a @influencer" : type === "merma" ? "Ej. mancha que no sale" : "Ej. reposición proveedor"} /></Field>
 
         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: tooMany ? C.accent : C.inkSoft, marginBottom: 18 }}>
-          {tooMany ? `Solo hay ${variant.stock} en stock.` : <>Quedará en stock: <strong>{newStock}</strong></>}
+          {tooMany ? `En ${locationName(settings, loc)} solo hay ${here}.` : <>Quedará en total: <strong>{newStock}</strong></>}
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
           <PrimaryButton disabled={!canSubmit} style={{ flex: 2, width: "auto" }} onClick={async () => {
             setBusy(true);
-            const ok = await onSubmit({ type, qty: n, note: note.trim(), expected: variant.stock, newStock });
+            const ok = await onSubmit({ type, qty: n, note: note.trim(), expected: locs.length > 1 ? here : variant.stock, newStock, location: locs.length > 1 ? loc : null });
             setBusy(false);
             if (ok) onClose();
           }}>{busy ? "Guardando…" : "Registrar"}</PrimaryButton>
@@ -5007,9 +5061,194 @@ const StockMovementSheet = ({ product, variant, onClose, onSubmit }) => {
   );
 };
 
+// ---- Sedes donde se guarda el stock (Larco = tienda, Almacén). La web vende de todas; la caja de Larco, de Larco ----
+const DEFAULT_LOCATIONS = [{ id: "principal", name: "Larco" }, { id: "almacen", name: "Almacén" }];
+const stockLocations = (settings) => (Array.isArray(settings?.locations) && settings.locations.length ? settings.locations : DEFAULT_LOCATIONS);
+const locationName = (settings, id) => stockLocations(settings).find((l) => l.id === id)?.name || id;
+const variantStockBy = (v) => (v?.stockBy && typeof v.stockBy === "object" ? v.stockBy : { principal: Number(v?.stock) || 0 });
+
+// ---- Guías de traslado entre sedes: quien envía emite la guía (prendas EN CAMINO); la otra sede confirma al recibir ----
+const fmtDT = (d) => (d ? new Date(d).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+const TRANSFER_STATUS = { en_camino: "En camino", recibido: "Recibida", anulado: "Anulada" };
+const TransferDoc = ({ t, settings }) => {
+  const sent = t.items.reduce((a, i) => a + i.qty, 0);
+  const got = t.items.reduce((a, i) => a + (i.received ?? 0), 0);
+  const cell = { padding: "6px 4px", borderBottom: "1px solid #ddd", textAlign: "left", fontSize: 12 };
+  return (
+    <div className="print-area" style={{ background: "#fff", color: "#000", border: "1px solid #000", borderRadius: 10, padding: "16px 16px", fontFamily: FONT_BODY }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+        <div><div style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: 22 }}>FLY</div><div style={{ fontSize: 11 }}>{settings?.company?.legalName || "Fly Boutique"}</div></div>
+        <div style={{ textAlign: "right" }}><div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 13, letterSpacing: "0.06em" }}>GUÍA DE TRASLADO INTERNO</div><div style={{ fontSize: 15, fontWeight: 700 }}>{t.code}</div><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>{TRANSFER_STATUS[t.status]}</div></div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px", fontSize: 12, margin: "14px 0" }}>
+        <div><strong>Desde:</strong> {locationName(settings, t.from_loc)}</div><div><strong>Hacia:</strong> {locationName(settings, t.to_loc)}</div>
+        <div><strong>Enviado:</strong> {fmtDT(t.created_at)}</div><div><strong>Por:</strong> {t.created_by || "—"}</div>
+        {t.status === "recibido" && <><div><strong>Recibido:</strong> {fmtDT(t.received_at)}</div><div><strong>Por:</strong> {t.received_by || "—"}</div></>}
+        {t.status === "anulado" && <><div><strong>Anulado:</strong> {fmtDT(t.voided_at)}</div><div><strong>Por:</strong> {t.voided_by || "—"} · {t.void_reason}</div></>}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" }}>
+          <thead><tr><th style={cell}>Código</th><th style={cell}>Prenda</th><th style={cell}>Talla / color</th><th style={{ ...cell, textAlign: "right" }}>Enviado</th><th style={{ ...cell, textAlign: "right" }}>Recibido</th></tr></thead>
+          <tbody>{t.items.map((i) => <tr key={i.variantId}><td style={cell}>{i.sku || "—"}</td><td style={cell}>{i.name}</td><td style={cell}>{i.size} · {i.color}</td><td style={{ ...cell, textAlign: "right" }}>{i.qty}</td><td style={{ ...cell, textAlign: "right", fontWeight: i.received != null && i.received < i.qty ? 700 : 400 }}>{i.received ?? "—"}</td></tr>)}</tbody>
+          <tfoot><tr><td style={cell} colSpan={3}><strong>Total</strong></td><td style={{ ...cell, textAlign: "right" }}><strong>{sent}</strong></td><td style={{ ...cell, textAlign: "right" }}><strong>{t.status === "recibido" ? got : "—"}</strong></td></tr></tfoot>
+        </table>
+      </div>
+      {t.note && <div style={{ fontSize: 12, marginTop: 10 }}><strong>Nota:</strong> {t.note}</div>}
+      {t.receive_note && <div style={{ fontSize: 12, marginTop: 4 }}><strong>Al recibir:</strong> {t.receive_note}</div>}
+      {t.status === "recibido" && got < sent && <div style={{ fontSize: 12, marginTop: 4, fontWeight: 700 }}>{sent - got === 1 ? "Faltó 1 prenda." : `Faltaron ${sent - got} prendas.`}</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 30, fontSize: 11, textAlign: "center" }}>
+        <div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>Entrega</div><div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>Recibe</div>
+      </div>
+    </div>
+  );
+};
+
+const TransfersScreen = ({ catalog, role, refreshData }) => {
+  const settings = catalog.settings;
+  const locs = stockLocations(settings);
+  const canSend = ["superadmin", "administrador", "almacen", "cajero"].includes(role);
+  const [list, setList] = useState(null);
+  const [view, setView] = useState(null); // guía abierta
+  const [mode, setMode] = useState("list"); // list | new | receive
+  const [from, setFrom] = useState(role === "almacen" ? "almacen" : locs[0].id);
+  const [to, setTo] = useState(role === "almacen" ? "principal" : (locs.find((l) => l.id !== locs[0].id) || locs[0]).id);
+  const [q, setQ] = useState("");
+  const [lines, setLines] = useState([]); // {variant, product, qty}
+  const [note, setNote] = useState("");
+  const [recv, setRecv] = useState({});
+  const [recvNote, setRecvNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const { data, error } = await supabase.from("stock_transfers").select("*").order("id", { ascending: false }).limit(200);
+    setList(error ? (error.code === "42P01" || error.code === "PGRST205" ? "no" : []) : data || []);
+  };
+  useEffect(() => { load(); }, []);
+  const errText = (m) => m.includes("STOCK_INSUFICIENTE") ? `No alcanza: ${m.split("STOCK_INSUFICIENTE:")[1]?.replace(/:(\d+)$/, " (hay $1 en esa sede)") || ""}.` : m.includes("MOTIVO_FALTANTE") ? "Si falta algo, escribe qué pasó." : m.includes("GUIA_YA_CERRADA") ? "Esta guía ya fue recibida o anulada." : m.includes("SIN_PERMISO") ? "Tu usuario no puede hacer esto." : m;
+  if (list === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 19 en Supabase para usar las guías de traslado.</div>;
+
+  // --- ver una guía
+  if (view) {
+    const t = view;
+    const startReceive = () => { setRecv(Object.fromEntries(t.items.map((i) => [i.variantId, String(i.qty)]))); setRecvNote(""); setMode("receive"); };
+    const missing = t.items.reduce((a, i) => a + Math.max(0, i.qty - (parseInt(recv[i.variantId] || "0", 10) || 0)), 0);
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        <button onClick={() => { setView(null); setMode("list"); }} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver a Traslados</button>
+        <TransferDoc t={t} settings={settings} />
+        {mode === "receive" ? (
+          <AdminCard style={{ marginTop: 14 }}>
+            <span style={labelStyle}>Confirmar lo que llegó</span>
+            {t.items.map((i) => (
+              <div key={i.variantId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5 }}>
+                <span style={{ minWidth: 0 }}>{i.name} · {i.size} {i.color} <span style={{ color: C.stone }}>(enviadas {i.qty})</span></span>
+                <input inputMode="numeric" value={recv[i.variantId] ?? ""} onChange={(e) => setRecv({ ...recv, [i.variantId]: e.target.value.replace(/\D/g, "").slice(0, 4) })} aria-label={`Recibidas de ${i.name}`} style={{ ...inputStyle, width: 64, padding: "6px 8px", textAlign: "center" }} />
+              </div>
+            ))}
+            {missing > 0 && <Field label={`Faltan ${missing}: ¿qué pasó? *`}><input style={inputStyle} maxLength={200} value={recvNote} onChange={(e) => setRecvNote(e.target.value)} placeholder="Ej. llegó una con mancha y se quedó en almacén" /></Field>}
+            <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+              <button onClick={() => setMode("list")} style={{ flex: 1, padding: "13px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", color: C.ink }}>Cancelar</button>
+              <PrimaryButton disabled={busy || (missing > 0 && recvNote.trim().length < 3)} style={{ flex: 2, width: "auto" }} onClick={async () => {
+                setBusy(true);
+                const { data, error } = await supabase.rpc("receive_transfer", { p_id: t.id, p_received: Object.fromEntries(Object.entries(recv).map(([k, v]) => [k, parseInt(v || "0", 10) || 0])), p_note: recvNote.trim() || null });
+                setBusy(false);
+                if (error) { alert("No se pudo recibir: " + errText(error.message || "")); return; }
+                setView(data); setMode("list"); load(); refreshData && refreshData();
+              }}>{busy ? "Guardando…" : "Confirmar recepción"}</PrimaryButton>
+            </div>
+          </AdminCard>
+        ) : (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+            <button onClick={() => window.print()} style={{ ...quickLinkStyle, flex: 1, justifyContent: "center" }}><Receipt size={15} /> Imprimir guía</button>
+            {t.status === "en_camino" && <PrimaryButton style={{ flex: 2, width: "auto" }} onClick={startReceive}>Recibir en {locationName(settings, t.to_loc)}</PrimaryButton>}
+            {t.status === "en_camino" && canSend && <button onClick={async () => {
+              const why = prompt("¿Por qué anulas la guía? Las prendas vuelven a " + locationName(settings, t.from_loc) + ".", "Error al emitirla");
+              if (!why || !why.trim()) return;
+              const { data, error } = await supabase.rpc("cancel_transfer", { p_id: t.id, p_reason: why.trim() });
+              if (error) { alert("No se pudo anular: " + errText(error.message || "")); return; }
+              setView(data); load(); refreshData && refreshData();
+            }} style={{ padding: "11px 14px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Anular guía</button>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- nueva guía
+  if (mode === "new") {
+    const nq = q.trim().toLowerCase();
+    const options = nq.length < 2 ? [] : catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq)).slice(0, 12);
+    const availAt = (v) => Number(variantStockBy(v)[from]) || 0;
+    const add = (p, v) => { setLines((ls) => ls.some((l) => l.v.id === v.id) ? ls : [...ls, { p, v, qty: "1" }]); setQ(""); };
+    const onScan = (e) => { if (e.key !== "Enter") return; const code = q.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { add(p, v); return; } } };
+    const bad = lines.find((l) => !(parseInt(l.qty, 10) > 0) || parseInt(l.qty, 10) > availAt(l.v));
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        <button onClick={() => setMode("list")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver</button>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 14px" }}>Nueva guía de traslado</h1>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 140px" }}><Field label="Desde"><select style={inputStyle} value={from} onChange={(e) => { setFrom(e.target.value); if (e.target.value === to) setTo(locs.find((l) => l.id !== e.target.value)?.id || to); setLines([]); }}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field></div>
+          <div style={{ flex: "1 1 140px" }}><Field label="Hacia"><select style={inputStyle} value={to} onChange={(e) => setTo(e.target.value)}>{locs.filter((l) => l.id !== from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field></div>
+        </div>
+        <Field label="Agregar prendas"><input style={inputStyle} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onScan} placeholder="Escanea el código + Enter, o busca por nombre" /></Field>
+        {options.length > 0 && (
+          <AdminCard style={{ marginBottom: 12, padding: 8 }}>
+            {options.map(({ p, v }) => <button key={v.id} onClick={() => add(p, v)} disabled={availAt(v) <= 0} style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 8, padding: "8px 6px", background: "none", border: "none", borderBottom: `1px solid ${C.paperDeep}`, cursor: availAt(v) > 0 ? "pointer" : "default", fontFamily: FONT_BODY, fontSize: 12.5, color: availAt(v) > 0 ? C.ink : C.stone, textAlign: "left" }}><span>{p.name} · {v.size} {v.colorName}{v.sku ? ` · ${v.sku}` : ""}</span><span>hay {availAt(v)}</span></button>)}
+          </AdminCard>
+        )}
+        {lines.map((l) => (
+          <div key={l.v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+            <span style={{ flex: 1, minWidth: 0 }}>{l.p.name} · {l.v.size} {l.v.colorName}<span style={{ display: "block", fontSize: 11, color: parseInt(l.qty, 10) > availAt(l.v) ? C.accent : C.stone }}>En {locationName(settings, from)}: {availAt(l.v)}</span></span>
+            <input inputMode="numeric" value={l.qty} onChange={(e) => setLines((ls) => ls.map((x) => x.v.id === l.v.id ? { ...x, qty: e.target.value.replace(/\D/g, "").slice(0, 4) } : x))} aria-label={`Cantidad de ${l.p.name}`} style={{ ...inputStyle, width: 64, padding: "6px 8px", textAlign: "center" }} />
+            <button onClick={() => setLines((ls) => ls.filter((x) => x.v.id !== l.v.id))} aria-label="Quitar" style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={15} color={C.stone} /></button>
+          </div>
+        ))}
+        <Field label="Nota (opcional)"><input style={inputStyle} maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. reposición para el fin de semana" /></Field>
+        <PrimaryButton disabled={busy || !lines.length || !!bad} onClick={async () => {
+          setBusy(true);
+          const { data, error } = await supabase.rpc("create_transfer", { p_from: from, p_to: to, p_items: lines.map((l) => ({ variantId: l.v.id, qty: parseInt(l.qty, 10) })), p_note: note.trim() || null });
+          setBusy(false);
+          if (error) { alert("No se pudo emitir la guía: " + errText(error.message || "")); return; }
+          setLines([]); setNote(""); setMode("list"); setView(data); load(); refreshData && refreshData();
+        }}>{busy ? "Emitiendo…" : `Emitir guía (${lines.reduce((a, l) => a + (parseInt(l.qty, 10) || 0), 0)} prendas)`}</PrimaryButton>
+      </div>
+    );
+  }
+
+  // --- lista
+  const pending = (list || []).filter((t) => t.status === "en_camino");
+  const done = (list || []).filter((t) => t.status !== "en_camino");
+  const row = (t) => (
+    <button key={t.id} onClick={() => setView(t)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", marginBottom: 8, borderRadius: 10, border: `1px solid ${t.status === "en_camino" ? C.ink : C.line}`, background: C.paper, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY }}>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{t.code} · {locationName(settings, t.from_loc)} → {locationName(settings, t.to_loc)}</span>
+        <span style={{ display: "block", fontSize: 11.5, color: C.stone }}>{t.items.reduce((a, i) => a + i.qty, 0)} prendas · enviada {fmtDT(t.created_at)} por {t.created_by}{t.status === "recibido" ? ` · recibida por ${t.received_by}` : ""}</span>
+      </span>
+      <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: t.status === "anulado" ? C.stone : C.ink, whiteSpace: "nowrap" }}>{TRANSFER_STATUS[t.status]}</span>
+    </button>
+  );
+  return (
+    <div style={{ padding: "18px 18px 90px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: 0 }}>Traslados</h1>
+        {canSend && <button onClick={() => { setLines([]); setMode("new"); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Nueva guía</button>}
+      </div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 16 }}>Las prendas de una guía quedan en camino (no se venden) hasta que la otra sede confirma que llegaron.</div>
+      {list === null ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Cargando…</div> : (
+        <>
+          <span style={labelStyle}>En camino ({pending.length})</span>
+          {pending.length ? pending.map(row) : <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 16 }}>No hay guías por recibir.</div>}
+          <span style={labelStyle}>Historial</span>
+          {done.length ? done.map(row) : <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Aún no hay guías.</div>}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ---- Historial de una prenda (o de toda la tienda): lo anota la base de datos en cada cambio ----
-const MOVE_LABEL = (t) => ({ entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
+const MOVE_LABEL = (t) => ({ traslado: "Traspaso", entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
 const StockHistory = ({ product, catalog, onBack }) => {
+  // (los traspasos no cambian el total: se muestran pero no suman en ingresadas/vendidas)
   const [rows, setRows] = useState(null);
   const [legacy, setLegacy] = useState(false);
   const [variantId, setVariantId] = useState("");
@@ -5074,7 +5313,7 @@ const StockHistory = ({ product, catalog, onBack }) => {
             </div>
             {(m.doc || m.customer || m.seller) && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 2 }}>{[m.doc, m.customer && `Clienta: ${m.customer}`, m.seller && `Vendió: ${m.seller}`].filter(Boolean).join(" · ")}</div>}
             {m.note && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 2, fontStyle: "italic" }}>{m.note}</div>}
-            <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 3 }}>{m.staff_name || "Sistema"}{m.channel ? ` · ${m.channel}` : ""} · {new Date(m.created_at).toLocaleString("es-PE")}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 3 }}>{m.staff_name || "Sistema"}{m.channel ? ` · ${m.channel}` : ""}{m.store_id && m.store_id !== "web" ? ` · ${locationName(catalog.settings, m.store_id)}` : ""} · {new Date(m.created_at).toLocaleString("es-PE")}</div>
           </AdminCard>
         ))}
         {rows && list.length === 0 && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Aún no hay movimientos registrados.</div>}
@@ -5084,7 +5323,7 @@ const StockHistory = ({ product, catalog, onBack }) => {
 };
 
 /* ---- Stock: main screen (shared by Vendedor + Administrador) ---- */
-const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
+const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, canEdit }) => {
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [activeMove, setActiveMove] = useState(null); // {product, variant}
@@ -5125,7 +5364,10 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
         </div>
       )}
 
-      <button onClick={() => setShowHistory(true)} style={{ ...quickLinkStyle, width: "100%", marginBottom: 16, justifyContent: "center" }}><FileSpreadsheet size={15} /> Ver historial de movimientos</button>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+        <button onClick={() => setShowHistory(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><FileSpreadsheet size={15} /> Ver historial de movimientos</button>
+        {onOpenTransfers && <button onClick={onOpenTransfers} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Navigation size={15} /> Traslados entre sedes</button>}
+      </div>
 
       <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={handleSearchKeyDown} placeholder="Buscar por nombre o escanea un código + Enter" style={{ ...inputStyle, marginBottom: 16 }} />
 
@@ -5150,6 +5392,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
                       <div>
                         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{v.size} · {v.colorName}</div>
                         <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone }}>{v.sku} {v.stock <= (p.minStock ?? 3) && v.stock > 0 && <span style={{ color: C.accent }}> · stock bajo</span>}{v.stock === 0 && <span style={{ color: C.accent }}> · agotado</span>}</div>
+                        {v.stock > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.inkSoft }}>{stockLocations(catalog.settings).map((l) => `${l.name} ${Number(variantStockBy(v)[l.id]) || 0}`).join(" · ")}</div>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink }}>{v.stock}</span>
@@ -5167,11 +5410,12 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
 
       {activeMove && (
         <StockMovementSheet
-          product={activeMove.product} variant={activeMove.variant} staffName={staffName}
+          product={activeMove.product} variant={activeMove.variant} staffName={staffName} settings={catalog.settings}
           onClose={() => setActiveMove(null)}
           onSubmit={(mv) => onRegisterMovement(activeMove.product, activeMove.variant, mv)}
         />
       )}
+
     </div>
   );
 };
@@ -6375,6 +6619,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("collections")} style={quickLinkStyle}><Layers size={16} color={C.ink} /> Colecciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("invoices")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Comprobantes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("reports")} style={quickLinkStyle}><BarChart3 size={16} color={C.ink} /> Reportes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("transfers")} style={quickLinkStyle}><Navigation size={16} color={C.ink} /> Traslados entre sedes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -6982,12 +7227,19 @@ const STAFF_GUIDES = {
     ["X", "Si la clienta no pagó, toca «Cancelar: no pagó»: la prenda vuelve al stock. Si nadie lo hace, se cancela sola pasadas las horas configuradas."],
     ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento e imprime la etiqueta."],
   ] },
+  transfers: { title: "Traslados entre sedes", steps: [
+    ["Plus", "Quien envía: «Nueva guía» → elige desde y hacia → escanea o busca las prendas → cantidad → «Emitir guía». Puedes imprimirla y enviarla con la mercadería."],
+    ["Package", "Las prendas de la guía quedan «en camino»: no se venden en ninguna sede hasta que lleguen."],
+    ["Check", "Quien recibe: abre la guía → «Recibir» → confirma cuántas llegaron. Si falta algo, escribe qué pasó. Queda tu nombre y la hora."],
+    ["X", "Si la guía se emitió por error y aún no llega: «Anular guía» (solo quien la emitió o Administración). Las prendas vuelven a la sede de origen."],
+  ] },
   stock: { title: "Stock", steps: [
     ["Scan", "Escanea el código de la etiqueta (cada talla y color tiene el suyo) o busca por nombre."],
     ["Plus", "Llegó mercadería: «Movimiento» → «Entrada» y la cantidad. Se SUMA a lo que hay (si alguien vende mientras tanto, no se pierde)."],
     ["Minus", "Prenda malograda o que no se puede vender: «Dañada». Si se regaló: «Regalo» y a quién. Ambos piden motivo."],
     ["Pencil", "Contaste las prendas: «Conteo» y el total. Si alguien vendió mientras contabas, te avisa para que vuelvas a contar."],
     ["BarChart3", "«Historial de esta prenda»: cuántas entraron, se vendieron, se devolvieron; a quién, a qué precio, con qué comprobante y quién lo hizo."],
+    ["Navigation", "Cada talla/color muestra cuántas hay en Larco y en el Almacén. Para mover prendas usa «Traslados entre sedes» (guía). La web vende de las dos sedes; la caja de Larco, de Larco."],
   ] },
   dashboard: { title: "Panel", steps: [
     ["LayoutDashboard", "Resumen de ventas, pedidos y stock bajo."],
@@ -6999,7 +7251,7 @@ const STAFF_GUIDES = {
     ["Layers", "Agrega tallas (botones XS a XXL) y colores: cada combinación tiene su propio stock y su propio código de barras. El sistema no deja repetir códigos."],
     ["ImageIcon", "Sube fotos verticales (ideal 1080×1440) y asigna cada foto a su color. Puedes subir un video."],
     ["Eye", "Usa «Activo / Borrador» y «Mostrar en la web» para publicar u ocultar sin borrar."],
-    ["Gift", "Para liquidar: activa «Outlet» en el producto y pon el precio final. Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo de la clienta, sin cambios)."],
+    ["Gift", "Para liquidar: en la lista toca «Pasar al Outlet» y escribe el precio final (luego puedes cambiarlo o «Sacar del Outlet»). También desde editar → «Outlet». Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo de la clienta, sin cambios)."],
   ] },
   productEditor: { title: "Editar un producto", steps: [
     ["Pencil", "Cambia lo que necesites y toca «Guardar». El stock real no se pisa: las ventas hechas mientras editas se respetan."],
@@ -7174,21 +7426,42 @@ const StaffManual = ({ role }) => {
   );
 };
 
+// ---- Qué pantallas puede abrir cada rol (una sola lista para el menú, los enlaces y la flecha atrás) ----
+// Si alguien escribe a mano otra dirección (ej. #staff/reports siendo cajero), vuelve a su pantalla de inicio.
+// La base de datos además rechaza cualquier dato que su rol no pueda ver o cambiar.
+const STAFF_ALL_ROLES = ["superadmin", "administrador", "cajero", "vendedora_tienda", "vendedora_online", "almacen"];
+const STAFF_ADMIN = ["superadmin", "administrador"];
+const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora_tienda"];
+const SCREEN_ACCESS = {
+  dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
+  collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, users: ["superadmin"], promocodes: ["superadmin"],
+  caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
+  mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
+  transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
+};
+const canOpenScreen = (role, sc) => (SCREEN_ACCESS[sc] || []).includes(role);
+// Pantalla con la que se abre el panel según el enlace: #caja → Caja; #staff/<pantalla> → esa pantalla (si su rol puede)
+const staffScreenFromHash = (h = (typeof window !== "undefined" ? window.location.hash : "")) => (h === "#caja" ? "caja" : h.startsWith("#staff/") ? decodeURIComponent(h.slice(7)) : null);
+
 const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, staffName, staffUsername, currentUserId, reserveNumber, onExit, initialScreen }) => {
   const homeScreen = (role === "administrador" || role === "superadmin") ? "dashboard" : role === "cajero" ? "caja" : role === "vendedora_tienda" ? "pos" : role === "almacen" ? "stock" : "onlinesales";
   // Cada pantalla de venta solo se abre con el rol que corresponde (aunque se cambie la dirección a mano)
   const canSellStore = ["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role);
   const isAdminRole = role === "administrador" || role === "superadmin";
   const canSellOnline = ["superadmin", "administrador", "vendedora_online"].includes(role);
-  const [screen, setScreenRaw] = useState(initialScreen || homeScreen);
+  const safeScreen = (sc) => (sc && canOpenScreen(role, sc) ? sc : homeScreen);
+  const [screen, setScreenState] = useState(() => safeScreen(initialScreen));
+  const setScreenRaw = (sc) => setScreenState(safeScreen(sc));
   // Historial dentro del panel: la flecha atrás del navegador vuelve a la pantalla anterior del panel
-  const setScreen = (sc) => { setScreenRaw(sc); try { if (window.location.hash !== `#staff/${sc}`) window.history.pushState({ staff: sc }, "", `#staff/${sc}`); } catch (e) { /* sin historial */ } };
+  const setScreen = (sc0) => { const sc = safeScreen(sc0); setScreenState(sc); try { if (window.location.hash !== `#staff/${sc}`) window.history.pushState({ staff: sc }, "", `#staff/${sc}`); } catch (e) { /* sin historial */ } };
   useEffect(() => {
     try { window.history.replaceState({ staff: screen }, "", `#staff/${screen}`); } catch (e) { /* nada */ }
     const onPop = () => {
-      const h = window.location.hash;
-      if (h.startsWith("#staff/")) setScreenRaw(h.slice(7) || homeScreen);
-      else { try { window.history.pushState({ staff: homeScreen }, "", `#staff/${homeScreen}`); } catch (e) { /* nada */ } setScreenRaw(homeScreen); }
+      // Atrás/adelante o una dirección escrita a mano (#caja, #staff/stock…): solo pantallas permitidas para su rol
+      const target = safeScreen(staffScreenFromHash(window.location.hash));
+      setScreenRaw(target);
+      if (window.location.hash !== `#staff/${target}`) { try { window.history.replaceState({ staff: target }, "", `#staff/${target}`); } catch (e) { /* nada */ } }
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -7200,7 +7473,9 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
 
   // Entradas y salidas suman o restan en el servidor (si otra persona vendió, no se pierde esa venta).
   const registerMovement = async (product, variant, mv) => {
-    let { data, error } = await supabase.rpc("move_stock", { p_variant: variant.id, p_type: mv.type, p_qty: mv.qty, p_note: mv.note || null, p_expected: mv.type === "ajuste" ? mv.expected : null });
+    const args = { p_variant: variant.id, p_type: mv.type, p_qty: mv.qty, p_note: mv.note || null, p_expected: mv.type === "ajuste" ? mv.expected : null };
+    let { data, error } = await supabase.rpc("move_stock", mv.location ? { ...args, p_location: mv.location } : args);
+    if (error?.code === "PGRST202" && mv.location) ({ data, error } = await supabase.rpc("move_stock", args)); // aún sin el SQL 19
     if (error?.code === "PGRST202") { // aún no se corrió el SQL 14
       ({ error } = await supabase.rpc("adjust_stock", { p_variant: variant.id, p_new_stock: mv.newStock, p_type: mv.type === "devolucion" ? "entrada" : mv.type === "regalo" ? "salida" : mv.type, p_note: mv.note || "" }));
       data = mv.newStock;
@@ -7220,8 +7495,10 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
       ...c,
       products: c.products.map((p) => p.id !== product.id ? p : { ...p, variants: p.variants.map((v) => v.id === variant.id ? { ...v, stock: Number.isFinite(finalStock) ? finalStock : mv.newStock } : v) }),
     }));
+    refreshData && refreshData(); // trae cómo quedó cada lugar
     return true;
   };
+
 
 
   const saveCustomer = (cu) => updateCatalog((c) => {
@@ -7328,6 +7605,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   };
   const toggleProductActive = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, status: p.status === "active" ? "borrador" : "active" } : p)) }));
   const toggleProductFeatured = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, featured: !(p.featured !== false) } : p)) }));
+  const patchProduct = (id, patch) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p)) }));
   const toggleProductOnline = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, showOnline: !(p.showOnline !== false) } : p)) }));
   const duplicateProduct = (id) => updateCatalog((c) => {
     const original = c.products.find((p) => p.id === id);
@@ -7360,9 +7638,10 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {screen === "manual" && <StaffManual role={role} />}
-        {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
+        {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
+        {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
-        {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
+        {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList onPatchProduct={patchProduct} catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
         {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => setScreen("products")} />}
         {(role === "administrador" || role === "superadmin") && screen === "banners" && <AdminBannerList banners={catalog.banners} openEditor={(id) => { setEditingBannerId(id); setScreen("bannerEditor"); }} toggleActive={toggleBannerActive} deleteBanner={deleteBanner} />}
         {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}
@@ -7661,7 +7940,7 @@ export default function FlyBoutiqueApp() {
       else if (m.includes("SIN_STOCK")) alert(`Lo sentimos, "${m.split("SIN_STOCK:")[1] || "una prenda"}" ya no tiene stock suficiente. Ajusta tu cesta.`);
       else if (m.includes("PRECIO_CAMBIO")) alert("El precio de una prenda cambió. Recarga la página para ver el precio actualizado.");
       else if (m.includes("TOTAL_CAMBIO")) alert("El total de tu pedido cambió (precio, descuento o envío). Recarga la página e intenta de nuevo.");
-      else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para miembras del Club Fly. Quítalo o regístrate en el Club Fly.");
+      else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para el Club Fly. Quítalo o regístrate en el Club Fly.");
       else if (m.includes("PROMO_INVALIDA")) alert("Ese código promocional ya no está activo. Quítalo e intenta de nuevo.");
       else if (m.includes("CLUB_DESACTIVADO")) alert("El Club Fly está en pausa: por ahora no se pueden usar puntos. Desactiva \"usar puntos\" para seguir.");
       else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, confirma tu cuenta en Club Fly (Google o código al correo). Desactiva \"usar puntos\" para seguir sin ellos.");
@@ -7696,7 +7975,7 @@ export default function FlyBoutiqueApp() {
     setClubMember(member);
     setClubPoints(Number(c.points) || 0);
     try { window.storage.set(CLUB_KEY, JSON.stringify(member), false); } catch (e) { /* storage unavailable */ }
-    showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
+    showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Te damos la bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
     if (!c.existing) track("sign_up", { method: "formulario" });
     return true;
   };
@@ -7744,7 +8023,7 @@ export default function FlyBoutiqueApp() {
       setClubPoints(Number(c.points) || 0);
       try { window.storage.set(CLUB_KEY, JSON.stringify(member), false); } catch (e) { /* storage unavailable */ }
       if (isNew && !c.existing) track("sign_up", { method: "google" });
-      if (isNew) showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
+      if (isNew) showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Te damos la bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
     });
   }, [googleProfile?.email]);
 
@@ -7803,7 +8082,7 @@ export default function FlyBoutiqueApp() {
   const deepLinkDone = useRef(false);
   const routeHash = () => (selectedProduct ? `#/p/${selectedProduct.id}` : screen === "home" ? "#/" : screen === "category" ? `#/catalogo${activeCategory !== "Todo" ? "/" + encodeURIComponent(activeCategory) : ""}${searchQuery ? "?q=" + encodeURIComponent(searchQuery) : ""}` : `#/${screen}`);
   useEffect(() => {
-    if (mode !== "store" || !catalog) return;
+    if (mode !== "store" || !catalog || !deepLinkDone.current) return; // primero se respeta el enlace con el que entró
     const h = routeHash();
     if (restoringRef.current) { restoringRef.current = false; return; }
     if (window.location.hash === h) return;
@@ -7823,7 +8102,7 @@ export default function FlyBoutiqueApp() {
     };
     window.addEventListener("popstate", apply);
     // enlace directo a una prenda (por ejemplo, compartido por WhatsApp): se abre una sola vez al cargar
-    if (catalog && !deepLinkDone.current) { deepLinkDone.current = true; if ((window.location.hash || "").startsWith("#/p/")) apply(); }
+    if (catalog && !deepLinkDone.current) { deepLinkDone.current = true; const h0 = window.location.hash || ""; if (h0.startsWith("#/") && h0 !== "#/") apply(); } // enlaces directos: #/outlet, #/catalogo, #/p/…
     return () => window.removeEventListener("popstate", apply);
   }, [!!catalog, mode]);
   const openInfo = (i) => { setInfoSectionIndex(i); setScreen("info"); };
@@ -8036,7 +8315,7 @@ export default function FlyBoutiqueApp() {
           <StaffAccess onDone={enterStaff} onCancel={() => { setMode("store"); clearStaffHash(); }} />
         ) : mode === "staff" && session ? (
           <StaffApp catalog={catalog} updateCatalog={updateCatalog} patchCatalog={setCatalog} refreshData={refreshPrivate} role={session.staffMember.role} staffName={session.staffMember.name} staffUsername={session.staffMember.username}
-            currentUserId={session.staffMember.user_id} reserveNumber={reserveNumber} onExit={() => exitStaff("Sesión cerrada")} initialScreen={window.location.hash === "#caja" ? "pos" : null} />
+            currentUserId={session.staffMember.user_id} reserveNumber={reserveNumber} onExit={() => exitStaff("Sesión cerrada")} initialScreen={staffScreenFromHash()} />
         ) : (
           <>
             <div className="app-content" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
