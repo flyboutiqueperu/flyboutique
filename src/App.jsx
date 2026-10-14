@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Home, LayoutGrid, ShoppingBag, Star, User, Search, Heart, X, Plus, Minus, Eye, ChevronUp,
-  ChevronRight, ChevronDown, Sparkles, MapPin, Bell, Award, Gift, Ticket, Trash2, Check,
+  ChevronRight, ChevronDown, Sparkles, MapPin, Bell, Award, Gift, Ticket, Trash2, Clock, Check,
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
@@ -25,7 +25,8 @@ const C = {
 };
 const FONT_DISPLAY = "'Archivo', 'Helvetica Neue', Arial, sans-serif";
 const FONT_BODY = "'Jost', 'Helvetica Neue', Arial, sans-serif";
-const imgGrade = { filter: "saturate(0.9) contrast(1.04)" };
+// Sin filtros de color sobre las fotos: se ven tal cual son y el deslizar es más fluido en equipos antiguos.
+const imgGrade = {};
 const STORAGE_KEY = "flyboutique:catalog:v1";
 const WISHLIST_KEY = "flyboutique:wishlist:v1";
 const CLUB_KEY = "flyboutique:clubmember:v1";
@@ -212,7 +213,8 @@ const normalizeCatalog = (c) => ({
   reservations: c.reservations || [],
 });
 
-const RESERVATION_MINUTES = 15;
+// Minutos que una prenda queda apartada en la cesta (se cambia en Staff → Pedidos Online; entre 5 y 60).
+const cartHoldMinutes = (settings = SHOP_SETTINGS) => Math.min(60, Math.max(5, Math.round(Number(settings?.cartHoldMinutes) || 20)));
 // Stock "reservado" por otras clientas que lo tienen en su carrito ahora mismo (no cuenta el propio carrito).
 const reservedByOthers = (catalog, variantId, mySessionId) => {
   const now = Date.now();
@@ -290,8 +292,19 @@ async function saveCatalogSafely(next, prev) {
     const diff = (Number(v.stock) || 0) - prevStock.get(v.id);
     if (diff) deltas[v.id] = diff;
   }));
-  const res = await supabase.rpc("save_catalog", { p_data: pickPublic(next), p_stock_deltas: deltas });
-  // Si aún no se corrió el SQL de la Fase 2a, se guarda como antes
+  // Solo se mandan los productos y secciones que ESTA persona cambió: si otra persona editó otro producto
+  // al mismo tiempo, el servidor conserva su cambio (no se pisan).
+  const prevById = new Map((prev?.products || []).map((p) => [p.id, p]));
+  const nextIds = new Set((next.products || []).map((p) => p.id));
+  const changed = (next.products || []).filter((p) => prevById.get(p.id) !== p).map((p) => p.id);
+  const deleted = (prev?.products || []).filter((p) => !nextIds.has(p.id)).map((p) => p.id);
+  const keys = PUBLIC_KEYS.filter((k) => k !== "products" && prev && next[k] !== prev[k]);
+  let res = prev
+    ? await supabase.rpc("save_catalog", { p_data: pickPublic(next), p_stock_deltas: deltas, p_changed: changed, p_deleted: deleted, p_keys: keys })
+    : { error: { code: "PGRST202" } };
+  // Si aún no se corrió el SQL 14, se guarda como antes (todo el catálogo, respetando el stock)
+  if (res.error?.code === "PGRST202") res = await supabase.rpc("save_catalog", { p_data: pickPublic(next), p_stock_deltas: deltas });
+  // Si tampoco existe el de la Fase 2a
   if (res.error?.code === "PGRST202") return supabase.from("store_data").upsert({ id: "main", data: pickPublic(next), updated_at: new Date().toISOString() });
   return res;
 }
@@ -308,13 +321,18 @@ async function persistStaffChanges(next, prev) {
   const prevCust = new Map((prev?.customers || []).map((c) => [c.phone, c]));
   const changedCust = (next.customers || []).filter((c) => c.phone && prevCust.get(c.phone) !== c);
   if (changedCust.length) tasks.push(supabase.from("customers").upsert(changedCust.map((c) => ({ phone: c.phone, data: c }))));
-  if (next.stockMovements !== prev?.stockMovements) {
-    tasks.push(supabase.from("store_private").upsert({ id: "main", data: { stockMovements: (next.stockMovements || []).slice(0, 3000) }, updated_at: new Date().toISOString() }));
-  }
+  // El historial de stock ya no se sube desde aquí: lo anota la base de datos sola (SQL 14), sin que nadie lo pise.
   try {
     const results = await Promise.all(tasks);
     const err = results.find((r) => r.error)?.error;
-    if (err) { console.error("No se pudo guardar:", err); alert("No se pudo guardar el cambio: " + err.message + "\nSi dice 'row-level security', vuelve a iniciar sesión."); }
+    if (err) {
+      console.error("No se pudo guardar:", err);
+      const m = err.message || "";
+      alert(m.includes("PRECIO_INVALIDO") ? "No se guardó: hay un precio vacío, negativo o demasiado alto. Revisa el precio y vuelve a guardar."
+        : m.includes("CODIGO_REPETIDO") ? `No se guardó: el código ${m.split("CODIGO_REPETIDO:")[1] || ""} ya lo tiene otra prenda. Cada talla y color necesita su propio código.`
+        : "No se pudo guardar el cambio: " + m + "\nSi dice 'row-level security', vuelve a iniciar sesión.");
+      if (/PRECIO_INVALIDO|CODIGO_REPETIDO/.test(m)) window.location.reload(); // vuelve a mostrar lo que sí está guardado
+    }
   } catch (e) { console.error(e); alert("No se pudo guardar el cambio. Revisa tu conexión."); }
 }
 
@@ -429,6 +447,11 @@ const computeDiscount = (promo, subtotal) => !promo ? 0 : promo.type === "percen
 /* ------------------------------------------------------------------ */
 const normalizeCode = (s) => String(s || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
 
+// Encabezados del Excel → claves simples: "Código de barras" → codigo_barras, "Stock mínimo" → stock_minimo
+const normalizeRowKeys = (raw) => Object.fromEntries(Object.entries(raw || {}).map(([k, v]) => [
+  String(k).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").trim().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").replace(/^codigo_de_barras$/, "codigo_barras"),
+  v,
+]));
 function parseImportRows(rawRows) {
   const grouped = new Map();
   const deleteSlugs = new Set();
@@ -516,7 +539,7 @@ const ProductImg = ({ src, alt, style, dim }) => {
   if (!src || broken) {
     return <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center", background: C.paperDeep }}><BadgeLogo size={30} /></div>;
   }
-  return <img src={src} alt={alt} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }} onError={() => setBroken(true)} loading="lazy" />;
+  return <img src={src} alt={alt} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }} onError={() => setBroken(true)} loading="lazy" decoding="async" />;
 };
 
 /* ------------------------------------------------------------------ */
@@ -617,7 +640,7 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
   const sameColor = (cardColor ? shown : colorPhotos(product, (product.images || [])[0]?.colorName)).filter((im) => im.url !== baseImg);
   const altImg = sameColor[0]?.url || (cardColor ? null : hoverImageUrl(product));
   return (
-    <div style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => onOpen(product, cardColor)}>
+    <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => onOpen(product, cardColor)}>
       <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
         <Tag label={label} />
         <button aria-label={fav ? "Quitar de favoritos" : "Guardar en favoritos"} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
@@ -2023,7 +2046,29 @@ function loadCulqiScript() {
   });
 }
 
-const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, payAccounts, promoCodes, clubMember, onConfirmOrder, points = 0 }) => {
+// Aviso del tiempo que las prendas siguen apartadas (como en las tiendas grandes: claro, sin presionar).
+const CartHoldNotice = ({ cart, onRenew }) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(t); }, []);
+  const until = Math.min(...cart.map((i) => i.heldUntil || 0).filter(Boolean));
+  if (!Number.isFinite(until)) return null;
+  const left = Math.ceil((until - now) / 60000);
+  const box = { display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, background: C.paperDeep, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.45, marginBottom: 14 };
+  if (left <= 0) return (
+    <div style={box}>
+      <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>Pasó el tiempo de reserva: tus prendas siguen en la cesta, pero otra clienta podría llevárselas.</span>
+      {onRenew && <button onClick={onRenew} style={{ padding: "7px 10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>Apartar de nuevo</button>}
+    </div>
+  );
+  return (
+    <div style={box}>
+      <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
+      <span>Te apartamos estas prendas <strong style={{ color: C.ink }}>{left} min más</strong> (hasta las {new Date(until).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}). Después quedan libres para otras clientas.</span>
+    </div>
+  );
+};
+const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqiPublicKey, payAccounts, promoCodes, clubMember, onConfirmOrder, points = 0 }) => {
   const [promoInput, setPromoInput] = useState("");
   const [appliedPromo, setAppliedPromo] = useState(null);
   const [promoMsg, setPromoMsg] = useState(null);
@@ -2176,6 +2221,7 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
     <div style={{ padding: "18px 20px 20px" }}>
       <Eyebrow>{cart.reduce((a, i) => a + i.qty, 0)} artículos</Eyebrow>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>Mi Cesta</h1>
+      <CartHoldNotice cart={cart} onRenew={onRenewHold} />
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
         {cart.map((item) => (
           <div key={item.cartId} style={{ display: "flex", gap: 12, paddingBottom: 14, borderBottom: `1px solid ${C.paperDeep}` }}>
@@ -2254,7 +2300,7 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
       {promoMsg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: promoMsg.ok ? C.ink : C.accent, marginBottom: 16 }}>{promoMsg.text}</div>}
       {pointsNeedGoogle && (
         <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 12px", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.5 }}>
-          <Star size={13} color={C.ink} style={{ verticalAlign: "-2px", marginRight: 6 }} />Tienes {points} puntos. Para usarlos en la web, entra al Club Fly con Google (con el mismo correo de tu cuenta), o úsalos en la tienda.
+          <Star size={13} color={C.ink} style={{ verticalAlign: "-2px", marginRight: 6 }} />Tienes {points} puntos. Para usarlos en la web, confirma tu cuenta en Club Fly (con Google o con un código a tu correo), o úsalos en la tienda.
         </div>
       )}
       {blocksAllowed > 0 && (
@@ -2351,6 +2397,7 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         <button onClick={onLogoutClub} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textDecoration: "underline" }}>¿No eres {clubMember.name.split(" ")[0]}? Cerrar sesión</button>
       </div>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>Club Fly</h1>
+      {!clubMember.google && <VerifyAccountBox onGoogleSignIn={onGoogleSignIn} />}
       <div style={{ borderRadius: 14, padding: "24px 22px", background: C.ink, position: "relative", overflow: "hidden", marginBottom: 22, color: C.paper }}>
         <div style={{ position: "absolute", right: 18, top: 18, opacity: 0.5 }}><BadgeLogo size={28} dark /></div>
         <Eyebrow color={C.brassSoft}>Nivel {TIERS[tierIdx].n}</Eyebrow>
@@ -2362,7 +2409,7 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         {[
           [`Ganas ${loyalty.pointsPerStep} punto${loyalty.pointsPerStep === 1 ? "" : "s"} por cada S/ ${loyalty.solesPerStep} en compras (web y tienda)`, Sparkles],
           [`Cada ${loyalty.blockPoints} puntos valen ${money(loyalty.blockValue)} de descuento`, Gift],
-          ["En la web los usas en la cesta al pagar (entrando al Club Fly con Google)", ShoppingBag],
+          ["En la web los usas en la cesta al pagar (con tu cuenta confirmada: Google o código al correo)", ShoppingBag],
           ["En la tienda física, da tu DNI o celular al pagar para sumar y usar tus puntos", Store],
         ].map(([text, Icon], i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, background: C.paperDeep, borderRadius: 10, padding: "12px 14px" }}>
@@ -2795,7 +2842,74 @@ const TurnstileBox = ({ siteKey, onToken }) => {
   return <div ref={boxRef} style={{ display: "flex", justifyContent: "center", marginTop: 12, minHeight: 66 }} />;
 };
 
+// Entrar con un código de 6 dígitos que llega al correo (sin contraseñas que olvidar).
+const EmailCodeLogin = () => {
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState("email");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const send = async () => {
+    if (!emailOk || busy) { setMsg("Escribe tu correo completo (ej. nombre@gmail.com)."); return; }
+    setBusy(true); setMsg("");
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim().toLowerCase(), options: { shouldCreateUser: true } });
+    setBusy(false);
+    if (error) { setMsg(/rate|seconds|security purposes/i.test(error.message) ? "Ya te enviamos un código hace poco. Espera un minuto y vuelve a intentar." : "No pudimos enviar el código. Revisa el correo e intenta de nuevo."); return; }
+    setStep("code"); setMsg("");
+  };
+  const verify = async () => {
+    if (code.length !== 6 || busy) return;
+    setBusy(true); setMsg("");
+    const { error } = await supabase.auth.verifyOtp({ email: email.trim().toLowerCase(), token: code, type: "email" });
+    setBusy(false);
+    if (error) { setMsg("Código incorrecto o vencido. Revisa el último correo o pide uno nuevo."); setCode(""); }
+    // si salió bien, la tienda detecta la sesión sola y carga tu cuenta y tus puntos
+  };
+  const btn = { width: "100%", padding: "12px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" };
+  return (
+    <div style={{ textAlign: "left" }}>
+      {step === "email" ? (
+        <>
+          <input value={email} onChange={(e) => { setEmail(e.target.value); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Tu correo *" type="email" autoComplete="email" style={{ ...inputStyle, marginBottom: 8 }} />
+          <button onClick={send} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>{busy ? "Enviando…" : "Recibir código en mi correo"}</button>
+        </>
+      ) : (
+        <>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>Te enviamos un código de 6 dígitos a <strong>{email.trim()}</strong>. Revisa también «Spam» o «Promociones».</div>
+          <input value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && verify()} inputMode="numeric" autoComplete="one-time-code" placeholder="000000" style={{ ...inputStyle, textAlign: "center", letterSpacing: "0.35em", fontSize: 20, marginBottom: 8 }} />
+          <button onClick={verify} disabled={busy || code.length !== 6} style={{ ...btn, opacity: busy || code.length !== 6 ? 0.5 : 1 }}>{busy ? "Verificando…" : "Entrar"}</button>
+          <button onClick={() => { setStep("email"); setCode(""); }} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer", marginTop: 8 }}>Cambiar correo o pedir otro código</button>
+        </>
+      )}
+      {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginTop: 8 }}>{msg}</div>}
+    </div>
+  );
+};
+
+// Para una cuenta creada solo con datos: confirmar que es suya (Google o código al correo)
+// y así poder usar los puntos en la web y ver sus pedidos.
+const VerifyAccountBox = ({ onGoogleSignIn }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ background: C.paperDeep, borderRadius: 12, padding: "12px 14px", marginBottom: 16 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, lineHeight: 1.5 }}>
+        <ShieldCheck size={13} style={{ verticalAlign: "-2px", marginRight: 6 }} />Confirma que esta cuenta es tuya para <strong>usar tus puntos en la web</strong> y <strong>ver tus pedidos</strong>.
+        {!open && <button onClick={() => setOpen(true)} style={{ background: "none", border: "none", padding: 0, marginLeft: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer", fontWeight: 600 }}>Confirmar</button>}
+      </div>
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {onGoogleSignIn && <button onClick={onGoogleSignIn} style={{ width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>Con Google</button>}
+          <EmailCodeLogin />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 8 }}>Usa el mismo correo que diste al registrarte.</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSiteKey }) => {
+  const [tab, setTab] = useState("crear");
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaKey, setCaptchaKey] = useState(0);
   const [sending, setSending] = useState(false);
@@ -2820,8 +2934,25 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
 
   return (
     <div style={{ padding: "22px 20px 24px", textAlign: "center" }}>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>Únete al Club Fly</div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 20, maxWidth: 260, marginLeft: "auto", marginRight: "auto" }}>Regístrate gratis y empieza a ganar puntos en cada compra.</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>{tab === "entrar" && !googlePrefill ? "Entra a tu cuenta" : "Únete al Club Fly"}</div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 16, maxWidth: 260, marginLeft: "auto", marginRight: "auto" }}>{tab === "entrar" && !googlePrefill ? "Mira tus puntos y tus pedidos desde cualquier celular o computadora." : "Regístrate gratis y empieza a ganar puntos en cada compra."}</div>
+      {!googlePrefill && (
+        <div role="tablist" style={{ display: "flex", maxWidth: 280, margin: "0 auto 18px", border: `1px solid ${C.ink}`, borderRadius: 999, padding: 3 }}>
+          {[["entrar", "Ya tengo cuenta"], ["crear", "Crear cuenta"]].map(([k, l]) => (
+            <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ flex: 1, padding: "9px 6px", borderRadius: 999, border: "none", background: tab === k ? C.ink : "transparent", color: tab === k ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+          ))}
+        </div>
+      )}
+      {tab === "entrar" && !googlePrefill ? (
+        <div style={{ maxWidth: 280, margin: "0 auto" }}>
+          {onGoogleSignIn && <button onClick={onGoogleSignIn} style={{ width: "100%", padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Entrar con Google</button>}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
+            <div style={{ flex: 1, height: 1, background: C.line }} /><span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>o con tu correo</span><div style={{ flex: 1, height: 1, background: C.line }} />
+          </div>
+          <EmailCodeLogin />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 14, lineHeight: 1.5 }}>Usa el mismo correo con el que te registraste. ¿Aún no tienes cuenta? <button onClick={() => setTab("crear")} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 11, color: C.ink, textDecoration: "underline", cursor: "pointer" }}>Créala aquí</button>.</div>
+        </div>
+      ) : (<>
 
       {onGoogleSignIn && !googlePrefill && (
         <div style={{ maxWidth: 280, margin: "0 auto 18px" }}>
@@ -2836,7 +2967,7 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
       )}
       {googlePrefill && (
         <div style={{ maxWidth: 280, margin: "0 auto 18px", background: C.paperDeep, borderRadius: 10, padding: "12px 14px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink }}>
-          ✓ Sesión de Google conectada — solo falta tu celular para terminar.
+          ✓ Sesión conectada — solo falta tu celular para terminar.
         </div>
       )}
 
@@ -2877,6 +3008,7 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
           }}>{sending ? "Registrando…" : "Registrarme"}</PrimaryButton>
         </div>
       </div>
+      </>)}
       <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 16, maxWidth: 260, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
         Tus datos solo se usan para tu cuenta del Club Fly y tus pedidos. Nunca los compartimos.
       </div>
@@ -2913,7 +3045,7 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
         {backBtn}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 280, textAlign: "center", gap: 12 }}>
           <Package size={30} color={C.line} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 270, lineHeight: 1.6 }}>Para proteger tus datos, el historial de pedidos se ve entrando al Club Fly con Google. También puedes seguir cualquier pedido con su número.</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 270, lineHeight: 1.6 }}>Para proteger tus datos, el historial de pedidos se ve confirmando tu cuenta en Club Fly (con Google o con un código a tu correo). También puedes seguir cualquier pedido con su número.</div>
           <button onClick={() => setScreen("track")} style={{ padding: "11px 20px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Seguir mi pedido</button>
         </div>
       </div>
@@ -3277,7 +3409,7 @@ const idleMinutesFor = (role) => (role === "cajero" || role === "vendedora_tiend
 
 const LOGIN_LOCK_KEY = "flyboutique:loginlock:v1";
 const MAX_ATTEMPTS = 5;
-const LOCK_MINUTES = 5;
+const LOCK_MINUTES = 15;
 
 // Mira la sesión guardada y decide qué falta: nada, pedir el código, o configurar la app autenticadora.
 async function resolveStaffSession() {
@@ -3362,7 +3494,10 @@ const StaffAccess = ({ onDone, onCancel }) => {
   };
 
   const login = async () => {
-    if (isLocked || busy || !username.trim() || !password) return;
+    if (isLocked || busy) return;
+    if (!username.trim() && !password) { setErr("Escribe tu usuario y tu contraseña."); return; }
+    if (!username.trim()) { setErr("Falta el usuario."); return; }
+    if (!password) { setErr("Falta la contraseña."); return; }
     setBusy(true); setErr("");
     setStaffSessionMode(remember); // sin marcar: la sesión se cierra al cerrar la página
     const { error } = await supabase.auth.signInWithPassword({ email: staffEmail(username), password });
@@ -3487,11 +3622,11 @@ const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
   <div className="admin-topbar" style={{ position: "sticky", top: 0, zIndex: 15, background: C.ink, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
       {onBack && <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><ArrowLeft size={18} color={C.paper} /></button>}
-      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, color: C.paper }}>{title}</span>
+      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, color: C.paper, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
     </div>
-    <div style={{ display: "flex", gap: 8 }}>
-    {onHome && <button onClick={onHome} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.25)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer" }}><Home size={12} /> Inicio del panel</button>}
-    <button onClick={onExit} title="Cierra tu sesión. La caja sigue abierta para el siguiente turno." style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer" }}><LogOut size={12} /> Cerrar sesión</button>
+    <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+    {onHome && <button onClick={onHome} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.25)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }} aria-label="Inicio del panel"><Home size={12} /><span className="tb-label">Inicio</span></button>}
+    <button onClick={onExit} title="Cierra tu sesión. La caja sigue abierta para el siguiente turno." style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }} aria-label="Cerrar sesión"><LogOut size={12} /><span className="tb-label">Cerrar sesión</span><span className="tb-short">Salir</span></button>
     </div>
   </div>
 );
@@ -3957,7 +4092,14 @@ const emptyProductForm = () => ({
   status: "active", tag: "", minStock: 3, showOnline: true, images: [], collectionIds: [], sizes: [], colors: [], stock: {}, skus: {},
 });
 
-const AdminProductEditor = ({ product, collections, onSave, onCancel }) => {
+const QUICK_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "Única"];
+const sortSizes = (list) => [...list].sort((a, b) => {
+  const ia = QUICK_SIZES.indexOf(a), ib = QUICK_SIZES.indexOf(b);
+  if (ia >= 0 && ib >= 0) return ia - ib;
+  if (ia >= 0 || ib >= 0) return ia >= 0 ? -1 : 1;
+  return (parseFloat(a) || 0) - (parseFloat(b) || 0) || String(a).localeCompare(String(b));
+});
+const AdminProductEditor = ({ product, collections, allProducts, onSave, onCancel }) => {
   const [form, setForm] = useState(emptyProductForm());
   const [urlInput, setUrlInput] = useState("");
   const [newSize, setNewSize] = useState("");
@@ -3981,7 +4123,7 @@ const AdminProductEditor = ({ product, collections, onSave, onCancel }) => {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const addSize = () => { const s = newSize.trim(); if (!s || form.sizes.includes(s)) return; set("sizes", [...form.sizes, s]); setNewSize(""); };
+  const addSize = () => { const s = newSize.trim(); if (!s || form.sizes.includes(s)) return; set("sizes", sortSizes([...form.sizes, s])); setNewSize(""); };
   const removeSize = (s) => { set("sizes", form.sizes.filter((x) => x !== s)); const st = { ...form.stock }; const sk = { ...form.skus }; Object.keys(st).forEach((k) => k.startsWith(s + "|") && delete st[k]); Object.keys(sk).forEach((k) => k.startsWith(s + "|") && delete sk[k]); setForm((f) => ({ ...f, stock: st, skus: sk })); };
   const addColor = () => { const n = newColorName.trim(); if (!n || form.colors.some((c) => c.n === n)) return; set("colors", [...form.colors, { n, h: newColorHex }]); setNewColorName(""); };
   const removeColor = (n) => { set("colors", form.colors.filter((c) => c.n !== n)); const st = { ...form.stock }; const sk = { ...form.skus }; Object.keys(st).forEach((k) => k.endsWith("|" + n) && delete st[k]); Object.keys(sk).forEach((k) => k.endsWith("|" + n) && delete sk[k]); setForm((f) => ({ ...f, stock: st, skus: sk })); };
@@ -4012,12 +4154,26 @@ const AdminProductEditor = ({ product, collections, onSave, onCancel }) => {
 
   const canSave = form.name.trim() && form.price !== "" && form.sizes.length > 0 && form.colors.length > 0;
 
+  // Cada talla+color conserva su identificador interno al editar: así el stock, las cestas abiertas
+  // y el historial siguen apuntando a la misma prenda.
+  const existingVar = new Map((product?.variants || []).map((v) => [`${v.size}|${v.colorName}`, v]));
+  const skuList = form.sizes.flatMap((s) => form.colors.map((c) => (form.skus[`${s}|${c.n}`] || "").trim().toUpperCase())).filter(Boolean);
+  const dupInside = skuList.find((x, i) => skuList.indexOf(x) !== i);
+  const dupOther = skuList.find((x) => (allProducts || []).some((p) => p.id !== form.id && p.variants.some((v) => String(v.sku || "").toUpperCase() === x)));
   const handleSave = () => {
+    if (dupInside) { alert(`El código ${dupInside} está repetido en dos tallas/colores. Cada talla y color debe tener su propio código.`); return; }
+    if (dupOther) { alert(`El código ${dupOther} ya lo usa otro producto. Al escanearlo no sabríamos cuál es: cámbialo.`); return; }
+    const newPrice = Number(form.price);
+    if (!(newPrice > 0)) { alert("Escribe un precio mayor que 0."); return; }
+    if (form.compareAtPrice && Number(form.compareAtPrice) <= newPrice) { alert("El «precio anterior» (tachado) debe ser MAYOR que el precio de venta. Si no está en oferta, déjalo vacío."); return; }
+    // Si el precio cambia mucho, se pide confirmar (evita un cero de más o de menos)
+    if (product && product.price > 0 && (newPrice > product.price * 1.8 || newPrice < product.price * 0.5)
+        && !confirm(`El precio cambia de S/ ${product.price} a S/ ${newPrice}. ¿Es correcto?`)) return;
     const variants = [];
     form.sizes.forEach((s) => form.colors.forEach((c) => {
       const key = `${s}|${c.n}`;
       const customSku = (form.skus[key] || "").trim();
-      variants.push({ id: genId("var"), size: s, colorName: c.n, colorHex: c.h, stock: form.stock[key] || 0,
+      variants.push({ ...(existingVar.get(key) || {}), id: existingVar.get(key)?.id || genId("var"), size: s, colorName: c.n, colorHex: c.h, stock: form.stock[key] || 0,
         sku: customSku || `${slugify(form.name)}-${s}-${slugify(c.n)}`.toUpperCase() });
     }));
     const record = {
@@ -4125,8 +4281,13 @@ const AdminProductEditor = ({ product, collections, onSave, onCancel }) => {
             <span key={s} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999, border: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12 }}>{s}<button onClick={() => removeSize(s)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={11} color={C.stone} /></button></span>
           ))}
         </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {QUICK_SIZES.filter((q) => !form.sizes.includes(q)).map((q) => (
+            <button key={q} onClick={() => set("sizes", sortSizes([...form.sizes, q]))} style={{ padding: "6px 11px", borderRadius: 999, border: `1px dashed ${C.stone}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>+ {q}</button>
+          ))}
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <input style={inputStyle} value={newSize} onChange={(e) => setNewSize(e.target.value)} placeholder="Ej. M, 38, Única" onKeyDown={(e) => e.key === "Enter" && addSize()} />
+          <input style={inputStyle} value={newSize} onChange={(e) => setNewSize(e.target.value)} placeholder="Otra talla: 38, 40…" onKeyDown={(e) => e.key === "Enter" && addSize()} />
           <button onClick={addSize} style={{ padding: "0 14px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, cursor: "pointer" }}><Plus size={14} /></button>
         </div>
       </AdminCard>
@@ -4449,10 +4610,12 @@ const TrackingEditor = ({ order, onSave }) => {
 };
 
 const unpaidHoursOf = (settings) => numOr(settings?.unpaidOrderHours, 24);
-const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, canValidate, settings, onCancelUnpaid, onSaveUnpaidHours }) => {
+const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, canValidate, settings, onCancelUnpaid, onSaveUnpaidHours, onSaveCartHold }) => {
   const [labelOrder, setLabelOrder] = useState(null);
   const unpaidHours = unpaidHoursOf(settings);
   const [hoursInput, setHoursInput] = useState(String(unpaidHours));
+  const holdMin = cartHoldMinutes(settings);
+  const [holdInput, setHoldInput] = useState(String(holdMin));
   const [batch, setBatch] = useState(null);
   const orders = sales.filter((s) => s.channel === "online" && s.source === "web" && s.status !== "anulado").sort((a, b) => b.createdAt - a.createdAt);
   return (
@@ -4468,6 +4631,14 @@ const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, can
                 <input inputMode="numeric" value={hoursInput} onChange={(e) => setHoursInput(e.target.value.replace(/\D/g, "").slice(0, 3))} style={{ ...inputStyle, width: 58, padding: "6px 8px", textAlign: "center" }} />
                 horas
                 {hoursInput !== String(unpaidHours) && <button onClick={() => onSaveUnpaidHours(Number(hoursInput) || 0)} style={{ padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Guardar</button>}
+              </div>
+            )}
+            {canValidate && onSaveCartHold && (
+              <div title="Mientras una clienta tiene la prenda en su cesta, nadie más puede llevarse esa unidad. Pasado este tiempo queda libre. Entre 5 y 60 minutos." style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, flexBasis: "100%", order: 4, flexWrap: "wrap" }}>
+                Apartar las prendas en la cesta durante
+                <input inputMode="numeric" value={holdInput} onChange={(e) => setHoldInput(e.target.value.replace(/\D/g, "").slice(0, 2))} style={{ ...inputStyle, width: 58, padding: "6px 8px", textAlign: "center" }} />
+                minutos
+                {holdInput !== String(holdMin) && <button onClick={() => { const m = cartHoldMinutes({ cartHoldMinutes: Number(holdInput) }); setHoldInput(String(m)); onSaveCartHold(m); }} style={{ padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Guardar</button>}
               </div>
             )}
             {ready.length > 0 && <button onClick={() => setBatch(ready)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}><Package size={14} /> Imprimir etiquetas por enviar ({ready.length})</button>}
@@ -4612,50 +4783,134 @@ const AdminCollectionEditor = ({ collection, products, onSave, onCancel }) => {
 /* ---- Admin root ---- */
 /* ---- Stock: movement sheet ---- */
 const MOVEMENT_TYPES = [
-  { key: "entrada", label: "Entrada", hint: "Ingreso de mercadería" },
-  { key: "salida", label: "Salida", hint: "Retiro fuera de venta" },
-  { key: "merma", label: "Merma", hint: "Prenda dañada o perdida" },
-  { key: "ajuste", label: "Ajuste", hint: "Corrige el stock a un número exacto" },
+  { key: "entrada", label: "Entrada", sign: 1, hint: "Llegó mercadería o reposición del mismo modelo." },
+  { key: "devolucion", label: "Devolución", sign: 1, hint: "Una clienta devolvió la prenda y vuelve a la venta (si la venta tiene comprobante, mejor anúlala en Comprobantes)." },
+  { key: "salida", label: "Salida", sign: -1, needsNote: true, hint: "Sale sin venderse: traslado, préstamo, sesión de fotos…" },
+  { key: "merma", label: "Dañada / no vendible", sign: -1, needsNote: true, hint: "Prenda malograda, manchada, perdida o que ya no se puede vender." },
+  { key: "regalo", label: "Regalo", sign: -1, needsNote: true, hint: "Se regaló (influencer, cortesía, sorteo). Escribe a quién." },
+  { key: "ajuste", label: "Conteo", sign: 0, hint: "Contaste las prendas: escribe cuántas hay en total. Si alguien vende mientras cuentas, te avisa." },
 ];
 
-const StockMovementSheet = ({ product, variant, staffName, onClose, onSubmit }) => {
+const StockMovementSheet = ({ product, variant, onClose, onSubmit }) => {
   const [type, setType] = useState("entrada");
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
-  const n = Math.max(0, parseInt(qty || "0", 10));
-  const newStock = type === "entrada" ? variant.stock + n : type === "ajuste" ? n : Math.max(0, variant.stock - n);
-  const delta = newStock - variant.stock;
-  const canSubmit = qty !== "" && (type === "ajuste" || n > 0);
+  const [busy, setBusy] = useState(false);
+  const t = MOVEMENT_TYPES.find((x) => x.key === type);
+  const n = Math.max(0, parseInt(qty || "0", 10) || 0);
+  const newStock = t.sign > 0 ? variant.stock + n : t.sign < 0 ? variant.stock - n : n;
+  const tooMany = t.sign < 0 && n > variant.stock;
+  const canSubmit = qty !== "" && (type === "ajuste" || n > 0) && !tooMany && (!t.needsNote || note.trim().length >= 3) && !busy;
 
   return (
     <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 55, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
-      <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", padding: "20px 22px 28px", animation: "slideUp .25s ease" }}>
+      <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", padding: "20px 22px 28px", animation: "slideUp .25s ease", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 2 }}>{product.name}</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 18 }}>Talla {variant.size} · {variant.colorName} · Stock actual: {variant.stock}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 18 }}>Talla {variant.size} · {variant.colorName}{variant.sku ? ` · ${variant.sku}` : ""} · Stock actual: {variant.stock}</div>
 
-        <span style={labelStyle}>Tipo de movimiento</span>
+        <span style={labelStyle}>¿Qué pasó?</span>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          {MOVEMENT_TYPES.map((t) => (
-            <button key={t.key} onClick={() => setType(t.key)} style={{ padding: "9px 13px", borderRadius: 8, border: `1px solid ${type === t.key ? C.ink : C.line}`, background: type === t.key ? C.ink : "transparent", color: type === t.key ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{t.label}</button>
+          {MOVEMENT_TYPES.map((x) => (
+            <button key={x.key} onClick={() => setType(x.key)} style={{ padding: "9px 13px", borderRadius: 8, border: `1px solid ${type === x.key ? C.ink : C.line}`, background: type === x.key ? C.ink : "transparent", color: type === x.key ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{x.label}</button>
           ))}
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 16, marginTop: -8 }}>{MOVEMENT_TYPES.find((t) => t.key === type)?.hint}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 16, marginTop: -8, lineHeight: 1.45 }}>{t.hint}</div>
 
-        <Field label={type === "ajuste" ? "Nuevo stock total" : "Cantidad"}>
-          <input type="number" min="0" style={inputStyle} value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0" />
+        <Field label={type === "ajuste" ? "Cuántas hay en total (contadas) *" : "Cantidad *"}>
+          <input inputMode="numeric" style={inputStyle} value={qty} onChange={(e) => setQty(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="0" />
         </Field>
-        <Field label="Nota (opcional)"><input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej. reposición proveedor, prenda con mancha…" /></Field>
+        <Field label={t.needsNote ? "Motivo *" : "Nota (opcional)"}><input style={inputStyle} value={note} maxLength={140} onChange={(e) => setNote(e.target.value)} placeholder={type === "regalo" ? "Ej. regalo a @influencer" : type === "merma" ? "Ej. mancha que no sale" : "Ej. reposición proveedor"} /></Field>
 
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 18 }}>Stock resultante: <strong>{newStock}</strong></div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: tooMany ? C.accent : C.inkSoft, marginBottom: 18 }}>
+          {tooMany ? `Solo hay ${variant.stock} en stock.` : <>Quedará en stock: <strong>{newStock}</strong></>}
+        </div>
 
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onClose} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
-          <PrimaryButton disabled={!canSubmit} style={{ flex: 2, width: "auto" }} onClick={() => onSubmit({
-            id: genId("mov"), productId: product.id, productName: product.name, variantId: variant.id, size: variant.size, colorName: variant.colorName,
-            type, qty: Math.abs(delta), note: note.trim(), staffName, createdAt: Date.now(),
-          }, newStock)}>Registrar</PrimaryButton>
+          <PrimaryButton disabled={!canSubmit} style={{ flex: 2, width: "auto" }} onClick={async () => {
+            setBusy(true);
+            const ok = await onSubmit({ type, qty: n, note: note.trim(), expected: variant.stock, newStock });
+            setBusy(false);
+            if (ok) onClose();
+          }}>{busy ? "Guardando…" : "Registrar"}</PrimaryButton>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ---- Historial de una prenda (o de toda la tienda): lo anota la base de datos en cada cambio ----
+const MOVE_LABEL = (t) => ({ entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
+const StockHistory = ({ product, catalog, onBack }) => {
+  const [rows, setRows] = useState(null);
+  const [legacy, setLegacy] = useState(false);
+  const [variantId, setVariantId] = useState("");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      let q = supabase.from("stock_movements").select("*").order("created_at", { ascending: false }).limit(product ? 500 : 200);
+      if (product) q = q.eq("product_id", product.id);
+      const { data, error } = await q;
+      if (!alive) return;
+      if (error) { // aún no se corrió el SQL 14: se muestra el historial anterior
+        setLegacy(true);
+        setRows((catalog.stockMovements || []).filter((m) => !product || m.productId === product.id).map((m) => ({
+          id: m.id, created_at: m.createdAt, type: m.type, qty: ["venta", "salida", "merma"].includes(m.type) ? -Math.abs(m.qty) : m.qty,
+          variant_id: m.variantId, size: m.size, color: m.colorName, product_name: m.productName, staff_name: m.staffName, note: m.note,
+        })));
+        return;
+      }
+      setRows(data || []);
+    })();
+    return () => { alive = false; };
+  }, [product?.id]);
+  const list = (rows || []).filter((r) => !variantId || r.variant_id === variantId);
+  const isSale = (t) => /venta|pedido web/.test(t || "");
+  const sum = (fn) => list.filter(fn).reduce((a, r) => a + Math.abs(r.qty || 0), 0);
+  const sold = sum((r) => isSale(r.type) && r.qty < 0);
+  const returned = sum((r) => /devoluci|anulaci|cancelado/.test(r.type || "") && r.qty > 0);
+  const inbound = sum((r) => /entrada|alta/.test(r.type || "") && r.qty > 0);
+  const lost = sum((r) => /merma|regalo|salida/.test(r.type || "") && r.qty < 0);
+  const lastRestock = list.find((r) => /entrada|alta/.test(r.type || "") && r.qty > 0);
+  const stat = (n, label) => <AdminCard style={{ padding: 12 }}><div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink }}>{n}</div><div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>{label}</div></AdminCard>;
+  return (
+    <div style={{ padding: "18px 18px 90px" }}>
+      <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver a Stock</button>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>{product ? `Historial: ${product.name}` : "Historial de movimientos"}</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 14 }}>{legacy ? "Historial anterior (falta correr el SQL 14 para ver el detalle completo)." : "Cada cambio de stock queda anotado solo: qué pasó, cuánto, precio, comprobante, clienta, vendedora y quién lo hizo."}</div>
+      {product && (
+        <>
+          <select value={variantId} onChange={(e) => setVariantId(e.target.value)} style={{ ...inputStyle, marginBottom: 12 }}>
+            <option value="">Todas las tallas y colores</option>
+            {product.variants.map((v) => <option key={v.id} value={v.id}>{v.size} · {v.colorName}{v.sku ? ` · ${v.sku}` : ""} (hay {v.stock})</option>)}
+          </select>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8, marginBottom: 12 }}>
+            {stat(inbound, "Ingresadas")}{stat(sold, "Vendidas")}{stat(returned, "Devueltas / anuladas")}{stat(lost, "Dañadas, regalos y salidas")}
+          </div>
+          {lastRestock && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 14 }}>Última reposición: <strong>{new Date(lastRestock.created_at).toLocaleDateString("es-PE")}</strong> (+{lastRestock.qty}{lastRestock.size ? ` · ${lastRestock.size} ${lastRestock.color || ""}` : ""})</div>}
+        </>
+      )}
+      {rows === null && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Cargando…</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {list.map((m) => (
+          <AdminCard key={m.id} style={{ padding: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 3 }}>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink }}>{product ? `${m.size || ""} · ${m.color || ""}` : m.product_name}</span>
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: m.qty < 0 ? C.accent : C.ink, whiteSpace: "nowrap" }}>{m.qty > 0 ? "+" : ""}{m.qty}</span>
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>
+              <strong style={{ textTransform: "uppercase", fontSize: 10, letterSpacing: "0.05em" }}>{MOVE_LABEL(m.type)}</strong>
+              {!product && m.size ? ` · ${m.size} ${m.color || ""}` : ""}
+              {m.stock_before != null ? ` · stock ${m.stock_before} → ${m.stock_after}` : ""}
+              {m.unit_price != null && isSale(m.type) ? ` · ${moneyExact(m.unit_price)} c/u` : ""}
+            </div>
+            {(m.doc || m.customer || m.seller) && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 2 }}>{[m.doc, m.customer && `Clienta: ${m.customer}`, m.seller && `Vendió: ${m.seller}`].filter(Boolean).join(" · ")}</div>}
+            {m.note && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 2, fontStyle: "italic" }}>{m.note}</div>}
+            <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 3 }}>{m.staff_name || "Sistema"}{m.channel ? ` · ${m.channel}` : ""} · {new Date(m.created_at).toLocaleString("es-PE")}</div>
+          </AdminCard>
+        ))}
+        {rows && list.length === 0 && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Aún no hay movimientos registrados.</div>}
       </div>
     </div>
   );
@@ -4682,31 +4937,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
     if (found) { setExpanded(found.id); setQ(""); }
   };
 
-  if (showHistory) {
-    return (
-      <div style={{ padding: "18px 18px 90px" }}>
-        <button onClick={() => setShowHistory(false)} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver a Stock</button>
-        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 16px" }}>Historial de movimientos</h1>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {catalog.stockMovements.slice(0, 80).map((m) => {
-            const typeColor = { entrada: C.ink, salida: C.accent, merma: C.accent, ajuste: C.brass, venta: C.brass }[m.type] || C.stone;
-            return (
-              <AdminCard key={m.id} style={{ padding: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink }}>{m.productName}</span>
-                  <span style={{ fontFamily: FONT_BODY, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase", color: typeColor, fontWeight: 700 }}>{m.type}</span>
-                </div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>Talla {m.size} · {m.colorName} · {m.type === "entrada" ? "+" : "-"}{m.qty} u.</div>
-                {m.note && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 3, fontStyle: "italic" }}>{m.note}</div>}
-                <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 4 }}>{m.staffName} · {new Date(m.createdAt).toLocaleString("es-PE")}</div>
-              </AdminCard>
-            );
-          })}
-          {catalog.stockMovements.length === 0 && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Aún no hay movimientos registrados.</div>}
-        </div>
-      </div>
-    );
-  }
+  if (showHistory) return <StockHistory product={showHistory === true ? null : showHistory} catalog={catalog} onBack={() => setShowHistory(false)} />;
 
   return (
     <div style={{ padding: "18px 18px 90px" }}>
@@ -4746,6 +4977,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
               </button>
               {isOpen && (
                 <div style={{ borderTop: `1px solid ${C.paperDeep}`, padding: 12 }}>
+                  <button onClick={() => setShowHistory(p)} style={{ ...quickLinkStyle, width: "100%", justifyContent: "center", marginBottom: 6 }}><FileSpreadsheet size={14} /> Historial de esta prenda (ventas, reposiciones, devoluciones)</button>
                   {p.variants.map((v) => (
                     <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}` }}>
                       <div>
@@ -4770,7 +5002,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, canEdit }) => {
         <StockMovementSheet
           product={activeMove.product} variant={activeMove.variant} staffName={staffName}
           onClose={() => setActiveMove(null)}
-          onSubmit={(movement, newStock) => { onRegisterMovement(activeMove.product.id, activeMove.variant.id, newStock, movement); setActiveMove(null); }}
+          onSubmit={(mv) => onRegisterMovement(activeMove.product, activeMove.variant, mv)}
         />
       )}
     </div>
@@ -6465,8 +6697,11 @@ const STAFF_GUIDES = {
     ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento e imprime la etiqueta."],
   ] },
   stock: { title: "Stock", steps: [
-    ["Package", "Busca la prenda y mira cuántas unidades hay por talla y color."],
-    ["Pencil", "Para corregir, cambia la cantidad y escribe el motivo (ingreso, merma, ajuste). Queda registrado quién lo hizo."],
+    ["Scan", "Escanea el código de la etiqueta (cada talla y color tiene el suyo) o busca por nombre."],
+    ["Plus", "Llegó mercadería: «Movimiento» → «Entrada» y la cantidad. Se SUMA a lo que hay (si alguien vende mientras tanto, no se pierde)."],
+    ["Minus", "Prenda malograda o que no se puede vender: «Dañada». Si se regaló: «Regalo» y a quién. Ambos piden motivo."],
+    ["Pencil", "Contaste las prendas: «Conteo» y el total. Si alguien vendió mientras contabas, te avisa para que vuelvas a contar."],
+    ["BarChart3", "«Historial de esta prenda»: cuántas entraron, se vendieron, se devolvieron; a quién, a qué precio, con qué comprobante y quién lo hizo."],
   ] },
   dashboard: { title: "Panel", steps: [
     ["LayoutDashboard", "Resumen de ventas, pedidos y stock bajo."],
@@ -6475,7 +6710,7 @@ const STAFF_GUIDES = {
   ] },
   products: { title: "Productos", steps: [
     ["Plus", "«Nuevo producto»: nombre, categoría, precio y, si está en oferta, el precio anterior."],
-    ["Layers", "Agrega tallas y colores: cada combinación tiene su stock."],
+    ["Layers", "Agrega tallas (botones XS a XXL) y colores: cada combinación tiene su propio stock y su propio código de barras. El sistema no deja repetir códigos."],
     ["ImageIcon", "Sube fotos verticales (ideal 1080×1440) y asigna cada foto a su color. Puedes subir un video."],
     ["Eye", "Usa «Activo / Borrador» y «Mostrar en la web» para publicar u ocultar sin borrar."],
   ] },
@@ -6672,14 +6907,29 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const [editingBannerId, setEditingBannerId] = useState(undefined);
   const [editingCollectionId, setEditingCollectionId] = useState(undefined);
 
-  const registerMovement = async (productId, variantId, newStock, movement) => {
-    const { error } = await supabase.rpc("adjust_stock", { p_variant: variantId, p_new_stock: newStock, p_type: movement?.type || "ajuste", p_note: movement?.note || "" });
-    if (error) { alert("No se pudo guardar el stock: " + error.message); return; }
+  // Entradas y salidas suman o restan en el servidor (si otra persona vendió, no se pierde esa venta).
+  const registerMovement = async (product, variant, mv) => {
+    let { data, error } = await supabase.rpc("move_stock", { p_variant: variant.id, p_type: mv.type, p_qty: mv.qty, p_note: mv.note || null, p_expected: mv.type === "ajuste" ? mv.expected : null });
+    if (error?.code === "PGRST202") { // aún no se corrió el SQL 14
+      ({ error } = await supabase.rpc("adjust_stock", { p_variant: variant.id, p_new_stock: mv.newStock, p_type: mv.type === "devolucion" ? "entrada" : mv.type === "regalo" ? "salida" : mv.type, p_note: mv.note || "" }));
+      data = mv.newStock;
+    }
+    if (error) {
+      const m = error.message || "";
+      const now = (m.match(/:(\d+)/) || [])[1];
+      alert(m.includes("STOCK_CAMBIO") ? `Mientras contabas, el stock cambió (alguien vendió o movió esta prenda). Ahora hay ${now}. Vuelve a contar y registra de nuevo.`
+        : m.includes("STOCK_INSUFICIENTE") ? `No alcanza: ahora solo hay ${now} en stock.`
+        : m.includes("SIN_PERMISO") ? "Tu usuario no puede mover stock. Pídeselo a un Administrador."
+        : "No se pudo guardar el stock: " + m);
+      refreshData && refreshData();
+      return false;
+    }
+    const finalStock = Number(data);
     patchCatalog((c) => ({
       ...c,
-      products: c.products.map((p) => p.id !== productId ? p : { ...p, variants: p.variants.map((v) => v.id === variantId ? { ...v, stock: newStock } : v) }),
-      stockMovements: [movement, ...(c.stockMovements || [])],
+      products: c.products.map((p) => p.id !== product.id ? p : { ...p, variants: p.variants.map((v) => v.id === variant.id ? { ...v, stock: Number.isFinite(finalStock) ? finalStock : mv.newStock } : v) }),
     }));
+    return true;
   };
 
 
@@ -6742,6 +6992,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     refreshData && refreshData();
   };
   const saveUnpaidHours = (h) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, unpaidOrderHours: h } }));
+  const saveCartHold = (m) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, cartHoldMinutes: m } }));
   const savePromo = (record) => updateCatalog((c) => { const exists = c.promoCodes.some((p) => p.id === record.id); return { ...c, promoCodes: exists ? c.promoCodes.map((p) => (p.id === record.id ? record : p)) : [...c.promoCodes, record] }; });
   const deletePromo = (id) => { if (confirm("¿Eliminar este código?")) updateCatalog((c) => ({ ...c, promoCodes: c.promoCodes.filter((p) => p.id !== id) })); };
   const updateFulfillment = async (saleId, fulfillment, tracking = null, agency = null) => {
@@ -6821,7 +7072,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
         {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
-        {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} onSave={saveProduct} onCancel={() => setScreen("products")} />}
+        {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => setScreen("products")} />}
         {(role === "administrador" || role === "superadmin") && screen === "banners" && <AdminBannerList banners={catalog.banners} openEditor={(id) => { setEditingBannerId(id); setScreen("bannerEditor"); }} toggleActive={toggleBannerActive} deleteBanner={deleteBanner} />}
         {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}
         {(role === "administrador" || role === "superadmin") && screen === "collections" && <AdminCollectionList collections={catalog.collections} openEditor={(id) => { setEditingCollectionId(id); setScreen("collectionEditor"); }} deleteCollection={deleteCollection} />}
@@ -6832,7 +7083,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {role === "superadmin" && screen === "users" && <AdminUsersScreen currentUserId={currentUserId} />}
         {(role === "administrador" || role === "superadmin") && screen === "complaints" && <AdminComplaintsScreen staffName={staffName} />}
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
-        {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} onCancelUnpaid={role !== "almacen" ? cancelUnpaid : null} onSaveUnpaidHours={isAdminRole ? saveUnpaidHours : null} />}
+        {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} onCancelUnpaid={role !== "almacen" ? cancelUnpaid : null} onSaveUnpaidHours={isAdminRole ? saveUnpaidHours : null} onSaveCartHold={isAdminRole ? saveCartHold : null} />}
       </div>
       {screen !== "manual" && <StaffHelp screen={screen} onOpenManual={() => setScreen("manual")} />}
       <AdminNav screen={screen} setScreen={setScreen} role={role} />
@@ -6840,10 +7091,24 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   );
 };
 
+// ---- Privacidad en equipos compartidos ----
+// Lo personal de la clienta (favoritos, vistos, Club, direcciones, medidas, búsquedas y la cesta) se borra
+// solo tras 1 hora sin usar la tienda, o al cerrar sesión. Así, en un celular prestado o una PC pública,
+// la siguiente persona no ve nada de la anterior.
+const SHOPPER_IDLE_MINUTES = 60;
+const LAST_ACTIVE_KEY = "flyboutique:actividad:v1";
+const PERSONAL_KEYS = [WISHLIST_KEY, VIEWED_KEY, CLUB_KEY, SESSION_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY];
+const readLastActive = () => { try { return Number(localStorage.getItem(LAST_ACTIVE_KEY)) || 0; } catch (e) { return 0; } };
+const markActive = () => { try { localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now())); } catch (e) { /* sin guardado */ } };
+const shopperIsIdle = () => Date.now() - readLastActive() > SHOPPER_IDLE_MINUTES * 60 * 1000;
+const wipePersonalData = () => { PERSONAL_KEYS.forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* nada */ } }); markActive(); };
+
 /* ==================================================================== */
 /*  ============================  APP ROOT  ============================*/
 /* ==================================================================== */
 export default function FlyBoutiqueApp() {
+  // Al abrir: si pasó más de 1 hora sin actividad (o es la primera vez con esta versión), se empieza limpio.
+  const [startedStale] = useState(() => { const stale = shopperIsIdle(); if (stale) wipePersonalData(); else markActive(); return stale; });
   const [catalog, setCatalog] = useState(null);
   const [catalogError, setCatalogError] = useState(false);
   SHOP_SETTINGS = catalog?.settings || {};
@@ -6861,12 +7126,13 @@ export default function FlyBoutiqueApp() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   useEffect(() => {
     const content = document.querySelector(".app-content");
+    let raf = 0;
     const onScroll = () => {
-      const y = window.scrollY || content?.scrollTop || 0;
-      setShowBackToTop(y > 500);
+      if (raf) return; // como máximo una vez por cuadro: el deslizar no se traba
+      raf = requestAnimationFrame(() => { raf = 0; const y = window.scrollY || content?.scrollTop || 0; setShowBackToTop(y > 500); });
     };
-    window.addEventListener("scroll", onScroll);
-    content?.addEventListener("scroll", onScroll);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    content?.addEventListener("scroll", onScroll, { passive: true });
     return () => { window.removeEventListener("scroll", onScroll); content?.removeEventListener("scroll", onScroll); };
   }, [screen]);
   const scrollToTop = () => scrollAllTop(true);
@@ -7028,7 +7294,7 @@ export default function FlyBoutiqueApp() {
     setCatalog((c) => {
       const others = (c.reservations || []).filter((r) => !(r.sessionId === cartSessionId && r.variantId === variantId));
       if (qty <= 0) return { ...c, reservations: others };
-      return { ...c, reservations: [...others, { sessionId: cartSessionId, variantId, qty, expiresAt: Date.now() + RESERVATION_MINUTES * 60 * 1000 }] };
+      return { ...c, reservations: [...others, { sessionId: cartSessionId, variantId, qty, expiresAt: Date.now() + cartHoldMinutes() * 60 * 1000 }] };
     });
   };
   const clearMyReservations = () => {
@@ -7043,18 +7309,21 @@ export default function FlyBoutiqueApp() {
       const existing = prev.find((i) => i.productId === product.id && i.size === size && i.color?.n === color?.n);
       const newQty = existing ? existing.qty + qty : qty;
       syncReservation(variant?.id, newQty);
-      if (existing) return prev.map((i) => (i.cartId === existing.cartId ? { ...i, qty: newQty } : i));
-      return [...prev, { cartId: genId("cart"), productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: colorPhotos(product, color?.n)[0]?.url || mainImageUrl(product), size, color, qty }];
+      const heldUntil = Date.now() + cartHoldMinutes() * 60 * 1000;
+      if (existing) return prev.map((i) => (i.cartId === existing.cartId ? { ...i, qty: newQty, heldUntil } : i));
+      return [...prev, { cartId: genId("cart"), heldUntil, productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: colorPhotos(product, color?.n)[0]?.url || mainImageUrl(product), size, color, qty }];
     });
     // la ficha queda abierta (es una página): solo se avisa con el mensaje
-    showToast("Agregado a tu cesta — reservado por 15 minutos");
+    showToast(`Agregado a tu cesta — te lo apartamos ${cartHoldMinutes()} minutos`);
   };
   const updateQty = (cartId, delta) => setCart((prev) => {
-    const next = prev.map((i) => (i.cartId === cartId ? { ...i, qty: Math.max(1, i.qty + delta) } : i)).filter((i) => i.qty > 0);
+    const next = prev.map((i) => (i.cartId === cartId ? { ...i, qty: Math.max(1, i.qty + delta), heldUntil: Date.now() + cartHoldMinutes() * 60 * 1000 } : i)).filter((i) => i.qty > 0);
     const item = next.find((i) => i.cartId === cartId);
     syncReservation(item?.variantId, item?.qty || 0);
     return next;
   });
+  // Volver a apartar (si venció el tiempo): el servidor solo aparta lo que siga libre.
+  const renewHold = () => setCart((prev) => prev.map((i) => { syncReservation(i.variantId, i.qty); return { ...i, heldUntil: Date.now() + cartHoldMinutes() * 60 * 1000 }; }));
   const removeItem = (cartId) => setCart((prev) => {
     const item = prev.find((i) => i.cartId === cartId);
     if (item) syncReservation(item.variantId, 0);
@@ -7100,7 +7369,7 @@ export default function FlyBoutiqueApp() {
       else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para miembras del Club Fly. Quítalo o regístrate en el Club Fly.");
       else if (m.includes("PROMO_INVALIDA")) alert("Ese código promocional ya no está activo. Quítalo e intenta de nuevo.");
       else if (m.includes("CLUB_DESACTIVADO")) alert("El Club Fly está en pausa: por ahora no se pueden usar puntos. Desactiva \"usar puntos\" para seguir.");
-      else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, entra al Club Fly con Google. Desactiva \"usar puntos\" para seguir sin ellos.");
+      else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, confirma tu cuenta en Club Fly (Google o código al correo). Desactiva \"usar puntos\" para seguir sin ellos.");
       else if (m.includes("PUNTOS")) alert("No pudimos aplicar tus puntos (no alcanzan o cambiaron). Desactiva \"usar puntos\" e intenta de nuevo.");
       else alert("No se pudo registrar tu pedido. Revisa tu conexión e intenta de nuevo.");
       return null;
@@ -7152,11 +7421,13 @@ export default function FlyBoutiqueApp() {
   const googleUser = (u) => {
     if (!u || String(u.email || "").endsWith("@" + STAFF_EMAIL_DOMAIN)) return null;
     const viaGoogle = u.app_metadata?.provider === "google" || (u.app_metadata?.providers || []).includes("google") || (u.identities || []).some((i) => i.provider === "google");
-    return viaGoogle ? { name: u.user_metadata?.full_name || u.user_metadata?.name || "", email: u.email || "" } : null;
+    const viaCode = u.app_metadata?.provider === "email"; // entró con el código que le llegó al correo (el servidor lo confirma)
+    return viaGoogle || viaCode ? { name: u.user_metadata?.full_name || u.user_metadata?.name || "", email: u.email || "", via: viaGoogle ? "google" : "correo" } : null;
   };
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       const g = googleUser(data?.session?.user);
+      if (g && startedStale) { supabase.auth.signOut({ scope: "local" }).catch(() => {}); return; } // sesión vieja de otra persona
       if (g && !clubMember) setGoogleProfile(g);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -7168,7 +7439,7 @@ export default function FlyBoutiqueApp() {
   // Google ya confirmó que es una persona real). El celular se pide recién al comprar.
   useEffect(() => {
     if (!googleProfile?.email) return;
-    if (clubMember && !clubMember.google) return; // ya tiene cuenta manual en este navegador
+    // Si tenía una cuenta solo con datos y ahora confirmó con Google o código, se pasa a la cuenta confirmada.
     if (clubMember?.google && clubMember.email === googleProfile.email && clubMember.phone) return;
     supabase.rpc("register_google_customer").then(({ data: c, error }) => {
       if (error || !c) return; // si falla, queda el formulario normal
@@ -7191,15 +7462,34 @@ export default function FlyBoutiqueApp() {
   };
   // Al cerrar sesión se borra todo lo de esa persona en este equipo (útil en una computadora compartida):
   // vistos, favoritos, cesta, direcciones, medidas y búsquedas.
-  const logoutClub = () => {
-    if (clubMember?.google) { try { supabase.auth.signOut(); } catch (e) { /* sin conexión */ } setGoogleProfile(null); }
+  const logoutClub = (message = "Cerraste sesión. Borramos tu actividad de este equipo.") => {
+    if (clubMember?.google || googleProfile) { try { supabase.auth.signOut(); } catch (e) { /* sin conexión */ } setGoogleProfile(null); }
     setClubMember(null);
-    try { window.storage.delete(CLUB_KEY, false); } catch (e) { /* storage unavailable */ }
-    [WISHLIST_KEY, VIEWED_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY].forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* nada */ } });
-    setFavs(new Set()); setViewedIds([]);
     if (cart.length) { clearMyReservations(); setCart([]); }
-    showToast("Cerraste sesión. Borramos tu actividad de este equipo.");
+    wipePersonalData();
+    const fresh = genId("sess");
+    try { localStorage.setItem(SESSION_KEY, fresh); } catch (e) { /* sin guardado */ }
+    setCartSessionId(fresh);
+    setFavs(new Set()); setViewedIds([]);
+    showToast(message);
   };
+  // 1 hora sin tocar la tienda → se cierra la sesión de la clienta y se borra su actividad de este equipo.
+  const logoutRef = useRef(logoutClub); logoutRef.current = logoutClub;
+  const hasPersonalRef = useRef(false); hasPersonalRef.current = !!(clubMember || googleProfile || favs.size || viewedIds.length || cart.length);
+  useEffect(() => {
+    if (mode !== "store") return undefined;
+    let last = 0;
+    const touch = () => { const t = Date.now(); if (t - last > 30000) { last = t; markActive(); } };
+    const check = () => { if (shopperIsIdle() && hasPersonalRef.current) logoutRef.current("Por tu privacidad cerramos tu sesión tras 1 hora sin actividad."); };
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    ["pointerdown", "keydown", "scroll", "touchstart"].forEach((ev) => window.addEventListener(ev, touch, { passive: true, capture: true }));
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = setInterval(check, 60000);
+    return () => {
+      ["pointerdown", "keydown", "scroll", "touchstart"].forEach((ev) => window.removeEventListener(ev, touch, { capture: true }));
+      document.removeEventListener("visibilitychange", onVisible); clearInterval(timer);
+    };
+  }, [mode]);
 
   const cartCount = useMemo(() => cart.reduce((a, i) => a + i.qty, 0), [cart]);
 
@@ -7279,6 +7569,11 @@ export default function FlyBoutiqueApp() {
         .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
         .app-content { scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        /* Las tarjetas fuera de pantalla no se dibujan hasta acercarse: inicio y catálogo más fluidos en equipos antiguos */
+        .admin-topbar .tb-short { display: none; }
+        @media (max-width: 420px) { .admin-topbar .tb-label { display: none; } .admin-topbar .tb-short { display: inline; } .admin-topbar button[aria-label] { padding: 8px 10px !important; } }
+        .pcard { content-visibility: auto; contain-intrinsic-block-size: auto 460px; }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
         @media print { @page { margin: 8mm; } body * { visibility: hidden !important; } .print-area, .print-area * { visibility: visible !important; } .print-area { position: absolute; left: 0; top: 0; width: 100%; border: none !important; } }
         @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes popIn { from { transform: scale(.97); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -7458,10 +7753,10 @@ export default function FlyBoutiqueApp() {
               {screen === "info" && <InfoScreen sectionIndex={infoSectionIndex} setScreen={setScreen} />}
               {screen === "category" && <CategoryScreen catalog={catalog} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={searchQuery} setSearchQuery={setSearchQuery} group={catalogGroup} setGroup={setCatalogGroup} />}
               {screen === "viewed" && <ViewedScreen catalog={catalog} viewedIds={viewedIds} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} onRemoveViewed={removeFromViewed} setScreen={setScreen} />}
-              {screen === "cart" && <CartScreen cart={cart} updateQty={updateQty} removeItem={removeItem} setScreen={setScreen} culqiPublicKey={catalog.settings?.culqiPublicKey} payAccounts={catalog.settings}
+              {screen === "cart" && <CartScreen cart={cart} onRenewHold={renewHold} updateQty={updateQty} removeItem={removeItem} setScreen={setScreen} culqiPublicKey={catalog.settings?.culqiPublicKey} payAccounts={catalog.settings}
                 promoCodes={catalog.promoCodes} clubMember={clubMember} onConfirmOrder={confirmOnlineOrder} points={points} />}
-              {screen === "loyalty" && <LoyaltyScreen points={points} onRedeem={redeemReward} clubMember={clubMember} onRegister={registerClub} onLogoutClub={logoutClub} onGoogleSignIn={signInWithGoogle} googlePrefill={googleProfile} turnstileSiteKey={(catalog.settings?.turnstileSiteKey || "").trim() || TURNSTILE_SITE_KEY} settings={catalog.settings} />}
-              {screen === "profile" && <ProfileScreen points={points} favCount={favs.size} clubMember={clubMember} onLogoutClub={logoutClub} setScreen={setScreen} catalog={catalog} showInstall={!isStandalone} onInstall={installApp} onCookiePrefs={() => setShowCookieConsent(true)} />}
+              {screen === "loyalty" && <LoyaltyScreen points={points} onRedeem={redeemReward} clubMember={clubMember} onRegister={registerClub} onLogoutClub={() => logoutClub()} onGoogleSignIn={signInWithGoogle} googlePrefill={googleProfile} turnstileSiteKey={(catalog.settings?.turnstileSiteKey || "").trim() || TURNSTILE_SITE_KEY} settings={catalog.settings} />}
+              {screen === "profile" && <ProfileScreen points={points} favCount={favs.size} clubMember={clubMember} onLogoutClub={() => logoutClub()} setScreen={setScreen} catalog={catalog} showInstall={!isStandalone} onInstall={installApp} onCookiePrefs={() => setShowCookieConsent(true)} />}
               {screen === "orders" && <OrdersScreen catalog={catalog} clubMember={clubMember} setScreen={setScreen} />}
               {screen === "favorites" && <FavoritesScreen catalog={catalog} favs={favs} onOpen={openProduct} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} setScreen={setScreen} />}
               {screen === "addresses" && <AddressesScreen setScreen={setScreen} />}
@@ -7472,7 +7767,7 @@ export default function FlyBoutiqueApp() {
               {screen === "home" && !selectedProduct && <InfoFooter socials={catalog.settings?.socials} onOpenInfo={openInfo} onCookiePrefs={() => setShowCookieConsent(true)} onComplaints={() => setScreen("complaints")} onTrack={() => setScreen("track")} />}
             </div>
             <div className="app-ticker" style={{ display: "none" }}><Marquee /></div>
-            <BottomNav favCount={favs.size} screen={selectedProduct ? "" : screen} setScreen={(sc) => { setSelectedProduct(null); if (sc === "category") goCatalog(); else setScreen(sc); }} cartCount={cartCount} onSearch={() => setSearchOpen(true)} cart={cart} clubMember={clubMember} points={points} onLogoutClub={logoutClub}
+            <BottomNav favCount={favs.size} screen={selectedProduct ? "" : screen} setScreen={(sc) => { setSelectedProduct(null); if (sc === "category") goCatalog(); else setScreen(sc); }} cartCount={cartCount} onSearch={() => setSearchOpen(true)} cart={cart} clubMember={clubMember} points={points} onLogoutClub={() => logoutClub()}
               products={catalog.products.filter((p) => p.showOnline !== false)} onOpenProduct={openProduct} onSearchQuery={(q) => goCatalog("Todo", null, q)} onCategory={(cat, group) => goCatalog(cat, group)} />
             {searchOpen && <SearchOverlay products={catalog.products.filter((p) => p.showOnline !== false)} onClose={() => setSearchOpen(false)} onOpenProduct={(p) => { openProduct(p); setSearchOpen(false); }} onSearchAll={(term) => goCatalog(CATEGORY_OPTIONS.includes(term) ? term : "Todo", null, CATEGORY_OPTIONS.includes(term) ? "" : term)} />}
             {toast && <Toast message={toast} />}
