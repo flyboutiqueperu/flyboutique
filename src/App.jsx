@@ -523,6 +523,9 @@ const mediaForColor = (product, colorName) => product.images.find((i) => i.color
 /* ------------------------------------------------------------------ */
 // ---- Outlet: prendas de liquidación a precio final, en su propia sección (no se mezclan con la colección) ----
 const isOutlet = (p) => p?.outlet === true;
+// El Outlet se abre o se pausa en Panel → Configuración. Pausado: sus prendas no se ven ni se venden en la web.
+const outletOn = (settings = SHOP_SETTINGS) => settings?.outletEnabled !== false;
+const webVisible = (p) => p.showOnline !== false && (!isOutlet(p) || outletOn());
 const OUTLET_RULES = ["Precio final: no aplican cupones ni puntos del Club, y no suman puntos.", "El envío lo paga la clienta (no cuenta para el envío gratis).", "Sin cambios ni devoluciones, salvo falla de fábrica."];
 const OutletRules = ({ compact }) => (
   <div style={{ background: C.paperDeep, borderRadius: 10, padding: compact ? "10px 12px" : "12px 14px", fontFamily: FONT_BODY, fontSize: compact ? 11.5 : 12, color: C.inkSoft, lineHeight: 1.55 }}>
@@ -997,7 +1000,7 @@ const ViewedStrip = ({ items, onOpen, onQuickAdd, catalog, cartSessionId, onSeeA
 
 const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCategory, points, notifyMe, viewedIds, onQuickAdd, cartSessionId, onOpenInfo }) => {
   const products = catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p));
-  const outletCount = catalog.products.filter((p) => p.showOnline !== false && isOutlet(p) && !productSoldOut(p)).length;
+  const outletCount = outletOn(catalog.settings) ? catalog.products.filter((p) => p.showOnline !== false && isOutlet(p) && !productSoldOut(p)).length : 0;
   const { banners, collections } = catalog;
   const vistos = (viewedIds || []).map((id) => products.find((p) => p.id === id)).filter(Boolean);
   const nuevos = products.filter((p) => p.tag === "Nuevo" && !productSoldOut(p));
@@ -1156,7 +1159,7 @@ const FilterSheet = ({ allSizes, allColors, sizes, setSizes, colors, setColors, 
 const activeChipStyle = { display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999, border: `1px solid ${C.line}`, background: C.paperDeep, fontFamily: FONT_BODY, fontSize: 11, color: C.ink, cursor: "pointer", whiteSpace: "nowrap" };
 
 const ViewedScreen = ({ catalog, viewedIds, onOpen, favs, onToggleFav, onQuickAdd, cartSessionId, onRemoveViewed, setScreen }) => {
-  const products = catalog.products.filter((p) => p.showOnline !== false);
+  const products = catalog.products.filter(webVisible);
   const vistos = (viewedIds || []).map((id) => products.find((p) => p.id === id)).filter(Boolean);
   return (
     <div style={{ padding: "18px 20px 24px" }}>
@@ -1188,7 +1191,7 @@ const ViewedScreen = ({ catalog, viewedIds, onOpen, favs, onToggleFav, onQuickAd
 
 const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCategory, onOpen, favs, onToggleFav, onQuickAdd, cartSessionId, searchQuery = "", setSearchQuery, group = null, setGroup }) => {
   const [panel, setPanel] = useState(null);
-  const products = catalog.products.filter((p) => p.showOnline !== false && (outlet ? isOutlet(p) : !isOutlet(p)));
+  const products = catalog.products.filter((p) => p.showOnline !== false && (outlet ? isOutlet(p) && outletOn(catalog.settings) : !isOutlet(p)));
   const { collections } = catalog;
   const [sizes, setSizes] = useState(new Set());
   const [colors, setColors] = useState(new Set());
@@ -1240,7 +1243,7 @@ const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCate
         </div>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>{title}</h1>
         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>{filtered.length} {filtered.length === 1 ? "prenda" : "prendas"}{outlet ? " · últimas unidades" : ""}</div>
-        {outlet && <div style={{ marginBottom: 14 }}><OutletRules compact /></div>}
+        {outlet && (outletOn(catalog.settings) ? <div style={{ marginBottom: 14 }}><OutletRules compact /></div> : <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, marginBottom: 14 }}>El Outlet está cerrado por ahora. Vuelve pronto.</div>)}
       </div>
       <div className="filter-bar" style={{ padding: "10px 20px", marginBottom: 12, borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, position: "sticky", top: 88, zIndex: 15, background: C.paper }}>
         <div className="hscroll" style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none" }}>
@@ -3224,7 +3227,7 @@ const SubHeader = ({ title, onBack, children }) => (
 );
 
 const FavoritesScreen = ({ catalog, favs, onOpen, onToggleFav, onQuickAdd, cartSessionId, setScreen }) => {
-  const list = catalog.products.filter((p) => favs.has(p.id) && p.showOnline !== false);
+  const list = catalog.products.filter((p) => favs.has(p.id) && webVisible(p));
   return (
     <div className="page-narrow" style={{ paddingBottom: 20 }}>
       <SubHeader title={`Mis favoritos (${list.length})`} onBack={() => setScreen("profile")}>
@@ -3913,6 +3916,18 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
         <Field label="Google Analytics — ID de medición"><input value={gaId} onChange={(e) => setGaId(e.target.value)} placeholder="G-XXXXXXXXXX" style={inputStyle} /></Field>
         <Field label="Microsoft Clarity — ID del proyecto"><input value={clarityId} onChange={(e) => setClarityId(e.target.value)} placeholder="abcd1234ef" style={inputStyle} /></Field>
         <button onClick={saveStatsIds} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
+      </AdminCard>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Outlet (liquidación)</span>
+        <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+          <Switch on={outletOn(catalog.settings)} label={outletOn(catalog.settings) ? "Outlet abierto en la web" : "Outlet cerrado (pausado)"} onClick={() => {
+            const turnOff = outletOn(catalog.settings);
+            if (!confirm(turnOff ? "¿Cerrar el Outlet? Sus prendas dejan de verse y venderse en la web (en la tienda física se pueden seguir vendiendo). Nada se borra." : "¿Abrir el Outlet? Las prendas marcadas como Outlet vuelven a verse en su sección.")) return;
+            updateCatalog((c) => ({ ...c, settings: { ...c.settings, outletEnabled: !turnOff } }));
+          }} />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 4 }}>{catalog.products.filter(isOutlet).length} prendas marcadas como Outlet. Se marcan una por una en Productos → editar → «Outlet».</div>
+        </div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6 }}>Ideal para liquidar a precio de costo sin mezclarlo con la colección: precio final, sin cupones ni puntos, envío a cargo de la clienta y sin cambios (salvo falla de fábrica).</div>
       </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}>
         <span style={labelStyle}>Programa de puntos (Club Fly)</span>
@@ -7434,6 +7449,7 @@ export default function FlyBoutiqueApp() {
   };
 
   const addToCart = (product, size, color, qty) => {
+    if (isOutlet(product) && !outletOn(catalog?.settings)) { showToast("El Outlet está cerrado por ahora"); return; }
     track("add_to_cart", { currency: "PEN", value: product.price * qty, items: [gaItem(product, { item_variant: `${size} / ${color?.n || ""}`, quantity: qty })] });
     const variant = product.variants.find((v) => v.size === size && v.colorName === color?.n);
     setCart((prev) => {
@@ -7494,7 +7510,8 @@ export default function FlyBoutiqueApp() {
     const { data, error } = await supabase.rpc("place_order", { p_sale: payload, p_session: cartSessionId || "" });
     if (error) {
       const m = error.message || "";
-      if (m.includes("SIN_STOCK")) alert(`Lo sentimos, "${m.split("SIN_STOCK:")[1] || "una prenda"}" ya no tiene stock suficiente. Ajusta tu cesta.`);
+      if (m.includes("OUTLET_CERRADO")) alert(`"${m.split("OUTLET_CERRADO:")[1] || "Una prenda"}" es del Outlet, que está cerrado por ahora. Quítala de tu cesta para continuar.`);
+      else if (m.includes("SIN_STOCK")) alert(`Lo sentimos, "${m.split("SIN_STOCK:")[1] || "una prenda"}" ya no tiene stock suficiente. Ajusta tu cesta.`);
       else if (m.includes("PRECIO_CAMBIO")) alert("El precio de una prenda cambió. Recarga la página para ver el precio actualizado.");
       else if (m.includes("TOTAL_CAMBIO")) alert("El total de tu pedido cambió (precio, descuento o envío). Recarga la página e intenta de nuevo.");
       else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para miembras del Club Fly. Quítalo o regístrate en el Club Fly.");
@@ -7652,7 +7669,7 @@ export default function FlyBoutiqueApp() {
       restoringRef.current = true;
       const [path, query] = h.slice(2).split("?");
       const parts = path.split("/");
-      if (parts[0] === "p" && parts[1]) { const p = catalogRef.current?.products.find((x) => x.id === decodeURIComponent(parts[1])); if (p) { setSelectedProduct(p); return; } }
+      if (parts[0] === "p" && parts[1]) { const p = catalogRef.current?.products.find((x) => x.id === decodeURIComponent(parts[1])); if (p && webVisible(p)) { setSelectedProduct(p); return; } }
       setSelectedProduct(null);
       if (parts[0] === "catalogo") { setActiveCategory(parts[1] ? decodeURIComponent(parts[1]) : "Todo"); setSearchQuery(query && query.startsWith("q=") ? decodeURIComponent(query.slice(2)) : ""); setScreen("category"); return; }
       setScreen(parts[0] || "home");
@@ -7900,7 +7917,7 @@ export default function FlyBoutiqueApp() {
             </div>
             <div className="app-ticker" style={{ display: "none" }}><Marquee /></div>
             <BottomNav favCount={favs.size} screen={selectedProduct ? "" : screen} setScreen={(sc) => { setSelectedProduct(null); if (sc === "category") goCatalog(); else setScreen(sc); }} cartCount={cartCount} onSearch={() => setSearchOpen(true)} cart={cart} clubMember={clubMember} points={points} onLogoutClub={() => logoutClub()}
-              hasOutlet={catalog.products.some((p) => p.showOnline !== false && isOutlet(p))} products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onOpenProduct={openProduct} onSearchQuery={(q) => goCatalog("Todo", null, q)} onCategory={(cat, group) => goCatalog(cat, group)} />
+              hasOutlet={outletOn(catalog.settings) && catalog.products.some((p) => p.showOnline !== false && isOutlet(p))} products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onOpenProduct={openProduct} onSearchQuery={(q) => goCatalog("Todo", null, q)} onCategory={(cat, group) => goCatalog(cat, group)} />
             {searchOpen && <SearchOverlay products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onClose={() => setSearchOpen(false)} onOpenProduct={(p) => { openProduct(p); setSearchOpen(false); }} onSearchAll={(term) => goCatalog(CATEGORY_OPTIONS.includes(term) ? term : "Todo", null, CATEGORY_OPTIONS.includes(term) ? "" : term)} />}
             {toast && <Toast message={toast} />}
             {showCookieConsent && <CookieConsent current={cookieChoice} onSave={resolveCookieConsent} onOpenPolicy={() => { setShowCookieConsent(false); openInfo(FOOTER_SECTIONS.findIndex((x) => x.title.startsWith("Seguridad"))); }} />}

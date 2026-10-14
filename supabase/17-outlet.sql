@@ -5,6 +5,7 @@
 --   - Los cupones no aplican a prendas Outlet.
 --   - No se pueden usar puntos del Club para pagarlas y no suman puntos.
 --   - No cuentan para el envío gratis (el envío lo paga la clienta).
+--   - Si el Outlet está pausado (Panel → Configuración), sus prendas no se venden por la web.
 --  Las prendas se marcan como Outlet en Panel → Productos (campo "outlet" del catálogo; no hay tabla nueva).
 --  No borra datos. Para volver atrás: 17-outlet-VOLVER-ATRAS.sql
 -- =====================================================================
@@ -197,6 +198,8 @@ begin
       from jsonb_array_elements(d->'products') with ordinality p(val, ord), jsonb_array_elements(p.val->'variants') with ordinality v(val, ord)
      where v.val->>'id' = it->>'variantId' limit 1;
     if pidx is null or st < qty then raise exception 'SIN_STOCK:%', it->>'name'; end if;
+    -- Outlet pausado en Panel → Configuración: no se vende por la web
+    if is_out and coalesce(d->'settings'->>'outletEnabled', 'true') = 'false' then raise exception 'OUTLET_CERRADO:%', it->>'name'; end if;
     if pr is distinct from public.fly_num(it->>'unitPrice') then raise exception 'PRECIO_CAMBIO:%', it->>'name'; end if;
     d := jsonb_set(d, array['products', pidx::text, 'variants', vidx::text, 'stock'], to_jsonb(st - qty));
     sub := sub + pr * qty;
