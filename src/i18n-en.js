@@ -1,5 +1,7 @@
 // Traducciones de la tienda al inglés (español → inglés). Si falta una, se muestra en español.
 const EN = {
+ "Reproducir video": "Play video",
+ "Banner": "Banner",
  " Termina lo que estás haciendo y actualiza.": " Finish what you're doing and update.",
  " y el número de operación": " and the transaction number",
  "(agotado)": "(sold out)",

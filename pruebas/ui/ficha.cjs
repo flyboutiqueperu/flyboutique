@@ -11,7 +11,7 @@ const prod = { id: "p1", name: "Vestido Lino", slug: "p1", category: "Vestidos",
 const catalog = { products: [prod], collections: [], banners: [], settings: {}, promoCodes: [] };
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));
   await p.route("http://fake.supabase.test/**", (rt) => rt.request().url().includes("store_data") ? rt.fulfill({ json: { data: catalog } }) : rt.fulfill({ json: [] }));
@@ -23,12 +23,14 @@ const catalog = { products: [prod], collections: [], banners: [], settings: {}, 
   console.log("1) Negro M cantidad:", (await txt()).match(/Cantidad\s*(\d)/)?.[1]);
   await p.getByRole("button", { name: "Rojo", exact: true }).first().click(); await p.waitForTimeout(200);
   let t = await txt();
-  console.log("2) Rojo: aviso:", t.includes("La talla M no está disponible en Rojo"), "| talla:", t.match(/Talla: ([^\n]+)/)?.[1], "| botón:", t.includes("Elige una talla"));
-  const disabled = await p.locator("button:has-text('Elige una talla')").first().isDisabled();
-  console.log("3) botón deshabilitado:", disabled);
+  console.log("2) Rojo: aviso:", t.includes("La talla M no está disponible en Rojo"), "| talla:", t.match(/Talla: ([^\n]+)/)?.[1], "| botón:", /elige una talla/i.test(t));
+  const guide = p.locator(".pdp-buybar button");
+  console.log("3) botón «Elige una talla» activo (lleva a las tallas):", await guide.isEnabled());
+  await guide.click(); await p.waitForTimeout(150);
+  console.log("3b) al tocarlo, las tallas palpitan:", await p.evaluate(() => !!document.querySelector(".size-nudge")));
   await p.locator("button", { hasText: /^S$/ }).first().click(); await p.waitForTimeout(200);
   t = await txt();
-  console.log("4) Rojo S: cantidad", t.match(/Cantidad\s*(\d)/)?.[1], "| agregar:", t.includes("Agregar a la cesta"), "| aviso borrado:", !t.includes("no está disponible en Rojo"));
+  console.log("4) Rojo S: cantidad", t.match(/Cantidad\s*(\d)/)?.[1], "| agregar:", /agregar a la cesta/i.test(t), "| aviso borrado:", !t.includes("no está disponible en Rojo"));
   await p.getByRole("button", { name: "Negro", exact: true }).first().click(); await p.waitForTimeout(200);
   console.log("5) volver a Negro mantiene S:", (await txt()).match(/Talla: ([^\n]+)/)?.[1]);
   await p.screenshot({ path: `${out}/ficha-color.png` });

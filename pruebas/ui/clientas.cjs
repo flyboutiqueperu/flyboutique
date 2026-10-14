@@ -19,7 +19,7 @@ const SALES = [{ data: { id: "s1", serie: "B001", numero: 1, status: "emitido", 
 const calls = [];
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, acceptDownloads: true });
+  const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, acceptDownloads: true });
   await ctx.addInitScript(() => { localStorage.setItem("flyboutique:cookieconsent:v1", "none"); window.turnstile = { render: (el, o) => { setTimeout(() => o.callback("tok"), 50); return "w1"; }, remove() {}, reset() {} }; });
   const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));
   await p.route("http://fake.supabase.test/**", async (rt) => {

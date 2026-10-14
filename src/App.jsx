@@ -597,12 +597,15 @@ const UpdateBanner = ({ staff }) => {
   );
 };
 
-const ProductImg = ({ src, alt, style, dim }) => {
+const ProductImg = ({ src, alt, style, dim, priority }) => {
   // Intentos: miniatura → foto original → un reintento (internet lento o cortado) → logo FLY
   const [cur, setCur] = useState(src);
   const [tries, setTries] = useState(0);
   const [broken, setBroken] = useState(false);
-  useEffect(() => { setCur(src); setTries(0); setBroken(false); }, [src]);
+  const [loaded, setLoaded] = useState(false); // mientras carga se ve un brillo gris; al llegar aparece suave
+  const ref = useRef(null);
+  useEffect(() => { setCur(src); setTries(0); setBroken(false); setLoaded(false); }, [src]);
+  useEffect(() => { if (ref.current?.complete && ref.current.naturalWidth) setLoaded(true); }, [cur]); // ya estaba en caché
   const onError = () => {
     const orig = THUMB_ORIGINAL.get(cur);
     if (orig && orig !== cur) { setCur(orig); return; }
@@ -612,7 +615,37 @@ const ProductImg = ({ src, alt, style, dim }) => {
   if (!cur || broken) {
     return <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center", background: C.paperDeep }}><BadgeLogo size={30} /></div>;
   }
-  return <img src={cur} alt={alt} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }} onError={onError} loading="lazy" decoding="async" />;
+  return <img ref={ref} src={cur} alt={alt} className={loaded ? "fimg is-loaded" : "fimg"} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }}
+    onLoad={() => setLoaded(true)} onError={onError} loading={priority ? "eager" : "lazy"} fetchpriority={priority ? "high" : "auto"} decoding="async" />;
+};
+
+// Video que solo se reproduce cuando está en pantalla (ahorra datos y batería). Con «ahorro de datos» espera a que lo toquen.
+const saveData = () => { try { return !!navigator.connection?.saveData; } catch { return false; } };
+const SmartVideo = ({ src, poster, style, active = true }) => {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [manual] = useState(saveData);
+  const [play, setPlay] = useState(!manual);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { threshold: 0.25 });
+    io.observe(el); return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    if (visible && active && play) el.play?.()?.catch?.(() => {}); else el.pause?.();
+  }, [visible, active, play]);
+  return (
+    <div className={ready ? "fvid is-loaded" : "fvid"} style={{ position: "relative", width: "100%", height: "100%", ...style }}>
+      <video ref={ref} src={src} poster={poster || undefined} muted loop playsInline preload={visible || !manual ? "metadata" : "none"} onLoadedData={() => setReady(true)}
+        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      {!play && <button onClick={() => setPlay(true)} aria-label={t("Reproducir video")} style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer" }}>
+        <span style={{ width: 54, height: 54, borderRadius: "50%", background: "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center" }}><Play size={22} color={C.ink} fill={C.ink} style={{ marginLeft: 3 }} /></span>
+      </button>}
+    </div>
+  );
 };
 
 /* ------------------------------------------------------------------ */
@@ -640,8 +673,8 @@ const Tag = ({ label }) => {
   if (!s) return null;
   return <span style={{ position: "absolute", top: 10, left: 10, background: s.bg, color: s.fg, border: `1px solid ${s.border}`, fontFamily: FONT_BODY, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", padding: "4px 8px", borderRadius: 3, fontWeight: 600, zIndex: 2 }}>{t(label)}</span>;
 };
-const PrimaryButton = ({ children, onClick, dark = true, style, disabled }) => (
-  <button onClick={onClick} disabled={disabled} style={{ fontFamily: FONT_BODY, fontSize: 12.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600,
+const PrimaryButton = ({ children, onClick, dark = true, style, disabled, className }) => (
+  <button onClick={onClick} disabled={disabled} className={className} style={{ fontFamily: FONT_BODY, fontSize: 12.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600,
     background: disabled ? C.line : dark ? C.ink : "transparent", color: disabled ? C.stone : dark ? C.paper : C.ink, border: dark ? "none" : `1px solid ${C.ink}`,
     padding: "14px 22px", borderRadius: 9, cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", ...style }}>{children}</button>
 );
@@ -791,7 +824,7 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
           <div style={{ position: "relative" }}>
             <Icon size={20} strokeWidth={active ? 2.1 : 1.5} color={active ? C.ink : C.stone} />
             {key === "favorites" && favCount > 0 && <span style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{favCount}</span>}
-            {key === "cart" && cartCount > 0 && <span style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{cartCount}</span>}
+            {key === "cart" && cartCount > 0 && <span key={cartCount} className="badge-bump" style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{cartCount}</span>}
           </div>
           <span className="nav-label" style={{ fontFamily: FONT_BODY, fontSize: 10, color: active ? C.ink : C.stone, fontWeight: active ? 600 : 400 }}>{t(label)}</span>
         </button>
@@ -1081,6 +1114,59 @@ const ViewedStrip = ({ items, onOpen, onQuickAdd, catalog, cartSessionId, onSeeA
   );
 };
 
+// Portada: los banners activos rotan solos con fundido (cada 6 s), se pueden deslizar con el dedo o tocar los puntitos.
+// Solo se cargan el banner visible y el siguiente; la rotación se pausa si la portada no se ve o la app está en segundo plano.
+const HeroCarousel = ({ banners, onCta }) => {
+  const [idx, setIdx] = useState(0);
+  const [seen, setSeen] = useState(() => new Set([0, 1]));
+  const [visible, setVisible] = useState(true);
+  const boxRef = useRef(null);
+  const touch = useRef(null);
+  const n = banners.length;
+  const go = (i) => { const k = (i + n) % n; setIdx(k); setSeen((s) => (s.has(k) && s.has((k + 1) % n) ? s : new Set([...s, k, (k + 1) % n]))); };
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { threshold: 0.3 });
+    io.observe(el); return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    if (n < 2 || !visible) return;
+    const tm = setTimeout(() => { if (!document.hidden) go(idx + 1); }, 6000);
+    return () => clearTimeout(tm);
+  }, [idx, n, visible]);
+  const cur = banners[idx] || banners[0];
+  return (
+    <div ref={boxRef} className="hero" style={{ position: "relative", marginBottom: 30, height: "min(60vh, 560px)", minHeight: 360, overflow: "hidden", background: C.paperDeep, touchAction: "pan-y" }}
+      onTouchStart={(e) => { touch.current = e.touches[0].clientX; }}
+      onTouchEnd={(e) => { if (touch.current == null || n < 2) return; const dx = e.changedTouches[0].clientX - touch.current; touch.current = null; if (Math.abs(dx) > 45) go(idx + (dx < 0 ? 1 : -1)); }}>
+      {banners.map((b, i) => seen.has(i) && (
+        <div key={b.id} aria-hidden={i !== idx} style={{ position: "absolute", inset: 0, opacity: i === idx ? 1 : 0, transition: "opacity .9s ease", zIndex: i === idx ? 1 : 0 }}>
+          <div className={i === idx ? "hero-zoom" : ""} style={{ position: "absolute", inset: 0 }}>
+            {b.videoUrl
+              ? <SmartVideo src={b.videoUrl} poster={b.image} active={i === idx && visible} />
+              : <ProductImg src={b.image} alt={b.title} priority={i === 0} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+          </div>
+        </div>
+      ))}
+      <div style={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none", background: `linear-gradient(0deg, ${C.scrim}CC 0%, ${C.scrim}10 42%, transparent 68%)` }} />
+      <div key={cur.id} style={{ position: "absolute", left: 20, right: 20, bottom: 28, zIndex: 3, animation: "slideUp .6s ease" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, color: C.white, fontWeight: 800, lineHeight: 1.02, letterSpacing: "-0.01em", marginBottom: 14 }}>{cur.title}</div>
+        <button className="cta-glow" onClick={() => onCta(cur)} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: C.white, border: `1px solid ${C.white}`, padding: "12px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>{cur.ctaLabel ? (getLang() === "en" && cur.ctaLabelEn) || cur.ctaLabel : t("Ver colección")} <ChevronRight size={14} /></button>
+      </div>
+      {n > 1 && (
+        <div style={{ position: "absolute", bottom: 6, right: 12, display: "flex", gap: 2, zIndex: 3 }}>
+          {banners.map((b, i) => (
+            <button key={b.id} onClick={() => go(i)} aria-label={`${t("Banner")} ${i + 1}`} style={{ padding: "8px 3px", background: "none", border: "none", cursor: "pointer", display: "flex" }}>
+              <span style={{ width: i === idx ? 18 : 6, height: 5, borderRadius: 999, background: i === idx ? C.white : `${C.white}77`, transition: "width .35s ease, background .35s ease" }} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCategory, points, notifyMe, viewedIds, onQuickAdd, cartSessionId, onOpenInfo }) => {
   const products = catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p));
   const outletCount = outletOn(catalog.settings) ? catalog.products.filter((p) => p.showOnline !== false && isOutlet(p) && !productSoldOut(p)).length : 0;
@@ -1099,32 +1185,16 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
   const hero = activeBanners[0];
   const featuredCollections = collections.filter((c) => c.featured).sort((a, b) => a.order - b.order);
 
-  const heroTarget = () => {
-    if (!hero) return setScreen("category");
-    if (hero.ctaType === "category" && hero.ctaValue && hero.ctaValue !== "Todo") { setActiveCategory(hero.ctaValue); setScreen("category"); }
+  const heroTarget = (b = hero) => {
+    if (!b) return setScreen("category");
+    if (b.ctaType === "category" && b.ctaValue && b.ctaValue !== "Todo") { setActiveCategory(b.ctaValue); setScreen("category"); }
     else setScreen("category");
   };
 
   return (
     <div style={{ paddingBottom: 12 }}>
       {hero ? (
-        <div className="hero" style={{ position: "relative", marginBottom: 30, height: "min(60vh, 560px)", minHeight: 360, overflow: "hidden" }}>
-          {hero.videoUrl ? (
-            <video src={hero.videoUrl} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-          ) : (
-            <ProductImg src={hero.image} alt={hero.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-          )}
-          <div style={{ position: "absolute", inset: 0, background: `linear-gradient(0deg, ${C.scrim}CC 0%, ${C.scrim}10 42%, transparent 68%)` }} />
-          <div style={{ position: "absolute", left: 20, right: 20, bottom: 28 }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, color: C.white, fontWeight: 800, lineHeight: 1.02, letterSpacing: "-0.01em", marginBottom: 14 }}>{hero.title}</div>
-            <button onClick={heroTarget} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: C.white, border: `1px solid ${C.white}`, padding: "12px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>{hero.ctaLabel ? (getLang() === "en" && hero.ctaLabelEn) || hero.ctaLabel : t("Ver colección")} <ChevronRight size={14} /></button>
-          </div>
-          {activeBanners.length > 1 && (
-            <div style={{ position: "absolute", bottom: 10, right: 20, display: "flex", gap: 5 }}>
-              {activeBanners.map((b, i) => <div key={b.id} style={{ width: i === 0 ? 14 : 5, height: 5, borderRadius: 999, background: i === 0 ? C.white : `${C.white}66` }} />)}
-            </div>
-          )}
-        </div>
+        <HeroCarousel banners={activeBanners} onCta={heroTarget} />
       ) : (
         <div style={{ margin: "0 20px 30px", padding: 30, textAlign: "center", border: `1px dashed ${C.line}`, borderRadius: 12 }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{t("Aún no hay un banner activo. Agrégalo desde el panel admin.")}</div>
@@ -1649,10 +1719,10 @@ const ProductGallery = ({ items, alt, dim }) => {
           {items.map((m, i) => (
             <div key={m.id || i} className="pdp-slide" style={{ flex: "0 0 100%", width: "100%", scrollSnapAlign: "start", aspectRatio: "3/4", alignSelf: "flex-start", background: C.paperDeep, position: "relative", overflow: "hidden" }}>
               {m.type === "video" ? (
-                <video src={m.url} autoPlay muted loop playsInline style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", filter: dim ? "grayscale(1)" : "none", opacity: dim ? 0.5 : 1 }} />
+                <SmartVideo src={m.url} active={idx === i} style={{ position: "absolute", inset: 0, filter: dim ? "grayscale(1)" : "none", opacity: dim ? 0.5 : 1 }} />
               ) : (
                 <button onClick={() => !dim && setViewer(items.filter((x) => x.type !== "video").findIndex((x) => x.url === m.url))} aria-label={t("Ver foto en grande")} style={{ position: "absolute", inset: 0, padding: 0, border: "none", background: "none", cursor: dim ? "default" : "zoom-in" }}>
-                  <ProductImg src={m.url} alt={alt} dim={dim} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  <ProductImg src={m.url} alt={alt} dim={dim} priority={i === 0} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                   {!dim && <span style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY, fontSize: 10.5, color: C.ink }}><Search size={11} /> <span className="hint-touch">{t("Toca para ampliar")}</span><span className="hint-mouse">{t("Clic para ampliar")}</span></span>}
                 </button>
               )}
@@ -1845,7 +1915,13 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
   const lookItems = look ? look.productIds.filter((id) => id !== product.id).map((id) => allProducts.find((p) => p.id === id)).filter(Boolean) : [];
 
   const buyLabel = soldOut ? "Agotado" : canAdd ? t("Agregar a la cesta") : !size ? t("Elige una talla") : t("Sin stock en esta talla");
-  const addNow = () => { if (canAdd) onAdd(product, size, color, qty); };
+  const needSize = !soldOut && !size;
+  const sizesRef = useRef(null);
+  const [nudge, setNudge] = useState(0);
+  const addNow = () => {
+    if (canAdd) { onAdd(product, size, color, qty); return; }
+    if (needSize) { sizesRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); setNudge((x) => x + 1); }
+  };
 
   return (
     <div className="pdp-page">
@@ -1931,7 +2007,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                   <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{t("Talla:")} <strong style={{ fontWeight: 600 }}>{size || t("elige una")}</strong></div>
                   <button onClick={() => setShowSizeGuide(true)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", padding: 0 }}>{recSize ? t("Guía de tallas") : t("¿Dudas con la talla?")}</button>
                 </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div ref={sizesRef} key={nudge} className={nudge ? "size-nudge" : ""} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {sizes.map((s) => {
                     const sStock = effectiveVariantStock(s, color?.n);
                     const active = size === s;
@@ -1965,7 +2041,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           )}
 
           <div className="pdp-inline-buy" style={{ display: "none", marginBottom: 20 }}>
-            <PrimaryButton disabled={!canAdd} onClick={addNow}><ShoppingBag size={16} /> {canAdd ? `${buyLabel} · ${money(product.price * qty)}` : buyLabel}</PrimaryButton>
+            <PrimaryButton key={canAdd ? "ok" : "no"} className={canAdd ? "btn-ready" : ""} disabled={!canAdd && !needSize} onClick={addNow}><ShoppingBag size={16} /> {canAdd ? `${buyLabel} · ${money(product.price * qty)}` : buyLabel}</PrimaryButton>
           </div>
 
           {isOutlet(product) && <div style={{ marginBottom: 18 }}><OutletRules compact /></div>}
@@ -2045,7 +2121,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: discountPct ? C.accent : C.ink }}>{money(product.price * qty)}</div>
           {!soldOut && size && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{t("Talla")} {size}{color ? `, ${t(color.n)}` : ""}</div>}
         </div>
-        <PrimaryButton disabled={!canAdd} onClick={addNow} style={{ flex: 1, width: "auto", padding: "14px 16px" }}><ShoppingBag size={16} /> {buyLabel}</PrimaryButton>
+        <PrimaryButton key={canAdd ? "ok" : "no"} className={canAdd ? "btn-ready" : ""} disabled={!canAdd && !needSize} onClick={addNow} style={{ flex: 1, width: "auto", padding: "14px 16px" }}><ShoppingBag size={16} /> {buyLabel}</PrimaryButton>
       </div>
 
       {showSizeGuide && createPortal(<SizeGuideModal category={t(product.category)} onClose={() => setShowSizeGuide(false)} onRecommend={(r) => { setRecSize(r); if (r && sizes.includes(r) && effectiveVariantStock(r, color?.n) > 0) pickSize(r); }} />, document.body)}
@@ -2552,7 +2628,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
       {paymentMethod === "Tarjeta" ? (
         <PrimaryButton onClick={payWithCulqi} disabled={culqiLoading}><CreditCard size={16} /> {culqiLoading ? t("Abriendo…") : t("Pagar con tarjeta (Culqi)")}</PrimaryButton>
       ) : (
-        <PrimaryButton onClick={confirmManualPayment} disabled={!canPlaceManual || placing}><MessageCircle size={16} /> {placing ? t("Registrando tu pedido…") : t("Confirmar pedido por WhatsApp")}</PrimaryButton>
+        <PrimaryButton key={canPlaceManual ? "ok" : "no"} className={canPlaceManual && !placing ? "btn-ready" : ""} onClick={confirmManualPayment} disabled={!canPlaceManual || placing}><MessageCircle size={16} /> {placing ? t("Registrando tu pedido…") : t("Confirmar pedido por WhatsApp")}</PrimaryButton>
       )}
       {!canPlaceManual && paymentMethod !== "Tarjeta" && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 8, textAlign: "center" }}>{t("Completa tu nombre, celular")}{deliveryMethod !== "recojo" ? t(", dirección") : ""}{needsOp ? t(" y el número de operación") : ""} {t("para continuar.")}</div>}
     </div>
@@ -9391,6 +9467,30 @@ export default function FlyBoutiqueApp() {
         .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
         .app-content { scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        /* Fotos y videos: brillo gris mientras cargan, aparición suave al llegar */
+        @keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+        @keyframes imgIn { from { opacity: 0; } }
+        .fimg:not(.is-loaded), .fvid:not(.is-loaded) { background: linear-gradient(100deg, ${C.paperDeep} 30%, ${C.line} 50%, ${C.paperDeep} 70%) !important; background-size: 200% 100% !important; animation: shimmer 1.4s linear infinite; }
+        .fimg.is-loaded { animation: imgIn .45s ease; }
+        .fvid.is-loaded video { animation: imgIn .6s ease; }
+        /* Portada: acercamiento lento del banner visible (efecto «Ken Burns») y botón que late suave */
+        @keyframes heroZoom { from { transform: scale(1); } to { transform: scale(1.06); } }
+        .hero-zoom { animation: heroZoom 7s ease-out forwards; }
+        @keyframes ctaGlow { 0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } 80% { box-shadow: 0 0 0 0 rgba(255,255,255,.55); } 95% { box-shadow: 0 0 0 10px rgba(255,255,255,0); } }
+        .cta-glow { animation: ctaGlow 3.2s ease-out 1.2s infinite; }
+        /* Botón listo para comprar: un destello que lo recorre y un latido suave */
+        @keyframes btnShine { from { transform: translateX(-120%) skewX(-20deg); } to { transform: translateX(260%) skewX(-20deg); } }
+        @keyframes btnPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.025); } }
+        .btn-ready { position: relative; overflow: hidden; animation: btnPulse .55s ease 2; }
+        .btn-ready::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent); animation: btnShine 1.1s ease .15s 1 both; pointer-events: none; }
+        /* Falta la talla: las tallas palpitan para mostrar dónde tocar */
+        @keyframes nudge { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(3px); } }
+        @keyframes ring { 0% { box-shadow: 0 0 0 0 ${C.ink}55; } 100% { box-shadow: 0 0 0 9px ${C.ink}00; } }
+        .size-nudge { animation: nudge .5s ease; }
+        .size-nudge > button:not(:disabled) { animation: ring .9s ease-out 2; }
+        /* Cesta: el número salta cuando se añade algo */
+        @keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.5); } 100% { transform: scale(1); } }
+        .badge-bump { animation: bump .45s ease; }
         /* Las tarjetas fuera de pantalla no se dibujan hasta acercarse: inicio y catálogo más fluidos en equipos antiguos */
         .admin-topbar .tb-short { display: none; }
         @media (max-width: 420px) { .admin-topbar .tb-label { display: none; } .admin-topbar .tb-short { display: inline; } .admin-topbar button[aria-label] { padding: 8px 10px !important; } }

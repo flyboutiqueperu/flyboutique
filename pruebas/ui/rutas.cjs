@@ -8,7 +8,7 @@ const catalog = { products: [mk("p1", "Vestido Lino", 100), mk("p2", "Blusa Arch
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   for (const [label, vp] of [["celular", { width: 390, height: 844 }], ["pc", { width: 1366, height: 860 }]]) {
-    const ctx = await b.newContext({ viewport: vp, isMobile: label === "celular" });
+    const ctx = await b.newContext({ locale: "es-PE", viewport: vp, isMobile: label === "celular" });
     await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
     const p = await ctx.newPage();
     p.on("pageerror", (e) => console.log("ERROR EN PÁGINA:", e.message));

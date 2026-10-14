@@ -58,6 +58,7 @@ Este archivo se lee al inicio de cada sesión de Claude Code. Contiene: (1) regl
 - Fase 4: Club (código al correo y contraseña), Outlet, entrega con mapa y distritos (INEI), selector talla/color que no deja elegir combinaciones inexistentes, zoom de fotos en móvil, miniaturas («Optimizar fotos»), carga por partes.
 - Apps: tienda y «Fly Staff» instalables; aviso «Hay una versión nueva»; barra inferior con «Inicio».
 - PR #20: tienda en **ES | EN** + este kit de pruebas.
+- Fluidez: fotos con brillo gris mientras cargan y aparición suave (`ProductImg`, prioridad en portada y 1.ª foto), `SmartVideo` (solo se reproduce visible; con ahorro de datos espera un toque), portada `HeroCarousel` (rota cada 6 s con fundido, se desliza, puntitos), guías: «Elige una talla» lleva a las tallas y palpitan, botón listo brilla (`btn-ready`), la cesta salta. Prueba: `pruebas/ui/fluidez.cjs`.
 - Pantalla **«Compras»** (Más → Compras a proveedores): proveedores, registrar compra (suma stock en la sede + costo promedio, reintento sin duplicar) y anular. Prueba: `pruebas/ui/compras.cjs`.
 
 **SQL:** del 08 al 22, Alberto dijo haberlos corrido (para confirmarlo, usar consultas de solo lectura). El 23 (compras/proveedores) ya está en la página «Copiar SQL» junto con su pantalla. Si no se corrió, la pantalla avisa «Falta correr el SQL 23».

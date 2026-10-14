@@ -10,7 +10,7 @@ const catalog = { settings0: 1, products: [{ id: "p1", name: "Blusa Seda", slug:
 let cash = null; const calls = [];
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-  const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
+  const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 1280, height: 860 } });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage();
   p.on("pageerror", (e) => console.log("ERROR EN PÁGINA:", e.message));
