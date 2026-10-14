@@ -2,6 +2,11 @@ import "./storage-shim.js";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
+// Atajos fáciles de escribir: /staff y /caja abren el panel (mismo que /#staff y /#caja)
+{
+  const m = window.location.pathname.toLowerCase().replace(/\/+$/, "").match(/^\/(staff|caja)(\/[a-z]+)?$/);
+  if (m) window.history.replaceState(null, "", m[1] === "caja" ? "/#caja" : `/#staff${m[2] || ""}`);
+}
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode><App /></React.StrictMode>
 );

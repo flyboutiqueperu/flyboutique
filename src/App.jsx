@@ -5,7 +5,7 @@ import {
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
-  MessageCircle, Download, FileSpreadsheet, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
+  MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import JsBarcode from "jsbarcode";
@@ -271,13 +271,14 @@ async function loadCatalog() {
 async function loadPrivateData() {
   const [sales, customers, priv] = await Promise.all([
     supabase.from("sales").select("data").order("created_at", { ascending: false }).limit(3000),
-    supabase.from("customers").select("data"),
+    supabase.from("customers").select("phone,data"),
     supabase.from("store_private").select("data").eq("id", "main").maybeSingle(),
   ]);
   if (sales.error) throw sales.error;
   return {
     sales: (sales.data || []).map((r) => r.data),
-    customers: (customers.data || []).map((r) => r.data),
+    // Las cuentas de Google sin celular guardan el celular vacío: se usa la clave de la fila (g:correo)
+    customers: (customers.data || []).map((r) => (r.data?.phone ? r.data : { ...r.data, phone: r.phone })),
     stockMovements: priv.data?.data?.stockMovements || [],
   };
 }
@@ -2470,7 +2471,44 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         })()}
         {!clubMember.phone && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>Tu cuenta se activa para puntos con tu primera compra (al dar tu celular).</div>}
       </div>
+      <MarketingConsentBox verified={!!clubMember.google} />
       {clubMember.google && googlePrefill && <ClubPasswordBox />}
+    </div>
+  );
+};
+
+// Permiso para recibir publicidad (Ley 29733): solo la persona con cuenta confirmada lo cambia desde aquí
+const MarketingConsentBox = ({ verified }) => {
+  const [on, setOn] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    if (!verified) return;
+    supabase.rpc("my_marketing").then(({ data, error }) => { if (!error) setOn(data === true); }).catch(() => {});
+  }, [verified]);
+  const change = async () => {
+    const next = !on;
+    setBusy(true); setMsg("");
+    const { error } = await supabase.rpc("set_marketing_consent", { p_optin: next });
+    setBusy(false);
+    if (error) { setMsg("No se pudo guardar. Intenta de nuevo."); return; }
+    setOn(next); setMsg(next ? "Listo: te avisaremos de novedades y ofertas." : "Listo: ya no te enviaremos publicidad.");
+  };
+  return (
+    <div style={{ margin: "16px 20px 0", background: C.paperDeep, borderRadius: 12, padding: "14px 16px", fontFamily: FONT_BODY }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Novedades y ofertas</div>
+          <div style={{ fontSize: 11.5, color: C.stone, lineHeight: 1.5 }}>Por WhatsApp o correo. Los avisos de tus pedidos llegan siempre.</div>
+        </div>
+        {verified && on !== null && (
+          <button onClick={change} disabled={busy} aria-pressed={on} aria-label="Recibir novedades y ofertas" style={{ width: 44, height: 24, borderRadius: 999, border: "none", background: on ? C.ink : C.line, position: "relative", cursor: "pointer", flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
+            <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 18, height: 18, borderRadius: "50%", background: C.paper, transition: "left .15s ease" }} />
+          </button>
+        )}
+      </div>
+      {!verified && <div style={{ fontSize: 11.5, color: C.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Para cambiarlo aquí, confirma tu cuenta (Google o código al correo), o escríbenos por WhatsApp.</div>}
+      {msg && <div style={{ fontSize: 11.5, color: C.ink, marginTop: 8 }}>{msg}</div>}
     </div>
   );
 };
@@ -3038,6 +3076,7 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
   const [humanB, setHumanB] = useState(0);
   const [humanAnswer, setHumanAnswer] = useState("");
   const [touched, setTouched] = useState(false);
+  const [marketing, setMarketing] = useState(false);
 
   useEffect(() => { setHumanA(Math.ceil(Math.random() * 6) + 1); setHumanB(Math.ceil(Math.random() * 6) + 1); }, []);
   useEffect(() => { if (googlePrefill) { setName(googlePrefill.name || ""); setEmail(googlePrefill.email || ""); } }, [googlePrefill]);
@@ -3112,19 +3151,23 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
         ) : (
           <>
             <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginTop: 10, marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Para confirmar que eres humana: {humanA} + {humanB} =</span>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Para confirmar que no eres un robot: {humanA} + {humanB} =</span>
               <input value={humanAnswer} onChange={(e) => setHumanAnswer(e.target.value)} style={{ ...inputStyle, width: 56, padding: "6px 8px", textAlign: "center" }} />
             </div>
             {fieldError(humanValid, "La suma no es correcta, intenta de nuevo.")}
           </>
         )}
 
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.5, marginTop: 12 }}>
+          <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>Quiero recibir novedades y ofertas del Club Fly por WhatsApp o correo (opcional). Me puedo dar de baja cuando quiera.</span>
+        </label>
         <div style={{ marginTop: 16 }}>
           <PrimaryButton disabled={sending} onClick={async () => {
             setTouched(true);
             if (!(nameValid && phoneValid && emailValid && humanValid) || sending) return;
             setSending(true);
-            const ok = await onRegister({ name: name.trim(), phone: phone.trim(), email: email.trim(), captcha: captchaToken });
+            const ok = await onRegister({ name: name.trim(), phone: phone.trim(), email: email.trim(), captcha: captchaToken, marketing });
             setSending(false);
             // El código del captcha sirve una sola vez: si algo falló, se pide uno nuevo
             if (!ok) { setCaptchaToken(""); setCaptchaKey((k) => k + 1); }
@@ -6917,6 +6960,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("customers")} style={quickLinkStyle}><Users size={16} color={C.ink} /> Clientas (Club Fly y permisos de publicidad) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("sellers")} style={quickLinkStyle}><User size={16} color={C.ink} /> Vendedores (códigos MA01) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       {role === "superadmin" && <button onClick={downloadBackup} style={quickLinkStyle}><DatabaseBackup size={16} color={C.ink} /> Descargar copia de seguridad <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
@@ -7427,6 +7471,107 @@ const suggestSellerCode = (name, existing) => {
   return letters + "99";
 };
 
+// Clientas del Club Fly: compras, puntos y permiso de publicidad (Ley 29733). Solo administración.
+const consentOf = (c) => (c.marketing && typeof c.marketing.optIn === "boolean" ? c.marketing : null);
+const CustomersScreen = ({ catalog, refreshData }) => {
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState("todas");
+  const [open, setOpen] = useState(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [local, setLocal] = useState({});
+  const stats = useMemo(() => {
+    const m = new Map();
+    (catalog.sales || []).forEach((s) => {
+      if (!s.customerPhone || s.status === "anulado") return;
+      const x = m.get(s.customerPhone) || { n: 0, total: 0, last: 0 };
+      x.n += 1; x.total += Number(s.total) || 0; x.last = Math.max(x.last, s.createdAt || 0);
+      m.set(s.customerPhone, x);
+    });
+    return m;
+  }, [catalog.sales]);
+  const all = useMemo(() => (catalog.customers || []).map((c) => (local[c.phone] ? { ...c, marketing: local[c.phone] } : c))
+    .map((c) => ({ ...c, st: stats.get(c.phone) || { n: 0, total: 0, last: 0 } })), [catalog.customers, stats, local]);
+  const nq = q.trim().toLowerCase();
+  const list = all
+    .filter((c) => filter === "todas" || (filter === "si" ? consentOf(c)?.optIn === true : consentOf(c)?.optIn !== true))
+    .filter((c) => !nq || `${c.name || ""} ${c.phone || ""} ${c.email || ""} ${c.doc || ""}`.toLowerCase().includes(nq))
+    .sort((a, b) => (b.st.last || b.createdAt || 0) - (a.st.last || a.createdAt || 0));
+  const yes = all.filter((c) => consentOf(c)?.optIn === true).length;
+  const showPhone = (p) => (String(p || "").startsWith("g:") ? "" : `+${p}`);
+  const exportConsent = () => {
+    const rows = all.filter((c) => consentOf(c)?.optIn === true).map((c) => ({
+      Nombre: c.name || "", Celular: showPhone(c.phone), Correo: c.email || "", Puntos: Number(c.points) || 0,
+      Compras: c.st.n, "Total comprado (S/)": Number(c.st.total.toFixed(2)), "Permiso desde": new Date(c.marketing.at).toLocaleDateString("es-PE"), "Dio el permiso por": c.marketing.via || "",
+    }));
+    if (!rows.length) { setMsg("Aún no hay personas con permiso para recibir publicidad."); return; }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Con permiso");
+    XLSX.writeFile(wb, `fly-clientas-con-permiso-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+  const setConsent = async (c, optIn) => {
+    if (!note.trim()) { setMsg("Escribe cómo lo pidió (ej. «Lo pidió en tienda» o «Pidió baja por WhatsApp»)."); return; }
+    setBusy(true); setMsg("");
+    const { error } = await supabase.rpc("staff_set_marketing", { p_phone: c.phone, p_optin: optIn, p_note: note.trim() });
+    setBusy(false);
+    if (error) { setMsg(error.code === "PGRST202" ? "Falta correr el SQL 20 en Supabase." : "No se pudo guardar. Intenta de nuevo."); return; }
+    setLocal((l) => ({ ...l, [c.phone]: { optIn, at: Date.now(), via: "staff", note: note.trim() } }));
+    setNote(""); setMsg(optIn ? "Guardado: acepta recibir publicidad." : "Guardado: no recibirá publicidad.");
+    refreshData && refreshData();
+  };
+  const chip = (k, l) => <button key={k} onClick={() => setFilter(k)} style={{ padding: "7px 12px", borderRadius: 999, border: `1px solid ${filter === k ? C.ink : C.line}`, background: filter === k ? C.ink : "transparent", color: filter === k ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>{l}</button>;
+  const txt = { fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft };
+  return (
+    <div style={{ padding: "18px 18px 100px", maxWidth: 760, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Clientas (Club Fly)</h1>
+      <div style={{ ...txt, marginBottom: 14 }}>{all.length} registradas · <strong>{yes}</strong> aceptan recibir publicidad. Solo a ellas se les envían ofertas; los avisos de pedidos se envían a todas.</div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, celular, correo o DNI" style={{ ...inputStyle, marginBottom: 10 }} />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+        {chip("todas", "Todas")}{chip("si", "Con permiso")}{chip("no", "Sin permiso")}
+        <button onClick={exportConsent} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 999, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}><FileSpreadsheet size={13} /> Descargar las que tienen permiso</button>
+      </div>
+      {msg && <div style={{ ...txt, color: C.ink, background: C.paperDeep, borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>{msg}</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {list.slice(0, 200).map((c) => {
+          const cs = consentOf(c);
+          const isOpen = open === c.phone;
+          return (
+            <AdminCard key={c.phone} style={{ padding: 12 }}>
+              <button onClick={() => { setOpen(isOpen ? null : c.phone); setNote(""); setMsg(""); }} style={{ display: "flex", width: "100%", gap: 10, alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink }}>{c.name || "Sin nombre"}</div>
+                  <div style={{ ...txt, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[showPhone(c.phone), c.email].filter(Boolean).join(" · ")}</div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink }}>{c.st.n ? moneyExact(c.st.total) : "Sin compras"}</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: cs?.optIn ? C.ink : C.stone, fontWeight: cs?.optIn ? 700 : 400 }}>{cs ? (cs.optIn ? "✓ Acepta publicidad" : "No quiere publicidad") : "Sin respuesta"}</div>
+                </div>
+              </button>
+              {isOpen && (
+                <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 10 }}>
+                  <div style={txt}>Puntos: <strong>{Number(c.points) || 0}</strong> · Compras: <strong>{c.st.n}</strong>{c.st.last ? ` · Última: ${new Date(c.st.last).toLocaleDateString("es-PE")}` : ""}{c.doc ? ` · Doc.: ${c.doc}` : ""}</div>
+                  <div style={{ ...txt, marginTop: 4 }}>Registro: {c.createdAt ? new Date(c.createdAt).toLocaleDateString("es-PE") : "—"}{c.via ? ` (${c.via})` : ""}</div>
+                  <div style={{ ...txt, marginTop: 4 }}>Publicidad: {cs ? `${cs.optIn ? "acepta" : "no acepta"} desde ${new Date(cs.at).toLocaleString("es-PE")} (${cs.via || "—"}${cs.by ? `, anotó ${cs.by}` : ""}${cs.note ? `: «${cs.note}»` : ""})` : "nunca respondió → no se le envía publicidad"}</div>
+                  <div style={{ marginTop: 10 }}>
+                    <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="¿Cómo lo pidió? (obligatorio)" style={{ ...inputStyle, marginBottom: 8 }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button disabled={busy} onClick={() => setConsent(c, true)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Acepta publicidad</button>
+                      <button disabled={busy} onClick={() => setConsent(c, false)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Dar de baja</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AdminCard>
+          );
+        })}
+        {!list.length && <div style={{ ...txt, textAlign: "center", padding: 24 }}>No hay clientas con ese filtro.</div>}
+        {list.length > 200 && <div style={{ ...txt, textAlign: "center" }}>Se muestran 200. Usa el buscador para encontrar a alguien.</div>}
+      </div>
+    </div>
+  );
+};
+
 const SellersScreen = ({ catalog }) => {
   const stores = storesOf(catalog.settings);
   const [list, setList] = useState(null);
@@ -7569,6 +7714,11 @@ const STAFF_GUIDES = {
   ] },
   promocodes: { title: "Códigos promocionales", steps: [["Gift", "Crea un código (ej. FLY10) con % o monto. Puede ser solo para el Club Fly. Desactívalo cuando termine la promoción."]] },
   complaints: { title: "Libro de Reclamaciones", steps: [["BookOpen", "Responde cada reclamo dentro del plazo legal (15 días hábiles). La respuesta queda guardada."]] },
+  customers: { title: "Clientas", steps: [
+    ["User", "Busca a una clienta para ver sus compras, puntos y si acepta publicidad."],
+    ["ShieldCheck", "Ofertas y campañas SOLO a quienes aceptaron (botón «Descargar las que tienen permiso»). Quien no respondió cuenta como «no»."],
+    ["Pencil", "Si alguien lo pide en tienda o por WhatsApp, ábrela, escribe cómo lo pidió y toca «Acepta» o «Dar de baja». Queda anotado quién lo cambió."],
+  ] },
   sellers: { title: "Códigos de vendedor", steps: [
     ["User", "Crea un código por vendedora (ej. MA01). Se sugiere solo con sus iniciales."],
     ["ShieldCheck", "El código solo dice quién vendió o movió la caja: no es contraseña ni da acceso al panel."],
@@ -7729,7 +7879,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, customers: STAFF_ADMIN, users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -7931,6 +8081,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
+        {isAdminRole && screen === "customers" && <CustomersScreen catalog={catalog} refreshData={refreshData} />}
         {screen === "manual" && <StaffManual role={role} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
@@ -8257,7 +8408,10 @@ export default function FlyBoutiqueApp() {
   };
 
   const registerClub = async (data) => {
-    const { data: c, error } = await supabase.rpc("register_customer", { p_name: data.name, p_phone: data.phone, p_email: data.email || "", p_captcha: data.captcha || null });
+    const args = { p_name: data.name, p_phone: data.phone, p_email: data.email || "", p_captcha: data.captcha || null };
+    let { data: c, error } = await supabase.rpc("register_customer", { ...args, p_marketing: !!data.marketing });
+    // Si aún no se corrió el SQL 20, se registra como antes (sin guardar el permiso)
+    if (error?.code === "PGRST202") ({ data: c, error } = await supabase.rpc("register_customer", args));
     if (error || !c) {
       const m = error?.message || "";
       // El servidor dice por qué falló la verificación (ej. invalid-input-secret): se muestra para poder corregirlo
