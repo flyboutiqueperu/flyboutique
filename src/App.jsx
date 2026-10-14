@@ -6127,10 +6127,10 @@ const ValeInput = ({ pay, onChange }) => {
     setBusy(false);
     if (error) { setMsg(error.code === "PGRST202" ? "Falta correr el SQL 22 en Supabase." : "No se pudo consultar. Revisa tu conexión."); onChange({ code: "", balance: null }); return; }
     if (!data) { setMsg("Ese código de vale no existe."); onChange({ code: "", balance: null }); return; }
-    if (data.status !== "activo" || Number(data.balance) <= 0) { setMsg(data.status === "anulado" ? "Ese vale está anulado." : "Ese vale ya no tiene saldo."); onChange({ code: "", balance: null }); return; }
+    if (data.status !== "activo" || Number(data.balance) <= 0) { setMsg(data.status === "anulado" ? "Ese vale está anulado." : data.status === "vencido" ? `Ese vale venció el ${new Date(data.expiresAt).toLocaleDateString("es-PE")}.` : "Ese vale ya no tiene saldo."); onChange({ code: "", balance: null }); return; }
     const amt = Math.min(Number(pay.amount) || 0, Number(data.balance));
     onChange({ code: data.code, balance: Number(data.balance), amount: amt.toFixed(2) });
-    setMsg(`Saldo ${moneyExact(data.balance)}${data.customer ? ` · a nombre de ${data.customer}` : ""}${amt < Number(pay.amount) ? ". Cobra lo que falta con otro medio." : ""}`);
+    setMsg(`Saldo ${moneyExact(data.balance)}${data.customer ? ` · a nombre de ${data.customer}` : ""}${data.expiresAt ? ` · vence el ${new Date(data.expiresAt).toLocaleDateString("es-PE")}` : ""}${amt < Number(pay.amount) ? ". Cobra lo que falta con otro medio." : ""}`);
   };
   return (
     <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
@@ -6781,7 +6781,7 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
             <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: C.ink, marginTop: 12 }}>
               {r.difference > 0 ? `Devolver ${moneyExact(r.difference)} (${r.method})` : r.difference < 0 ? `Cobrar ${moneyExact(-r.difference)} (${r.method})` : "Sin diferencia de dinero"}
             </div>
-            {r.valeCode && <div style={{ border: `2px dashed ${C.ink}`, borderRadius: 10, padding: "10px 12px", marginTop: 10, textAlign: "center" }}><div style={{ ...txt, fontSize: 11 }}>VALE DE COMPRA</div><div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 900, letterSpacing: "0.08em", color: C.ink }}>{r.valeCode}</div><div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>Saldo {moneyExact(r.difference)} · úsalo en la tienda Fly</div></div>}
+            {r.valeCode && <div style={{ border: `2px dashed ${C.ink}`, borderRadius: 10, padding: "10px 12px", marginTop: 10, textAlign: "center" }}><div style={{ ...txt, fontSize: 11 }}>VALE DE COMPRA</div><div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 900, letterSpacing: "0.08em", color: C.ink }}>{r.valeCode}</div><div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>Saldo {moneyExact(r.difference)} · úsalo en la tienda Fly</div>{creditMonthsOf(catalog.settings) > 0 && <div style={{ ...txt, fontSize: 11 }}>Vence el {(() => { const d = new Date(r.at); d.setMonth(d.getMonth() + creditMonthsOf(catalog.settings)); return d.toLocaleDateString("es-PE"); })()}</div>}</div>}
             {r.method === "Vale" && r.difference > 0 && !r.valeCode && <div style={{ ...txt, color: C.accent, marginTop: 8 }}>El vale se crea cuando se corra el SQL 22 en Supabase.</div>}
             <div style={{ ...txt, marginTop: 4 }}>Motivo: {r.reason}{r.pointsRemoved ? ` · Se quitaron ${r.pointsRemoved} puntos del Club` : ""}</div>
             <div style={{ ...txt, marginTop: 8, fontSize: 10.5 }}>Documento interno. No es nota de crédito electrónica (SUNAT).</div>
@@ -6900,7 +6900,10 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
 };
 
 // Vales de compra (SQL 22): saldo, a nombre de quién, de qué venta salió y cada uso. Administración puede anularlos.
-const CreditsScreen = ({ role }) => {
+const creditMonthsOf = (settings) => { const n = Number(settings?.creditMonths); return Number.isFinite(n) && settings?.creditMonths !== undefined && settings?.creditMonths !== "" ? Math.max(0, Math.min(36, Math.round(n))) : 6; };
+const isExpired = (c) => c.status === "activo" && c.expires_at && new Date(c.expires_at) < new Date();
+const CreditsScreen = ({ role, settings, onSaveMonths }) => {
+  const [months, setMonths] = useState(String(creditMonthsOf(settings)));
   const [list, setList] = useState(null);
   const [q, setQ] = useState("");
   const [f, setF] = useState("activo");
@@ -6920,16 +6923,24 @@ const CreditsScreen = ({ role }) => {
     load();
   };
   const nq = q.trim().toLowerCase();
-  const rows = (list || []).filter((c) => f === "todos" || c.status === f).filter((c) => !nq || `${c.code} ${c.customer_name || ""} ${c.customer_phone || ""} ${c.origin_doc || ""}`.toLowerCase().includes(nq));
-  const active = (list || []).filter((c) => c.status === "activo");
+  const rows = (list || []).filter((c) => f === "todos" || (f === "vencido" ? isExpired(c) : f === "activo" ? c.status === "activo" && !isExpired(c) : c.status === f)).filter((c) => !nq || `${c.code} ${c.customer_name || ""} ${c.customer_phone || ""} ${c.origin_doc || ""}`.toLowerCase().includes(nq));
+  const active = (list || []).filter((c) => c.status === "activo" && !isExpired(c));
   const txt = { fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft };
   return (
     <div style={{ padding: "18px 18px 100px", maxWidth: 680, margin: "0 auto" }}>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Vales de compra</h1>
       <div style={{ ...txt, marginBottom: 12 }}>{active.length} vale(s) activos · saldo pendiente {moneyExact(active.reduce((a, c) => a + Number(c.balance), 0))}. Se crean en «Devolución o cambio» y se usan en caja con «Vale».</div>
+      {STAFF_ADMIN.includes(role) && onSaveMonths && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...txt, marginBottom: 12 }}>
+          Los vales nuevos vencen a los
+          <input inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value.replace(/\D/g, "").slice(0, 2))} style={{ ...inputStyle, width: 56, padding: "6px 8px", textAlign: "center" }} />
+          meses (0 = no vencen)
+          {String(creditMonthsOf(settings)) !== months && months !== "" && <button onClick={() => onSaveMonths(Math.min(36, Number(months)))} style={{ padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Guardar</button>}
+        </div>
+      )}
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por código, nombre, celular o venta" style={{ ...inputStyle, marginBottom: 10 }} />
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-        {[["activo", "Activos"], ["usado", "Usados"], ["anulado", "Anulados"], ["todos", "Todos"]].map(([k, l]) => <Chip key={k} active={f === k} onClick={() => setF(k)}>{l}</Chip>)}
+        {[["activo", "Activos"], ["vencido", "Vencidos"], ["usado", "Usados"], ["anulado", "Anulados"], ["todos", "Todos"]].map(([k, l]) => <Chip key={k} active={f === k} onClick={() => setF(k)}>{l}</Chip>)}
       </div>
       {msg && <div style={{ ...txt, color: C.accent, marginBottom: 10 }}>{msg}</div>}
       {list === null ? <div style={txt}>Cargando…</div> : (
@@ -6943,7 +6954,7 @@ const CreditsScreen = ({ role }) => {
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.ink }}>{moneyExact(c.balance)}</div>
-                  <div style={{ ...txt, fontSize: 10.5 }}>{c.status === "activo" ? `de ${moneyExact(c.amount)}` : c.status === "usado" ? "usado" : "anulado"}</div>
+                  <div style={{ ...txt, fontSize: 10.5, color: isExpired(c) ? C.accent : C.inkSoft }}>{isExpired(c) ? `venció ${new Date(c.expires_at).toLocaleDateString("es-PE")}` : c.status === "activo" ? `de ${moneyExact(c.amount)}${c.expires_at ? ` · vence ${new Date(c.expires_at).toLocaleDateString("es-PE")}` : ""}` : c.status === "usado" ? "usado" : "anulado"}</div>
                 </div>
               </button>
               {open === c.code && (
@@ -8409,6 +8420,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     : m.includes("PAGO_INCOMPLETO") ? "La suma de los pagos no coincide con el total."
     : m.includes("VALE_SIN_SALDO") ? `El vale no tiene saldo suficiente (le quedan S/ ${m.split("VALE_SIN_SALDO:")[1] || "0"}).`
     : m.includes("VALE_NO_EXISTE") ? "Ese código de vale no existe."
+    : m.includes("VALE_VENCIDO") ? `Ese vale venció el ${m.split("VALE_VENCIDO:")[1] || ""}.`
     : m.includes("CAJA_CERRADA") ? "La caja de esta sede está cerrada. Ábrela en Caja para poder vender."
     : m.includes("VENDEDOR_INVALIDO") ? "El código de vendedor no es válido o está desactivado."
     : m.includes("CLUB_DESACTIVADO") ? "El Club Fly está en pausa: no se pueden usar puntos."
@@ -8542,7 +8554,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} />}
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} onReturns={canOpenScreen(role, "returns") ? () => { setReturnSale(null); setScreen("returns"); } : null} onCredits={canOpenScreen(role, "credits") ? () => setScreen("credits") : null} />}
-        {canOpenScreen(role, "credits") && screen === "credits" && <CreditsScreen role={role} />}
+        {canOpenScreen(role, "credits") && screen === "credits" && <CreditsScreen role={role} settings={catalog.settings} onSaveMonths={STAFF_ADMIN.includes(role) ? (n) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, creditMonths: n } })) : null} />}
         {canOpenScreen(role, "returns") && screen === "returns" && <ReturnsScreen key={returnSale?.id || "nueva"} catalog={catalog} initialSale={returnSale}
           onSaved={(data) => { patchCatalog((c) => ({ ...c, sales: c.sales.some((x) => x.id === data.id) ? c.sales.map((x) => (x.id === data.id ? data : x)) : c.sales })); refreshData && refreshData(); }} />}
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
