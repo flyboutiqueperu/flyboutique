@@ -7,8 +7,10 @@ import {
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
   MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
-import * as XLSX from "xlsx";
-import JsBarcode from "jsbarcode";
+// Excel y códigos de barras solo se descargan cuando el staff los usa (la tienda abre más rápido en celular)
+const loadXLSX = () => import("xlsx");
+let jsBarcodeMod = null;
+const loadJsBarcode = () => (jsBarcodeMod ||= import("jsbarcode").then((m) => m.default || m));
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { supabase, setStaffSessionMode, clearStaffSessionMode } from "./supabaseClient.js";
@@ -386,8 +388,15 @@ async function uploadMedia(file, folder = "productos") {
     return { url: await uploadBlob(file, folder, ext, file.type), type: "video" };
   }
   const blob = await resizeImageToBlob(file);
-  return { url: await uploadBlob(blob, folder, "jpg", "image/jpeg"), type: "image" };
+  const url = await uploadBlob(blob, folder, "jpg", "image/jpeg");
+  return { url, type: "image", thumb: await makeThumb(blob, folder) };
 }
+// Miniatura liviana (600 px) para tarjetas, listas y cesta: en el celular se bajan ~5 veces menos datos.
+// La foto grande se sigue usando en la ficha y el visor. Si falla, se usa la grande (nunca se pierde la foto).
+async function makeThumb(blobOrFile, folder = "productos") {
+  try { return await uploadBlob(await resizeImageToBlob(blobOrFile, 600, 0.8), folder, "jpg", "image/jpeg"); } catch (e) { console.error(e); return null; }
+}
+const imgThumb = (m) => (m ? m.thumb || m.url : null);
 // Para mover fotos viejas guardadas dentro de la base de datos (data:image/...) a Storage
 async function uploadDataUrl(dataUrl, folder) {
   const blob = await (await fetch(dataUrl)).blob();
@@ -418,12 +427,12 @@ function resizeImageFile(file, maxW = 1000, quality = 0.82) {
   });
 }
 
-const mainImageUrl = (product) => product?.images?.[0]?.url || null;
+const mainImageUrl = (product) => imgThumb(product?.images?.[0]) || null;
 // Segunda foto disponible (de cualquier color) — para mostrar al pasar el mouse sobre la tarjeta.
 const hoverImageUrl = (product) => {
   const imgs = (product?.images || []).filter((im) => im.type !== "video" && im.url);
   const main = imgs[0]?.url;
-  return imgs.find((im) => im.url !== main)?.url || null;
+  return imgThumb(imgs.find((im) => im.url !== main)) || null;
 };
 // Fotos de un color para la tarjeta: la principal y "otro ángulo" del MISMO color
 const colorPhotos = (product, colorName) => {
@@ -496,6 +505,7 @@ function parseImportRows(rawRows) {
 
 async function parseImportFile(file) {
   const buf = await file.arrayBuffer();
+  const XLSX = await loadXLSX();
   const wb = XLSX.read(buf, { type: "array" });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
@@ -651,9 +661,10 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
   const colors = productColors(product);
   const [cardColor, setCardColor] = useState(null);
   const shown = cardColor ? colorPhotos(product, cardColor) : [];
-  const baseImg = shown[0]?.url || mainImageUrl(product);
-  const sameColor = (cardColor ? shown : colorPhotos(product, (product.images || [])[0]?.colorName)).filter((im) => im.url !== baseImg);
-  const altImg = sameColor[0]?.url || (cardColor ? null : hoverImageUrl(product));
+  const baseObj = shown[0] || (product.images || [])[0];
+  const baseImg = imgThumb(baseObj) || mainImageUrl(product);
+  const sameColor = (cardColor ? shown : colorPhotos(product, (product.images || [])[0]?.colorName)).filter((im) => im.url !== baseObj?.url);
+  const altImg = imgThumb(sameColor[0]) || (cardColor ? null : hoverImageUrl(product));
   return (
     <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => onOpen(product, cardColor)}>
       <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
@@ -1519,7 +1530,7 @@ const PhotoViewer = ({ items, start = 0, alt, onClose }) => {
       <div className="viewer-body" style={{ flex: 1, minHeight: 0, display: "flex", gap: 12, padding: "0 16px 16px" }}>
         {imgs.length > 1 && (
           <div className="viewer-thumbs hscroll" style={{ display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", width: 72, flexShrink: 0, touchAction: "pan-x pan-y" }}>
-            {imgs.map((m, i) => <button key={i} onClick={() => { setZoom(null); setTz({ s: 1, x: 0, y: 0 }); setIdx(i); }} style={{ width: 68, height: 88, flexShrink: 0, padding: 0, borderRadius: 6, overflow: "hidden", border: `2px solid ${i === idx ? C.ink : "transparent"}`, background: C.paperDeep, cursor: "pointer" }}><ProductImg src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></button>)}
+            {imgs.map((m, i) => <button key={i} onClick={() => { setZoom(null); setTz({ s: 1, x: 0, y: 0 }); setIdx(i); }} style={{ width: 68, height: 88, flexShrink: 0, padding: 0, borderRadius: 6, overflow: "hidden", border: `2px solid ${i === idx ? C.ink : "transparent"}`, background: C.paperDeep, cursor: "pointer" }}><ProductImg src={imgThumb(m)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></button>)}
           </div>
         )}
         <div ref={areaRef} style={{ position: "relative", flex: 1, minWidth: 0, overflow: "hidden", touchAction: "none", cursor: zoom ? "zoom-out" : "zoom-in" }}
@@ -1595,7 +1606,7 @@ const ProductGallery = ({ items, alt, dim }) => {
             <button key={m.id || i} onClick={() => go(i)} style={{ width: 62, height: 78, padding: 0, borderRadius: 6, overflow: "hidden", border: `2px solid ${i === idx ? C.ink : "transparent"}`, background: C.paperDeep, cursor: "pointer" }}>
               {m.type === "video"
                 ? <VideoThumb url={m.url} />
-                : <ProductImg src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+                : <ProductImg src={imgThumb(m)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
             </button>
           ))}
         </div>
@@ -1825,7 +1836,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                     {colors.map((c) => {
                       const outOfStock = colorTotalStock(product, c.n) === 0;
                       const active = color?.n === c.n;
-                      const tilePhoto = hasColorPhoto(product, c.n) ? colorPhotos(product, c.n)[0]?.url : null;
+                      const tilePhoto = hasColorPhoto(product, c.n) ? imgThumb(colorPhotos(product, c.n)[0]) : null;
                       return (
                         // Con foto de ese color: miniatura de la prenda (como Zalando). Sin foto: círculo del color.
                         tilePhoto ? (
@@ -4427,7 +4438,41 @@ const OutletControl = ({ product, onPatch }) => {
   );
 };
 
-const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulkPhotos, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate, onPatchProduct }) => {
+// Crea las miniaturas de las fotos que se subieron antes de existir esta mejora (la tienda carga más rápido en celular).
+// No borra ni cambia la foto original: solo agrega una copia pequeña.
+const ThumbsTool = ({ products, onDone }) => {
+  const [run, setRun] = useState(null);
+  const pending = products.flatMap((p) => (p.images || []).filter((m) => m.type !== "video" && !m.thumb && /^https?:\/\//.test(m.url || "")).map((m) => ({ pid: p.id, url: m.url })));
+  if (!pending.length && !run) return null;
+  const start = async () => {
+    const made = {}; let ok = 0, fail = 0;
+    setRun({ done: 0, total: pending.length });
+    const queue = [...pending];
+    const worker = async () => {
+      while (queue.length) {
+        const it = queue.shift();
+        try {
+          const res = await fetch(it.url); if (!res.ok) throw new Error(res.status);
+          const t = await makeThumb(await res.blob(), "productos");
+          if (t) { made[it.url] = t; ok++; } else fail++;
+        } catch (e) { fail++; }
+        setRun({ done: ok + fail, total: pending.length });
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    if (ok) onDone(made);
+    setRun({ done: ok + fail, total: pending.length, ok, fail, finished: true });
+  };
+  return (
+    <div style={{ background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 9, padding: "10px 12px", marginBottom: 10, fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>
+      {!run && <><strong>{pending.length} foto(s)</strong> sin versión liviana para celular. <button onClick={start} style={{ marginLeft: 6, padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Optimizar fotos</button><div style={{ color: C.stone, fontSize: 11, marginTop: 4 }}>Hace que el catálogo cargue más rápido. No cambia ni borra las fotos originales.</div></>}
+      {run && !run.finished && <>Optimizando fotos… {run.done} de {run.total}. No cierres esta pantalla.</>}
+      {run?.finished && <>Listo: {run.ok} foto(s) optimizadas{run.fail ? ` · ${run.fail} no se pudieron (puedes reintentar más tarde)` : ""}.</>}
+    </div>
+  );
+};
+
+const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulkPhotos, onAddThumbs, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate, onPatchProduct }) => {
   const [q, setQ] = useState("");
   const [importing, setImporting] = useState(false);
   const [matchingPhotos, setMatchingPhotos] = useState(false);
@@ -4462,7 +4507,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
       const baseNorm = normalizeCode(file.name.replace(/\.[^.]+$/, ""));
       const match = findProductMatch(catalog.products, baseNorm);
       if (!match) { unmatched.push(file.name); continue; }
-      try { const m = await uploadMedia(file, "productos"); matches.push({ productId: match.product.id, url: m.url, type: m.type, colorName: match.colorName }); }
+      try { const m = await uploadMedia(file, "productos"); matches.push({ productId: match.product.id, url: m.url, type: m.type, thumb: m.thumb || null, colorName: match.colorName }); }
       catch (err) { console.error(err); unmatched.push(file.name); }
     }
     if (matches.length) onBulkPhotos(matches);
@@ -4496,6 +4541,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
         <ImageIcon size={15} /> {matchingPhotos ? "Asignando fotos…" : "Subir fotos en lote (coincidencia automática)"}
       </button>
       <input ref={photoRef} type="file" accept="image/*" multiple onChange={handleBulkPhotos} style={{ display: "none" }} />
+      {onAddThumbs && <ThumbsTool products={catalog.products} onDone={onAddThumbs} />}
 
       <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginBottom: 16, textAlign: "center", lineHeight: 1.5 }}>
         Nombra cada foto con el código de barras o el nombre de la prenda (ej. <em>7501234567890.jpg</em>) y se asigna sola. Importar de nuevo actualiza por nombre en vez de duplicar.
@@ -4612,7 +4658,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     setUploading(true);
     const added = [];
     for (const file of files) {
-      try { const m = await uploadMedia(file, "productos"); added.push({ id: genId("img"), url: m.url, type: m.type }); }
+      try { const m = await uploadMedia(file, "productos"); added.push({ id: genId("img"), url: m.url, type: m.type, ...(m.thumb ? { thumb: m.thumb } : {}) }); }
       catch (err) { console.error(err); alert(`${file.name}: ${mediaErrorText(err)}`); }
     }
     if (added.length) setForm((f) => ({ ...f, images: [...f.images, ...added] }));
@@ -4733,7 +4779,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
                 {img.type === "video" ? (
                   <video src={img.url} muted style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6 }} />
                 ) : (
-                  <ProductImg src={img.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6 }} />
+                  <ProductImg src={imgThumb(img)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6 }} />
                 )}
                 {img.type === "video" && <div style={{ position: "absolute", bottom: 3, left: 3, background: "rgba(0,0,0,0.6)", borderRadius: 4, padding: "1px 4px", fontFamily: FONT_BODY, fontSize: 8, color: "#fff", fontWeight: 600 }}>VIDEO</div>}
                 <button onClick={() => removeImage(img.id)} style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: C.ink, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={11} color={C.paper} /></button>
@@ -5665,9 +5711,14 @@ const Barcode = ({ value, width = 1.2, height = 30 }) => {
   const ref = useRef(null);
   const [bad, setBad] = useState(false);
   useEffect(() => {
-    if (!ref.current || !value) return;
-    try { JsBarcode(ref.current, value, { format: "CODE128", width, height, margin: 0, displayValue: true, fontSize: 9, textMargin: 1, background: "#ffffff", lineColor: "#000000" }); setBad(false); }
-    catch (e) { setBad(true); }
+    if (!ref.current || !value) return undefined;
+    let alive = true;
+    loadJsBarcode().then((JsBarcode) => {
+      if (!alive || !ref.current) return;
+      try { JsBarcode(ref.current, value, { format: "CODE128", width, height, margin: 0, displayValue: true, fontSize: 9, textMargin: 1, background: "#ffffff", lineColor: "#000000" }); setBad(false); }
+      catch (e) { setBad(true); }
+    }).catch(() => setBad(true));
+    return () => { alive = false; };
   }, [value, width, height]);
   if (!value || bad) return <div style={{ fontSize: 9, color: "#b3261e" }}>Sin código válido</div>;
   return <svg ref={ref} style={{ maxWidth: "100%", height: "auto", display: "block" }} />;
@@ -6267,7 +6318,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
           <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
             {saleItems.map((i) => {
               const prod = catalog.products.find((p) => p.id === i.productId);
-              const img = prod ? (colorPhotos(prod, i.colorName)[0]?.url || mainImageUrl(prod)) : null;
+              const img = prod ? (imgThumb(colorPhotos(prod, i.colorName)[0]) || mainImageUrl(prod)) : null;
               return (
                 <div key={i.saleItemId} style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, padding: "5px 0" }}>
                   <div style={{ width: 38, height: 50, borderRadius: 6, overflow: "hidden", background: C.paperDeep, flexShrink: 0 }}>{img && <ProductImg src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>
@@ -7786,12 +7837,13 @@ const CustomersScreen = ({ catalog, refreshData }) => {
     .sort((a, b) => (b.st.last || b.createdAt || 0) - (a.st.last || a.createdAt || 0));
   const yes = all.filter((c) => consentOf(c)?.optIn === true).length;
   const showPhone = (p) => (String(p || "").startsWith("g:") ? "" : `+${p}`);
-  const exportConsent = () => {
+  const exportConsent = async () => {
     const rows = all.filter((c) => consentOf(c)?.optIn === true).map((c) => ({
       Nombre: c.name || "", Celular: showPhone(c.phone), Correo: c.email || "", Puntos: Number(c.points) || 0,
       Compras: c.st.n, "Total comprado (S/)": Number(c.st.total.toFixed(2)), "Permiso desde": new Date(c.marketing.at).toLocaleDateString("es-PE"), "Dio el permiso por": c.marketing.via || "",
     }));
     if (!rows.length) { setMsg("Aún no hay personas con permiso para recibir publicidad."); return; }
+    const XLSX = await loadXLSX();
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Con permiso");
     XLSX.writeFile(wb, `fly-clientas-con-permiso-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -8332,11 +8384,15 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
       };
     });
   };
+  const addThumbs = (made) => updateCatalog((c) => ({
+    ...c,
+    products: c.products.map((p) => ((p.images || []).some((m) => made[m.url] && !m.thumb) ? { ...p, images: p.images.map((m) => (made[m.url] && !m.thumb ? { ...m, thumb: made[m.url] } : m)) } : p)),
+  }));
   const attachBulkImages = (matches) => {
     updateCatalog((c) => ({
       ...c,
       products: c.products.map((p) => {
-        const add = matches.filter((m) => m.productId === p.id).map((m) => ({ id: genId("img"), url: m.url, colorName: m.colorName || null }));
+        const add = matches.filter((m) => m.productId === p.id).map((m) => ({ id: genId("img"), url: m.url, colorName: m.colorName || null, ...(m.type === "video" ? { type: "video" } : {}), ...(m.thumb ? { thumb: m.thumb } : {}) }));
         return add.length ? { ...p, images: [...p.images, ...add] } : p;
       }),
     }));
@@ -8382,7 +8438,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
-        {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList onPatchProduct={patchProduct} catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
+        {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList onPatchProduct={patchProduct} catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onAddThumbs={addThumbs} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
         {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => setScreen("products")} />}
         {(role === "administrador" || role === "superadmin") && screen === "banners" && <AdminBannerList banners={catalog.banners} openEditor={(id) => { setEditingBannerId(id); setScreen("bannerEditor"); }} toggleActive={toggleBannerActive} deleteBanner={deleteBanner} />}
         {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}
@@ -8625,7 +8681,7 @@ export default function FlyBoutiqueApp() {
       syncReservation(variant?.id, newQty);
       const heldUntil = Date.now() + cartHoldMinutes() * 60 * 1000;
       if (existing) return prev.map((i) => (i.cartId === existing.cartId ? { ...i, qty: newQty, heldUntil } : i));
-      return [...prev, { cartId: genId("cart"), heldUntil, outlet: isOutlet(product), productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: colorPhotos(product, color?.n)[0]?.url || mainImageUrl(product), size, color, qty }];
+      return [...prev, { cartId: genId("cart"), heldUntil, outlet: isOutlet(product), productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: imgThumb(colorPhotos(product, color?.n)[0]) || mainImageUrl(product), size, color, qty }];
     });
     // la ficha queda abierta (es una página): solo se avisa con el mensaje
     showToast(`Agregado a tu cesta — te lo apartamos ${cartHoldMinutes()} minutos`);
