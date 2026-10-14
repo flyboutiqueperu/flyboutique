@@ -521,6 +521,15 @@ const mediaForColor = (product, colorName) => product.images.find((i) => i.color
 /* ------------------------------------------------------------------ */
 /*  SIGNATURE MARKS                                                    */
 /* ------------------------------------------------------------------ */
+// ---- Outlet: prendas de liquidación a precio final, en su propia sección (no se mezclan con la colección) ----
+const isOutlet = (p) => p?.outlet === true;
+const OUTLET_RULES = ["Precio final: no aplican cupones ni puntos del Club, y no suman puntos.", "El envío lo paga la clienta (no cuenta para el envío gratis).", "Sin cambios ni devoluciones, salvo falla de fábrica."];
+const OutletRules = ({ compact }) => (
+  <div style={{ background: C.paperDeep, borderRadius: 10, padding: compact ? "10px 12px" : "12px 14px", fontFamily: FONT_BODY, fontSize: compact ? 11.5 : 12, color: C.inkSoft, lineHeight: 1.55 }}>
+    <strong style={{ color: C.ink, letterSpacing: "0.08em", textTransform: "uppercase", fontSize: 10.5 }}>Outlet · Venta final</strong>
+    {OUTLET_RULES.map((r) => <div key={r}>· {r}</div>)}
+  </div>
+);
 const BadgeLogo = ({ size = 34, dark }) => (
   <div style={{ height: size, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
     <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: size * 0.52, letterSpacing: "0.02em", lineHeight: 1, color: dark ? "#FFFFFF" : "#000000" }}>FLY</span>
@@ -560,7 +569,7 @@ const Chip = ({ children, active, onClick }) => (
 );
 const Tag = ({ label }) => {
   const map = { Nuevo: { bg: C.ink, fg: C.paper, border: C.ink }, Oferta: { bg: C.accent, fg: C.white, border: C.accent },
-    Bestseller: { bg: "transparent", fg: C.ink, border: C.ink }, Agotado: { bg: C.white, fg: C.stone, border: C.stone } };
+    Bestseller: { bg: "transparent", fg: C.ink, border: C.ink }, Agotado: { bg: C.white, fg: C.stone, border: C.stone }, Outlet: { bg: C.white, fg: C.ink, border: C.ink } };
   const s = map[label];
   if (!s) return null;
   return <span style={{ position: "absolute", top: 10, left: 10, background: s.bg, color: s.fg, border: `1px solid ${s.border}`, fontFamily: FONT_BODY, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", padding: "4px 8px", borderRadius: 3, fontWeight: 600, zIndex: 2 }}>{label}</span>;
@@ -630,7 +639,7 @@ const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId })
 
 const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, catalog, cartSessionId }) => {
   const soldOut = productSoldOut(product);
-  const label = soldOut ? "Agotado" : product.tag;
+  const label = soldOut ? "Agotado" : isOutlet(product) ? "Outlet" : product.tag;
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [hovering, setHovering] = useState(false);
   const colors = productColors(product);
@@ -695,7 +704,7 @@ const NAV_ITEMS = [
 ];
 const closeDrop = (e) => { const w = e.currentTarget; w.classList.add("nav-drop-closed"); try { document.activeElement && document.activeElement.blur(); } catch (err) { /* nada */ } };
 const reopenDrop = (e) => e.currentTarget.classList.remove("nav-drop-closed");
-const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMember, points = 0, onLogoutClub, products = [], onOpenProduct, onSearchQuery, onCategory, favCount = 0 }) => (
+const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMember, points = 0, onLogoutClub, products = [], onOpenProduct, onSearchQuery, onCategory, favCount = 0, hasOutlet = false }) => (
   <div className="app-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 30 }}>
     <button className="nav-brand" onClick={() => setScreen("home")} title="Ir al inicio" aria-label="Ir al inicio" style={{ display: "none", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
       <BadgeLogo size={64} />
@@ -736,6 +745,7 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
                 <div style={{ minWidth: 140 }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, paddingBottom: 8 }}>Destacado</div>
                   <button onClick={() => onCategory && onCategory("Todo")} className="nav-drop-link" style={{ display: "block", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft }}>Ver todo</button>
+                  {hasOutlet && <button onClick={() => setScreen("outlet")} className="nav-drop-link" style={{ display: "block", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, letterSpacing: "0.08em" }}>OUTLET</button>}
                 </div>
               </div>
             </div>
@@ -986,7 +996,8 @@ const ViewedStrip = ({ items, onOpen, onQuickAdd, catalog, cartSessionId, onSeeA
 };
 
 const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCategory, points, notifyMe, viewedIds, onQuickAdd, cartSessionId, onOpenInfo }) => {
-  const products = catalog.products.filter((p) => p.showOnline !== false);
+  const products = catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p));
+  const outletCount = catalog.products.filter((p) => p.showOnline !== false && isOutlet(p) && !productSoldOut(p)).length;
   const { banners, collections } = catalog;
   const vistos = (viewedIds || []).map((id) => products.find((p) => p.id === id)).filter(Boolean);
   const nuevos = products.filter((p) => p.tag === "Nuevo" && !productSoldOut(p));
@@ -995,7 +1006,9 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
   const featuredAll = products.filter((p) => p.featured !== false && !productSoldOut(p));
   const featuredRest = featuredAll.filter((p) => !nuevosIds.has(p.id));
   const destacados = (featuredRest.length >= 4 ? featuredRest : featuredAll).slice(0, 8);
-  const ofertas = products.filter((p) => p.compareAtPrice);
+  const ofertas = products.filter((p) => p.compareAtPrice > p.price && !productSoldOut(p));
+  // Descuento máximo REAL de las ofertas (nunca un número inventado)
+  const maxOff = ofertas.reduce((m, p) => Math.max(m, Math.round((1 - p.price / p.compareAtPrice) * 100)), 0);
   const activeBanners = banners.filter((b) => b.active).sort((a, b) => a.order - b.order);
   const hero = activeBanners[0];
   const featuredCollections = collections.filter((c) => c.featured).sort((a, b) => a.order - b.order);
@@ -1045,9 +1058,9 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
 
       {ofertas.length > 0 && (
         <div style={{ margin: "0 20px 32px", borderRadius: 14, border: `1px solid ${C.line}`, padding: "22px 20px" }}>
-          <Eyebrow color={C.accent}>Por tiempo limitado</Eyebrow>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, marginBottom: 4 }}>Hasta 25% de descuento</div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 16, maxWidth: 240 }}>En piezas seleccionadas. Solo esta semana.</div>
+          <Eyebrow color={C.accent}>Ofertas</Eyebrow>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, marginBottom: 4 }}>{maxOff > 0 ? `Hasta ${maxOff}% de descuento` : "En oferta"}</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 16, maxWidth: 240 }}>En piezas seleccionadas, hasta agotar stock.</div>
           <div style={{ display: "flex", gap: 12, overflowX: "auto", scrollbarWidth: "none" }}>
             {ofertas.map((p) => (
               <div key={p.id} style={{ width: 108, flexShrink: 0, cursor: "pointer" }} onClick={() => onOpen(p)}>
@@ -1057,6 +1070,16 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
             ))}
           </div>
         </div>
+      )}
+
+      {outletCount > 0 && (
+        <button onClick={() => setScreen("outlet")} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "calc(100% - 40px)", margin: "0 20px 32px", padding: "18px 20px", borderRadius: 12, border: `1px solid ${C.ink}`, background: C.paper, cursor: "pointer", textAlign: "left" }}>
+          <span>
+            <span style={{ display: "block", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.ink }}>OUTLET</span>
+            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 3 }}>Últimas unidades a precio final · {outletCount} {outletCount === 1 ? "prenda" : "prendas"}</span>
+          </span>
+          <ChevronRight size={18} color={C.ink} />
+        </button>
       )}
 
     </div>
@@ -1163,9 +1186,9 @@ const ViewedScreen = ({ catalog, viewedIds, onOpen, favs, onToggleFav, onQuickAd
   );
 };
 
-const CategoryScreen = ({ catalog, activeCategory, setActiveCategory, onOpen, favs, onToggleFav, onQuickAdd, cartSessionId, searchQuery = "", setSearchQuery, group = null, setGroup }) => {
+const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCategory, onOpen, favs, onToggleFav, onQuickAdd, cartSessionId, searchQuery = "", setSearchQuery, group = null, setGroup }) => {
   const [panel, setPanel] = useState(null);
-  const products = catalog.products.filter((p) => p.showOnline !== false);
+  const products = catalog.products.filter((p) => p.showOnline !== false && (outlet ? isOutlet(p) : !isOutlet(p)));
   const { collections } = catalog;
   const [sizes, setSizes] = useState(new Set());
   const [colors, setColors] = useState(new Set());
@@ -1200,7 +1223,7 @@ const CategoryScreen = ({ catalog, activeCategory, setActiveCategory, onOpen, fa
   const toggleSet = (set, setter, v) => { const n = new Set(set); n.has(v) ? n.delete(v) : n.add(v); setter(n); };
   const allTags = [...new Set(products.map((p) => p.tag).filter(Boolean))];
   const visibleCats = [...new Set(products.map((p) => p.category))].filter((c) => !group || (group === "Ropa" ? groupOfCategory(c) === "Ropa" : groupCats.includes(c)));
-  const title = searchQuery ? `"${searchQuery}"` : activeCategory !== "Todo" ? activeCategory : group || "Todo el catálogo";
+  const title = outlet ? "Outlet" : searchQuery ? `"${searchQuery}"` : activeCategory !== "Todo" ? activeCategory : group || "Todo el catálogo";
   const filterBtn = (key, label, Icon, count) => (
     <button key={key} onClick={() => setPanel(panel === key ? null : key)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 999, border: `1px solid ${panel === key || count ? C.ink : C.line}`, background: count ? C.ink : panel === key ? C.paperDeep : C.paper, color: count ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
       <Icon size={13} /> {label}{count ? ` (${count})` : ""} <ChevronDown size={13} style={{ transform: panel === key ? "rotate(180deg)" : "none" }} />
@@ -1216,7 +1239,8 @@ const CategoryScreen = ({ catalog, activeCategory, setActiveCategory, onOpen, fa
           {activeCategory !== "Todo" && <> / <span style={{ color: C.ink }}>{activeCategory}</span></>}
         </div>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>{title}</h1>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>{filtered.length} {filtered.length === 1 ? "prenda" : "prendas"}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>{filtered.length} {filtered.length === 1 ? "prenda" : "prendas"}{outlet ? " · últimas unidades" : ""}</div>
+        {outlet && <div style={{ marginBottom: 14 }}><OutletRules compact /></div>}
       </div>
       <div className="filter-bar" style={{ padding: "10px 20px", marginBottom: 12, borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, position: "sticky", top: 88, zIndex: 15, background: C.paper }}>
         <div className="hscroll" style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none" }}>
@@ -1682,7 +1706,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
 
       <div className="pdp-wrap" style={{ flex: "1 0 auto", width: "100%", maxWidth: 1180, margin: "0 auto" }}>
         <div className="pdp-gallery" style={{ position: "relative" }}>
-          {(soldOut || product.tag) && <Tag label={soldOut ? "Agotado" : product.tag} />}
+          {(soldOut || product.tag || isOutlet(product)) && <Tag label={soldOut ? "Agotado" : isOutlet(product) ? "Outlet" : product.tag} />}
           <ProductGallery items={gallery} alt={product.name} dim={soldOut} />
           {colors.length > 1 && color && !hasColorPhoto(product, color.n) && (
             <div style={{ position: "absolute", top: 12, right: 12, zIndex: 13, background: "rgba(255,255,255,0.94)", borderRadius: 999, padding: "6px 11px", fontFamily: FONT_BODY, fontSize: 11, color: C.ink, display: "flex", alignItems: "center", gap: 6, pointerEvents: "none" }}>
@@ -1783,7 +1807,8 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
             <PrimaryButton disabled={!canAdd} onClick={addNow}><ShoppingBag size={16} /> {canAdd ? `${buyLabel} · ${money(product.price * qty)}` : buyLabel}</PrimaryButton>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+          {isOutlet(product) && <div style={{ marginBottom: 18 }}><OutletRules compact /></div>}
+          <div style={{ display: isOutlet(product) ? "none" : "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Package size={15} color={C.ink} /> Envío gratis en Trujillo desde S/ {localShippingOf(catalog?.settings).freeFrom}, o recojo en tienda gratis.</div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Undo2 size={15} color={C.ink} /> Cambios de talla o color hasta 7 días después de recibir.</div>
           </div>
@@ -1842,7 +1867,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
       </div>
 
       {(() => {
-        const rel = (allProducts || []).filter((p) => p.id !== product.id && p.showOnline !== false && !productSoldOut(p))
+        const rel = (allProducts || []).filter((p) => p.id !== product.id && p.showOnline !== false && !productSoldOut(p) && isOutlet(p) === isOutlet(product))
           .sort((a, b) => (b.category === product.category) - (a.category === product.category) || (groupOfCategory(b.category) === groupOfCategory(product.category)) - (groupOfCategory(a.category) === groupOfCategory(product.category))).slice(0, 8);
         if (!rel.length) return null;
         return (
@@ -2084,25 +2109,28 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
   const [confirmedSale, setConfirmedSale] = useState(null);
 
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  // Outlet: precio final. Cupones, puntos y envío gratis se calculan solo con el resto (igual que el servidor).
+  const regularSubtotal = cart.reduce((s, i) => s + (i.outlet ? 0 : i.price * i.qty), 0);
+  const hasOutlet = cart.some((i) => i.outlet);
   const [intlCarrier, setIntlCarrier] = useState("serpost");
   const intlCost = deliveryMethod === "internacional" ? intlRate(payAccounts, addr?.country, intlCarrier) : null;
   const intlToQuote = deliveryMethod === "internacional" && intlCost === null;
-  const shipping = cart.length === 0 || deliveryMethod === "recojo" ? 0 : deliveryMethod === "internacional" ? (intlCost || 0) : deliveryMethod === "provincia" ? provinceRate(addr?.department, payAccounts) : (subtotal >= localShippingOf(payAccounts).freeFrom ? 0 : localShippingOf(payAccounts).price);
+  const shipping = cart.length === 0 || deliveryMethod === "recojo" ? 0 : deliveryMethod === "internacional" ? (intlCost || 0) : deliveryMethod === "provincia" ? provinceRate(addr?.department, payAccounts) : (regularSubtotal >= localShippingOf(payAccounts).freeFrom ? 0 : localShippingOf(payAccounts).price);
   useEffect(() => { if (deliveryMethod === "internacional" && (paymentMethod === "Yape" || paymentMethod === "Plin")) setPaymentMethod("Transferencia"); }, [deliveryMethod]);
   useEffect(() => { if (deliveryMethod !== "recojo") setDeliveryAddress(addr ? formatAddress(addr) : ""); }, [addr, deliveryMethod]);
   useEffect(() => { setAddr((a) => (a && a.type === deliveryMethod ? a : (savedAddrs.find((x) => x.type === deliveryMethod) || null))); }, [deliveryMethod]);
-  const discount = appliedPromo ? computeDiscount(appliedPromo, subtotal) : 0;
+  const discount = appliedPromo ? computeDiscount(appliedPromo, regularSubtotal) : 0;
   const loyalty = loyaltyOf(payAccounts);
   const [usePoints, setUsePoints] = useState(false);
   // Usar puntos online requiere entrar con Google (así nadie usa los puntos de otra persona con solo su celular)
   const clubActive = clubOn(payAccounts);
   const maxBlocks = clubActive && clubMember?.phone && clubMember?.google ? Math.floor(points / loyalty.blockPoints) : 0;
   const pointsNeedGoogle = clubActive && !!clubMember?.phone && !clubMember?.google && points >= loyalty.blockPoints && loyalty.blockValue > 0;
-  const blocksAllowed = Math.min(maxBlocks, loyalty.blockValue > 0 ? Math.floor(Math.max(0, subtotal - discount) / loyalty.blockValue) : 0);
+  const blocksAllowed = Math.min(maxBlocks, loyalty.blockValue > 0 ? Math.floor(Math.max(0, regularSubtotal - discount) / loyalty.blockValue) : 0);
   const pointsUsed = usePoints ? blocksAllowed * loyalty.blockPoints : 0;
   const pointsDiscount = usePoints ? blocksAllowed * loyalty.blockValue : 0;
   const total = Math.max(0, subtotal + shipping - discount - pointsDiscount);
-  const earned = pointsEarned(subtotal - discount - pointsDiscount, payAccounts);
+  const earned = pointsEarned(regularSubtotal - discount - pointsDiscount, payAccounts);
 
   const applyPromo = () => {
     const promo = findPromo(promoCodes, promoInput);
@@ -2222,6 +2250,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
       <Eyebrow>{cart.reduce((a, i) => a + i.qty, 0)} artículos</Eyebrow>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>Mi Cesta</h1>
       <CartHoldNotice cart={cart} onRenew={onRenewHold} />
+      {hasOutlet && <div style={{ marginBottom: 14 }}><OutletRules compact /></div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
         {cart.map((item) => (
           <div key={item.cartId} style={{ display: "flex", gap: 12, paddingBottom: 14, borderBottom: `1px solid ${C.paperDeep}` }}>
@@ -4206,7 +4235,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
       product.variants.forEach((v) => { stock[`${v.size}|${v.colorName}`] = v.stock; skus[`${v.size}|${v.colorName}`] = v.sku || ""; });
       setForm({ id: product.id, name: product.name, category: product.category, description: product.description || "",
         price: String(product.price), compareAtPrice: product.compareAtPrice ? String(product.compareAtPrice) : "",
-        status: product.status, tag: product.tag || "", minStock: product.minStock ?? 3, showOnline: product.showOnline !== false, images: product.images, collectionIds: product.collectionIds || [],
+        status: product.status, tag: product.tag || "", minStock: product.minStock ?? 3, showOnline: product.showOnline !== false, outlet: product.outlet === true, images: product.images, collectionIds: product.collectionIds || [],
         sizes, colors, stock, skus });
     } else setForm(emptyProductForm());
   }, [product]);
@@ -4269,7 +4298,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     const record = {
       id: form.id || genId("prod"), name: form.name.trim(), slug: slugify(form.name), category: form.category,
       description: form.description, price: Number(form.price) || 0, compareAtPrice: form.compareAtPrice ? Number(form.compareAtPrice) : null,
-      status: form.status, tag: form.tag || null, minStock: form.minStock ?? 3, showOnline: form.showOnline !== false, images: form.images, collectionIds: form.collectionIds, variants,
+      status: form.status, tag: form.tag || null, minStock: form.minStock ?? 3, showOnline: form.showOnline !== false, outlet: form.outlet === true, images: form.images, collectionIds: form.collectionIds, variants,
       createdAt: product?.createdAt || Date.now(), updatedAt: Date.now(),
     };
     onSave(record);
@@ -4313,6 +4342,9 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
         </Field>
         <div style={{ marginTop: 6 }}>
           <Switch on={form.showOnline} onClick={() => set("showOnline", !form.showOnline)} label={form.showOnline ? "Visible en tienda online / web" : "Solo venta en tienda física (oculto en web)"} />
+          <div style={{ height: 10 }} />
+          <Switch on={form.outlet === true} onClick={() => set("outlet", !(form.outlet === true))} label={form.outlet ? "Outlet (liquidación): solo en la sección Outlet" : "Colección normal"} />
+          {form.outlet && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 6, lineHeight: 1.5 }}>Sale del inicio y del catálogo y aparece solo en «Outlet». Precio final: sin cupones ni puntos, el envío lo paga la clienta y sin cambios. Pon el precio de liquidación en «Precio» y, si quieres mostrar el tachado, el precio original en «Precio anterior».</div>}
         </div>
       </AdminCard>
 
@@ -5381,7 +5413,11 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const [notaExterna, setNotaExterna] = useState("");
 
   const isFactura = comprobanteTipo === "factura";
-  const promoDiscount = promo ? computeDiscount(promo, subtotal) : 0;
+  // Outlet: precio final (sin cupón ni puntos), igual que lo revisa el servidor
+  const outletIds = new Set(catalog.products.filter(isOutlet).map((p) => p.id));
+  const regularSubtotal = saleItems.reduce((s, i) => s + (outletIds.has(i.productId) ? 0 : i.unitPrice * i.qty), 0);
+  const hasOutletItems = regularSubtotal < subtotal;
+  const promoDiscount = promo ? computeDiscount(promo, regularSubtotal) : 0;
   const manualDiscount = discType === "percent" ? round2(subtotal * Math.min(100, Number(discValue) || 0) / 100) : discType === "monto" ? Math.min(Number(discValue) || 0, subtotal) : 0;
   // Tope de descuento manual (Administración no tiene tope; el servidor también lo revisa)
   const isAdminRole = role === "superadmin" || role === "administrador";
@@ -5391,7 +5427,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const [usePts, setUsePts] = useState(false);
   const loyalty = loyaltyOf(catalog.settings);
   const ptsAvailable = matched && !anon && phone === matched.phone ? Number(matched.points) || 0 : 0;
-  const ptsBlocks = clubOn(catalog.settings) && loyalty.blockValue > 0 ? Math.min(Math.floor(ptsAvailable / loyalty.blockPoints), Math.floor(Math.max(0, subtotal - promoDiscount) / loyalty.blockValue)) : 0;
+  const ptsBlocks = clubOn(catalog.settings) && loyalty.blockValue > 0 ? Math.min(Math.floor(ptsAvailable / loyalty.blockPoints), Math.floor(Math.max(0, regularSubtotal - promoDiscount) / loyalty.blockValue)) : 0;
   const pointsUsed = usePts ? ptsBlocks * loyalty.blockPoints : 0;
   const pointsDiscount = usePts ? ptsBlocks * loyalty.blockValue : 0;
   useEffect(() => { setUsePts(false); }, [matched?.phone, anon]);
@@ -5511,6 +5547,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             <button onClick={promo ? () => { setPromo(null); setPromoInput(""); setPromoMsg(""); } : applyPromo} style={{ padding: "0 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{promo ? "Quitar" : "Aplicar"}</button>
           </div>
           {promoMsg && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: promo ? C.ink : C.accent, marginBottom: 8 }}>{promoMsg}</div>}
+          {hasOutletItems && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginBottom: 8 }}>Hay prendas <strong>Outlet</strong>: precio final. El cupón y los puntos solo se aplican al resto, y no suman puntos.</div>}
           {manualOverCap && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginBottom: 8 }}>El descuento manual máximo es {discountCap}% ({money(subtotal * discountCap / 100)}). Para más, pide a Administración que cobre la venta.</div>}
           {ptsBlocks > 0 && (
             <label style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${usePts ? C.ink : C.line}`, borderRadius: 10, padding: "10px 12px", margin: "8px 0", cursor: "pointer" }}>
@@ -5690,7 +5727,8 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
   const updateQty = (id, delta) => setSaleItems((prev) => prev.map((i) => (i.saleItemId === id ? { ...i, qty: Math.max(1, i.qty + delta) } : i)));
   const removeItem = (id) => setSaleItems((prev) => prev.filter((i) => i.saleItemId !== id));
   const subtotal = saleItems.reduce((s, i) => s + i.unitPrice * i.qty, 0);
-  const promoDiscount = appliedPromo ? computeDiscount(appliedPromo, subtotal) : 0;
+  const outletIds = new Set(catalog.products.filter(isOutlet).map((p) => p.id));
+  const promoDiscount = appliedPromo ? computeDiscount(appliedPromo, saleItems.reduce((s, i) => s + (outletIds.has(i.productId) ? 0 : i.unitPrice * i.qty), 0)) : 0;
   const manualDiscount = manualDiscountType === "none" || !manualDiscountValue ? 0
     : manualDiscountType === "percent" ? Math.round(subtotal * (Number(manualDiscountValue) / 100))
     : Math.min(Number(manualDiscountValue), subtotal);
@@ -6803,6 +6841,7 @@ const STAFF_GUIDES = {
     ["Layers", "Agrega tallas (botones XS a XXL) y colores: cada combinación tiene su propio stock y su propio código de barras. El sistema no deja repetir códigos."],
     ["ImageIcon", "Sube fotos verticales (ideal 1080×1440) y asigna cada foto a su color. Puedes subir un video."],
     ["Eye", "Usa «Activo / Borrador» y «Mostrar en la web» para publicar u ocultar sin borrar."],
+    ["Gift", "Para liquidar: activa «Outlet» en el producto y pon el precio final. Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo de la clienta, sin cambios)."],
   ] },
   productEditor: { title: "Editar un producto", steps: [
     ["Pencil", "Cambia lo que necesites y toca «Guardar». El stock real no se pisa: las ventas hechas mientras editas se respetan."],
@@ -7367,6 +7406,8 @@ export default function FlyBoutiqueApp() {
   const [selectedColorPref, setSelectedColorPref] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [catalogGroup, setCatalogGroup] = useState(null);
+  const [outletCat, setOutletCat] = useState("Todo");
+  const [outletQ, setOutletQ] = useState("");
   const goCatalog = (cat = "Todo", group = null, q = "") => { setSelectedProduct(null); setActiveCategory(cat); setCatalogGroup(group || (cat !== "Todo" ? groupOfCategory(cat) : null)); setSearchQuery(q); setScreen("category"); scrollAllTop(); };
   const navigateFromProduct = (target, cat) => { if (target === "home") { setSelectedProduct(null); setScreen("home"); } else goCatalog(cat); scrollAllTop(); };
   const openProduct = (product, colorName = null) => { trackView(product.id); setSelectedColorPref(typeof colorName === "string" ? colorName : null); setSelectedProduct(product); track("view_item", { currency: "PEN", value: product.price, items: [gaItem(product)] }); };
@@ -7401,7 +7442,7 @@ export default function FlyBoutiqueApp() {
       syncReservation(variant?.id, newQty);
       const heldUntil = Date.now() + cartHoldMinutes() * 60 * 1000;
       if (existing) return prev.map((i) => (i.cartId === existing.cartId ? { ...i, qty: newQty, heldUntil } : i));
-      return [...prev, { cartId: genId("cart"), heldUntil, productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: colorPhotos(product, color?.n)[0]?.url || mainImageUrl(product), size, color, qty }];
+      return [...prev, { cartId: genId("cart"), heldUntil, outlet: isOutlet(product), productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: colorPhotos(product, color?.n)[0]?.url || mainImageUrl(product), size, color, qty }];
     });
     // la ficha queda abierta (es una página): solo se avisa con el mensaje
     showToast(`Agregado a tu cesta — te lo apartamos ${cartHoldMinutes()} minutos`);
@@ -7588,7 +7629,7 @@ export default function FlyBoutiqueApp() {
       loadAnalytics({ gaId: (catalog.settings.gaId || "").trim(), clarityId: (catalog.settings.clarityId || "").trim() });
     }
   }, [cookieChoice, catalog?.settings?.gaId, catalog?.settings?.clarityId]);
-  const SCREEN_TITLES = { complaints: "Libro de Reclamaciones", home: "Inicio", category: "Catálogo", viewed: "Visto", cart: "Cesta", profile: "Cuenta", loyalty: "Club Fly", orders: "Mis pedidos", info: "Información", favorites: "Favoritos", addresses: "Direcciones", payments: "Métodos de pago" };
+  const SCREEN_TITLES = { outlet: "Outlet", complaints: "Libro de Reclamaciones", home: "Inicio", category: "Catálogo", viewed: "Visto", cart: "Cesta", profile: "Cuenta", loyalty: "Club Fly", orders: "Mis pedidos", info: "Información", favorites: "Favoritos", addresses: "Direcciones", payments: "Métodos de pago" };
   // Al cambiar de sección se cierra la ficha abierta y se vuelve arriba
   useEffect(() => { setSelectedProduct(null); scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); }, [screen, infoSectionIndex]);
   useEffect(() => { if (selectedProduct) { scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); } }, [selectedProduct?.id]);
@@ -7841,6 +7882,7 @@ export default function FlyBoutiqueApp() {
               {!selectedProduct && <>
               {screen === "home" && <HomeScreen catalog={catalog} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} setScreen={setScreen} setActiveCategory={setActiveCategory} points={points} notifyMe={() => showToast("Te avisaremos primero ✓")} viewedIds={viewedIds} onQuickAdd={addToCart} cartSessionId={cartSessionId} onOpenInfo={(i) => { setInfoSectionIndex(i); setScreen("info"); }} />}
               {screen === "info" && <InfoScreen sectionIndex={infoSectionIndex} setScreen={setScreen} />}
+              {screen === "outlet" && <CategoryScreen key="outlet" outlet catalog={catalog} activeCategory={outletCat} setActiveCategory={setOutletCat} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={outletQ} setSearchQuery={setOutletQ} group={null} setGroup={() => {}} />}
               {screen === "category" && <CategoryScreen catalog={catalog} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={searchQuery} setSearchQuery={setSearchQuery} group={catalogGroup} setGroup={setCatalogGroup} />}
               {screen === "viewed" && <ViewedScreen catalog={catalog} viewedIds={viewedIds} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} onRemoveViewed={removeFromViewed} setScreen={setScreen} />}
               {screen === "cart" && <CartScreen cart={cart} onRenewHold={renewHold} updateQty={updateQty} removeItem={removeItem} setScreen={setScreen} culqiPublicKey={catalog.settings?.culqiPublicKey} payAccounts={catalog.settings}
@@ -7858,8 +7900,8 @@ export default function FlyBoutiqueApp() {
             </div>
             <div className="app-ticker" style={{ display: "none" }}><Marquee /></div>
             <BottomNav favCount={favs.size} screen={selectedProduct ? "" : screen} setScreen={(sc) => { setSelectedProduct(null); if (sc === "category") goCatalog(); else setScreen(sc); }} cartCount={cartCount} onSearch={() => setSearchOpen(true)} cart={cart} clubMember={clubMember} points={points} onLogoutClub={() => logoutClub()}
-              products={catalog.products.filter((p) => p.showOnline !== false)} onOpenProduct={openProduct} onSearchQuery={(q) => goCatalog("Todo", null, q)} onCategory={(cat, group) => goCatalog(cat, group)} />
-            {searchOpen && <SearchOverlay products={catalog.products.filter((p) => p.showOnline !== false)} onClose={() => setSearchOpen(false)} onOpenProduct={(p) => { openProduct(p); setSearchOpen(false); }} onSearchAll={(term) => goCatalog(CATEGORY_OPTIONS.includes(term) ? term : "Todo", null, CATEGORY_OPTIONS.includes(term) ? "" : term)} />}
+              hasOutlet={catalog.products.some((p) => p.showOnline !== false && isOutlet(p))} products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onOpenProduct={openProduct} onSearchQuery={(q) => goCatalog("Todo", null, q)} onCategory={(cat, group) => goCatalog(cat, group)} />
+            {searchOpen && <SearchOverlay products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onClose={() => setSearchOpen(false)} onOpenProduct={(p) => { openProduct(p); setSearchOpen(false); }} onSearchAll={(term) => goCatalog(CATEGORY_OPTIONS.includes(term) ? term : "Todo", null, CATEGORY_OPTIONS.includes(term) ? "" : term)} />}
             {toast && <Toast message={toast} />}
             {showCookieConsent && <CookieConsent current={cookieChoice} onSave={resolveCookieConsent} onOpenPolicy={() => { setShowCookieConsent(false); openInfo(FOOTER_SECTIONS.findIndex((x) => x.title.startsWith("Seguridad"))); }} />}
             {showBackToTop && (
