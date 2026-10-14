@@ -57,12 +57,13 @@ Este archivo se lee al inicio de cada sesión de Claude Code. Contiene: (1) regl
 - Fases 1–3: auditoría, parches de seguridad, roles y caja (turnos, arqueo, códigos de vendedor), stock por sede, guías de traslado, historial, devoluciones/cambios, vales, costos y gastos, panel del negocio.
 - Fase 4: Club (código al correo y contraseña), Outlet, entrega con mapa y distritos (INEI), selector talla/color que no deja elegir combinaciones inexistentes, zoom de fotos en móvil, miniaturas («Optimizar fotos»), carga por partes.
 - Apps: tienda y «Fly Staff» instalables; aviso «Hay una versión nueva»; barra inferior con «Inicio».
-- PR #20 (pendiente de Merge al escribir esto): tienda en **ES | EN** + este kit de pruebas.
+- PR #20: tienda en **ES | EN** + este kit de pruebas.
+- Pantalla **«Compras»** (Más → Compras a proveedores): proveedores, registrar compra (suma stock en la sede + costo promedio, reintento sin duplicar) y anular. Prueba: `pruebas/ui/compras.cjs`.
 
-**SQL:** del 08 al 22, Alberto dijo haberlos corrido (para confirmarlo, usar consultas de solo lectura). **El 23 (compras/proveedores) es un borrador probado: NO correrlo hasta que exista la pantalla «Compras».**
+**SQL:** del 08 al 22, Alberto dijo haberlos corrido (para confirmarlo, usar consultas de solo lectura). El 23 (compras/proveedores) ya está en la página «Copiar SQL» junto con su pantalla. Si no se corrió, la pantalla avisa «Falta correr el SQL 23».
 
 **Pendiente (en orden):**
-1. Pantalla **«Compras»** en el panel: proveedores, registrar compra (entra stock por sede + costo promedio) y anular. Usa el SQL 23. Al terminar, agregar el 23 a la página «Copiar SQL».
+1. Confirmar con Alberto que corrió el SQL 23 y probó «Compras».
 2. **Fotos que a veces no cargan:** Supabase está bien (egress 0,01 GB de 5 GB el 14-oct). Se sospecha de la señal del celular. Se pidió a Alberto: ¿pasa en todos los productos y también en la PC? y una captura de la foto abierta en una pestaña nueva.
 3. Traducción: cuando se agregue texto a la tienda, también hay que agregarlo en `src/i18n-en.js`. Para ver qué falta: en modo dev, `window.__flyMissingEN`.
 4. Comprobantes **SUNAT** (Fase 5): falta saber si Alberto tiene RUC; se recomienda Nubefact. Pagos online con **Culqi**: pendiente.

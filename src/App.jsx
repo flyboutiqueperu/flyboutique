@@ -4048,7 +4048,7 @@ const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
 );
 
 // Lo que hace cada sección (aparece al dejar el mouse encima)
-const NAV_HINTS = { transfers: "Guías para enviar y recibir prendas entre Larco y el Almacén", caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
+const NAV_HINTS = { purchases: "Mercadería que llega de los proveedores", transfers: "Guías para enviar y recibir prendas entre Larco y el Almacén", caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
 const AdminNav = ({ screen, setScreen, role }) => {
   const items = (role === "administrador" || role === "superadmin")
     ? [["dashboard", "Panel", LayoutDashboard], ["pos", "Ventas", ShoppingCart], ["stock", "Stock", Package], ["products", "Productos", LayoutGrid], ["more", "Más", Menu]]
@@ -4059,7 +4059,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["transfers", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "purchases", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -4078,7 +4078,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
 const quickLinkStyle = { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink };
 
 // ---- Resumen del negocio (inicio del panel): todo sale de los registros reales ----
-const ACTION_LABELS = { venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
+const ACTION_LABELS = { compra_registrada: "Compra registrada", compra_anulada: "Compra anulada", venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
 const BusinessSummary = ({ catalog, go }) => {
   const [extra, setExtra] = useState({ transfers: null, cash: null, activity: null });
   useEffect(() => {
@@ -5697,8 +5697,219 @@ const TransfersScreen = ({ catalog, role, refreshData }) => {
   );
 };
 
+// ---- Compras a proveedores (SQL 23): la mercadería que llega suma stock en la sede y actualiza el costo promedio ----
+const PURCHASE_ERRORS = { SIN_PERMISO: "Tu usuario no puede hacer esto.", PROVEEDOR_REPETIDO: "Ya existe un proveedor con ese nombre.", NOMBRE_REQUERIDO: "Escribe el nombre del proveedor.",
+  PROVEEDOR_NO_EXISTE: "Elige un proveedor.", COMPRA_VACIA: "Agrega al menos una prenda.", CANTIDAD_INVALIDA: "Revisa las cantidades.", COSTO_INVALIDO: "Revisa los costos.",
+  UBICACION_INVALIDA: "Elige dónde entra la mercadería.", PRODUCTO_NO_EXISTE: "Una prenda ya no existe en el catálogo. Quítala y vuelve a agregarla.", MOTIVO_REQUERIDO: "Escribe el motivo.", COMPRA_NO_EXISTE: "La compra no existe." };
+const purchaseErr = (m = "") => {
+  if (m.includes("STOCK_INSUFICIENTE")) return `Ya no están todas en esa sede (se vendieron o trasladaron): ${(m.split("STOCK_INSUFICIENTE:")[1] || "").replace(/:(\d+)$/, " · quedan $1")}. Corrige con un ajuste de stock.`;
+  if (m.includes("suppliers_ruc_check")) return "El RUC o DNI debe tener solo números (8 a 11).";
+  const k = Object.keys(PURCHASE_ERRORS).find((x) => m.includes(x));
+  return k ? PURCHASE_ERRORS[k] : m;
+};
+const emptySupplier = () => ({ id: null, name: "", ruc: "", phone: "", contact: "", note: "", active: true });
+const PurchasesScreen = ({ catalog, refreshData }) => {
+  const settings = catalog.settings;
+  const locs = stockLocations(settings);
+  const [tab, setTab] = useState("compras"); // compras | proveedores
+  const [list, setList] = useState(null); // null cargando | "no" falta SQL 23 | []
+  const [suppliers, setSuppliers] = useState([]);
+  const [costs, setCosts] = useState({});
+  const [mode, setMode] = useState("list"); // list | new
+  const [view, setView] = useState(null);
+  const [sup, setSup] = useState(null); // proveedor en edición
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ supplierId: "", docRef: "", location: locs[0].id, note: "", updateCost: true });
+  const [lines, setLines] = useState([]); // {p, v, qty, cost}
+  const [q, setQ] = useState("");
+  const reqId = useRef(null);
+  const load = async () => {
+    const [pu, su, co] = await Promise.all([
+      supabase.from("purchases").select("*").order("id", { ascending: false }).limit(200),
+      supabase.from("suppliers").select("*").order("name"),
+      supabase.from("product_costs").select("product_id,cost"),
+    ]);
+    if (pu.error) { setList(pu.error.code === "42P01" || pu.error.code === "PGRST205" ? "no" : []); return; }
+    setList(pu.data || []); setSuppliers(su.data || []);
+    setCosts(Object.fromEntries((co.data || []).map((r) => [r.product_id, Number(r.cost)])));
+  };
+  useEffect(() => { load(); }, []);
+  const back = (label, fn) => <button onClick={fn} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> {label}</button>;
+  const hint = (t) => <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14, lineHeight: 1.5 }}>{t}</div>;
+  if (list === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 23 (compras y proveedores) en Supabase.</div>;
+
+  // --- proveedor: crear / editar
+  if (sup) {
+    const set = (k, v) => setSup((s) => ({ ...s, [k]: v }));
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        {back("Volver", () => setSup(null))}
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 14px" }}>{sup.id ? "Editar proveedor" : "Nuevo proveedor"}</h1>
+        <AdminCard>
+          <Field label="Nombre o razón social *"><input style={inputStyle} maxLength={120} value={sup.name} onChange={(e) => set("name", e.target.value)} placeholder="Ej. Textiles Gamarra SAC" /></Field>
+          <Field label="RUC o DNI (opcional)"><input style={inputStyle} inputMode="numeric" value={sup.ruc || ""} onChange={(e) => set("ruc", e.target.value.replace(/\D/g, "").slice(0, 11))} /></Field>
+          <Field label="Celular (opcional)"><input style={inputStyle} inputMode="tel" maxLength={20} value={sup.phone || ""} onChange={(e) => set("phone", e.target.value)} /></Field>
+          <Field label="Persona de contacto (opcional)"><input style={inputStyle} maxLength={80} value={sup.contact || ""} onChange={(e) => set("contact", e.target.value)} /></Field>
+          <Field label="Nota (opcional)"><input style={inputStyle} maxLength={200} value={sup.note || ""} onChange={(e) => set("note", e.target.value)} placeholder="Ej. entrega los martes, pago a 30 días" /></Field>
+          {sup.id && <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, margin: "4px 0 12px" }}><input type="checkbox" checked={sup.active !== false} onChange={(e) => set("active", e.target.checked)} /> Activo (si lo desactivas ya no aparece al registrar compras)</label>}
+          <PrimaryButton disabled={busy || sup.name.trim().length < 2} onClick={async () => {
+            setBusy(true);
+            const { data, error } = await supabase.rpc("upsert_supplier", { p_id: sup.id, p_name: sup.name, p_ruc: sup.ruc || null, p_phone: sup.phone || null, p_contact: sup.contact || null, p_note: sup.note || null, p_active: sup.active !== false });
+            setBusy(false);
+            if (error) { alert("No se pudo guardar: " + purchaseErr(error.message)); return; }
+            if (mode === "new" && data?.id) setForm((f) => ({ ...f, supplierId: String(data.id) }));
+            setSup(null); load();
+          }}>{busy ? "Guardando…" : "Guardar proveedor"}</PrimaryButton>
+        </AdminCard>
+      </div>
+    );
+  }
+
+  // --- ver una compra
+  if (view) {
+    const pu = view;
+    const units = pu.items.reduce((a, i) => a + i.qty, 0);
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        {back("Volver a Compras", () => setView(null))}
+        <AdminCard>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+            <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: 0 }}>Compra {pu.code}</h1>
+            <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: pu.status === "anulada" ? C.accent : C.ink }}>{pu.status === "anulada" ? "Anulada" : "Recibida"}</span>
+          </div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.7, margin: "8px 0 10px" }}>
+            Proveedor: <strong>{pu.supplier_name}</strong>{pu.doc_ref ? ` · Factura/guía: ${pu.doc_ref}` : ""}<br />
+            Entró en: {locationName(settings, pu.location)} · {fmtDT(pu.created_at)} · {pu.created_by}<br />
+            {pu.update_cost ? "Actualizó el costo promedio de las prendas" : "No cambió los costos"}{pu.note ? ` · ${pu.note}` : ""}
+            {pu.status === "anulada" && <><br /><span style={{ color: C.accent }}>Anulada por {pu.voided_by} ({fmtDT(pu.voided_at)}): {pu.void_reason}</span></>}
+          </div>
+          {pu.items.map((i) => (
+            <div key={i.variantId} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+              <span style={{ minWidth: 0 }}>{i.name} · {i.size} {i.color}{i.sku ? <span style={{ color: C.stone }}> · {i.sku}</span> : null}</span>
+              <span style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{i.qty} × {money2(i.unitCost)} = <strong>{money2(i.qty * i.unitCost)}</strong></span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 14, fontWeight: 800, color: C.ink, paddingTop: 10 }}><span>{units} prendas</span><span>{money2(pu.total)}</span></div>
+        </AdminCard>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+          {pu.status !== "anulada" && <button onClick={async () => {
+            const why = prompt(`¿Por qué anulas la compra ${pu.code}? Se restan ${units} prendas del stock de ${locationName(settings, pu.location)}.`, "Registrada por error");
+            if (!why || !why.trim()) return;
+            const { data, error } = await supabase.rpc("void_purchase", { p_id: pu.id, p_reason: why.trim() });
+            if (error) { alert("No se pudo anular: " + purchaseErr(error.message)); return; }
+            setView(data); load(); refreshData && refreshData();
+          }} style={{ padding: "11px 14px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Anular compra</button>}
+        </div>
+      </div>
+    );
+  }
+
+  // --- nueva compra
+  if (mode === "new") {
+    const active = suppliers.filter((s) => s.active !== false);
+    const nq = q.trim().toLowerCase();
+    const options = nq.length < 2 ? [] : catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq)).slice(0, 12);
+    const add = (p, v) => { setLines((ls) => ls.some((l) => l.v.id === v.id) ? ls : [...ls, { p, v, qty: "1", cost: costs[p.id] != null ? String(costs[p.id]) : (ls.find((l) => l.p.id === p.id)?.cost || "") }]); setQ(""); };
+    const onScan = (e) => { if (e.key !== "Enter") return; const code = q.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { add(p, v); return; } } };
+    const setLine = (id, k, val) => setLines((ls) => ls.map((x) => x.v.id === id ? { ...x, [k]: val } : x));
+    const bad = lines.find((l) => !(parseInt(l.qty, 10) > 0) || l.cost === "" || !(Number(l.cost) >= 0));
+    const units = lines.reduce((a, l) => a + (parseInt(l.qty, 10) || 0), 0);
+    const total = lines.reduce((a, l) => a + (parseInt(l.qty, 10) || 0) * (Number(l.cost) || 0), 0);
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        {back("Volver", () => setMode("list"))}
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Registrar compra</h1>
+        {hint("Lo que llegó del proveedor. Suma el stock en la sede que elijas y queda en el historial. Si una prenda es nueva, primero créala en Productos con stock 0.")}
+        <Field label="Proveedor *">
+          <div style={{ display: "flex", gap: 8 }}>
+            <select style={{ ...inputStyle, flex: 1 }} value={form.supplierId} onChange={(e) => setForm({ ...form, supplierId: e.target.value })}>
+              <option value="">Elige…</option>{active.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <button onClick={() => setSup(emptySupplier())} style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink, whiteSpace: "nowrap" }}><Plus size={13} /> Nuevo</button>
+          </div>
+        </Field>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 150px" }}><Field label="N.° de factura o guía (opcional)"><input style={inputStyle} maxLength={60} value={form.docRef} onChange={(e) => setForm({ ...form, docRef: e.target.value })} placeholder="Ej. F001-2345" /></Field></div>
+          <div style={{ flex: "1 1 150px" }}><Field label="Entra en"><select style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field></div>
+        </div>
+        <Field label="Agregar prendas"><input style={inputStyle} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onScan} placeholder="Escanea el código + Enter, o busca por nombre" /></Field>
+        {options.length > 0 && (
+          <AdminCard style={{ marginBottom: 12, padding: 8 }}>
+            {options.map(({ p, v }) => <button key={v.id} onClick={() => add(p, v)} style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 8, padding: "8px 6px", background: "none", border: "none", borderBottom: `1px solid ${C.paperDeep}`, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, textAlign: "left" }}><span>{p.name} · {v.size} {v.colorName}{v.sku ? ` · ${v.sku}` : ""}</span><span style={{ color: C.stone }}>stock {v.stock}</span></button>)}
+          </AdminCard>
+        )}
+        {lines.map((l) => (
+          <div key={l.v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, flexWrap: "wrap" }}>
+            <span style={{ flex: "1 1 160px", minWidth: 0 }}>{l.p.name} · {l.v.size} {l.v.colorName}<span style={{ display: "block", fontSize: 11, color: C.stone }}>Stock actual: {l.v.stock}{costs[l.p.id] != null ? ` · costo actual ${money2(costs[l.p.id])}` : " · sin costo aún"}</span></span>
+            <label style={{ display: "flex", flexDirection: "column", fontSize: 10, color: C.stone }}>Cant.<input inputMode="numeric" value={l.qty} onChange={(e) => setLine(l.v.id, "qty", e.target.value.replace(/\D/g, "").slice(0, 5))} style={{ ...inputStyle, width: 60, padding: "6px 8px", textAlign: "center" }} /></label>
+            <label style={{ display: "flex", flexDirection: "column", fontSize: 10, color: C.stone }}>Costo c/u S/<input inputMode="decimal" value={l.cost} onChange={(e) => setLine(l.v.id, "cost", e.target.value.replace(/[^0-9.]/g, "").slice(0, 8))} style={{ ...inputStyle, width: 82, padding: "6px 8px", textAlign: "center", borderColor: l.cost === "" ? C.accent : undefined }} /></label>
+            <button onClick={() => setLines((ls) => ls.filter((x) => x.v.id !== l.v.id))} aria-label="Quitar" style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={15} color={C.stone} /></button>
+          </div>
+        ))}
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, margin: "14px 0 6px", lineHeight: 1.5 }}><input type="checkbox" checked={form.updateCost} onChange={(e) => setForm({ ...form, updateCost: e.target.checked })} style={{ marginTop: 3 }} /> <span>Actualizar el costo de las prendas <span style={{ display: "block", fontSize: 11, color: C.stone }}>Promedio entre lo que ya había y lo que llegó. Se usa en Rentabilidad.</span></span></label>
+        <Field label="Nota (opcional)"><input style={inputStyle} maxLength={200} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Ej. pagado con transferencia" /></Field>
+        {lines.length > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 14, fontWeight: 800, color: C.ink, margin: "6px 0 12px" }}><span>{units} prendas</span><span>{money2(total)}</span></div>}
+        <PrimaryButton disabled={busy || !form.supplierId || !lines.length || !!bad} onClick={async () => {
+          if (!reqId.current) reqId.current = "pur_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+          setBusy(true);
+          const { data, error } = await supabase.rpc("register_purchase", { p_supplier_id: Number(form.supplierId), p_doc_ref: form.docRef.trim() || null, p_location: form.location,
+            p_items: lines.map((l) => ({ variantId: l.v.id, qty: parseInt(l.qty, 10), unitCost: Number(l.cost) })), p_note: form.note.trim() || null, p_update_cost: form.updateCost, p_request_id: reqId.current });
+          setBusy(false);
+          if (error) { alert("No se pudo registrar: " + purchaseErr(error.message)); return; }
+          reqId.current = null; setLines([]); setForm((f) => ({ ...f, docRef: "", note: "" })); setMode("list"); setView(data); load(); refreshData && refreshData();
+        }}>{busy ? "Registrando…" : `Registrar compra${lines.length ? ` (${units} prendas)` : ""}`}</PrimaryButton>
+        {!form.supplierId && lines.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 8, textAlign: "center" }}>Elige el proveedor para continuar.</div>}
+      </div>
+    );
+  }
+
+  // --- lista
+  const tabBtn = (k, label) => <button onClick={() => setTab(k)} style={{ padding: "8px 14px", borderRadius: 999, border: `1px solid ${tab === k ? C.ink : C.line}`, background: tab === k ? C.ink : "transparent", color: tab === k ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{label}</button>;
+  const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
+  const monthTotal = (list || []).filter((p) => p.status !== "anulada" && new Date(p.created_at) >= month).reduce((a, p) => a + Number(p.total), 0);
+  return (
+    <div style={{ padding: "18px 18px 90px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: 0 }}>Compras</h1>
+        {tab === "compras"
+          ? <button onClick={() => { reqId.current = null; setLines([]); setMode("new"); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Registrar compra</button>
+          : <button onClick={() => setSup(emptySupplier())} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Nuevo proveedor</button>}
+      </div>
+      {hint("Mercadería que llega de tus proveedores. Solo la ve Administración (los costos son privados).")}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>{tabBtn("compras", "Compras")}{tabBtn("proveedores", `Proveedores (${suppliers.length})`)}</div>
+      {list === null ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Cargando…</div> : tab === "compras" ? (
+        <>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 12 }}>Comprado este mes: <strong>{money2(monthTotal)}</strong></div>
+          {list.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Aún no hay compras registradas.</div> : list.map((pu) => (
+            <button key={pu.id} onClick={() => setView(pu)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", marginBottom: 8, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, opacity: pu.status === "anulada" ? 0.6 : 1 }}>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{pu.code} · {pu.supplier_name}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: C.stone }}>{pu.items.reduce((a, i) => a + i.qty, 0)} prendas → {locationName(settings, pu.location)} · {fmtDT(pu.created_at)}{pu.status === "anulada" ? " · ANULADA" : ""}</span>
+              </span>
+              <strong style={{ fontSize: 13, color: C.ink, whiteSpace: "nowrap", textDecoration: pu.status === "anulada" ? "line-through" : "none" }}>{money2(pu.total)}</strong>
+            </button>
+          ))}
+        </>
+      ) : (
+        suppliers.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Aún no hay proveedores.</div> : suppliers.map((s) => {
+          const bought = (list || []).filter((p) => p.supplier_id === s.id && p.status !== "anulada").reduce((a, p) => a + Number(p.total), 0);
+          return (
+            <button key={s.id} onClick={() => setSup({ ...emptySupplier(), ...s })} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", marginBottom: 8, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, opacity: s.active === false ? 0.55 : 1 }}>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{s.name}{s.active === false ? " (inactivo)" : ""}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: C.stone }}>{[s.ruc && `RUC/DNI ${s.ruc}`, s.phone, s.contact].filter(Boolean).join(" · ") || "Sin datos de contacto"}</span>
+              </span>
+              <span style={{ fontSize: 11.5, color: C.stone, whiteSpace: "nowrap" }}>{money2(bought)}</span>
+            </button>
+          );
+        })
+      )}
+    </div>
+  );
+};
+
 // ---- Historial de una prenda (o de toda la tienda): lo anota la base de datos en cada cambio ----
-const MOVE_LABEL = (t) => ({ traslado: "Traspaso", entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
+const MOVE_LABEL = (t) => ({ compra: "Compra", "compra anulada": "Compra anulada", traslado: "Traspaso", entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
 const StockHistory = ({ product, catalog, onBack }) => {
   // (los traspasos no cambian el total: se muestran pero no suman en ingresadas/vendidas)
   const [rows, setRows] = useState(null);
@@ -7478,6 +7689,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("collections")} style={quickLinkStyle}><Layers size={16} color={C.ink} /> Colecciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("invoices")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Comprobantes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("reports")} style={quickLinkStyle}><BarChart3 size={16} color={C.ink} /> Reportes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("purchases")} style={quickLinkStyle}><Package size={16} color={C.ink} /> Compras a proveedores (entrada de mercadería) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("transfers")} style={quickLinkStyle}><Navigation size={16} color={C.ink} /> Traslados entre sedes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -8193,6 +8405,13 @@ const STAFF_GUIDES = {
     ["X", "Si la clienta no pagó, toca «Cancelar: no pagó»: la prenda vuelve al stock. Si nadie lo hace, se cancela sola pasadas las horas configuradas."],
     ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento e imprime la etiqueta."],
   ] },
+  purchases: { title: "Compras a proveedores", steps: [
+    ["User", "La primera vez: pestaña «Proveedores» → «Nuevo proveedor» (nombre; RUC y celular si los tienes)."],
+    ["Plus", "Cuando llega mercadería: «Registrar compra» → proveedor → N.° de su factura → dónde entra (Larco o Almacén)."],
+    ["Package", "Escanea o busca cada prenda, pon cuántas llegaron y cuánto costó cada una. Si la prenda es nueva, primero créala en Productos con stock 0."],
+    ["Check", "«Registrar compra»: el stock sube en esa sede y el costo de la prenda se actualiza (promedio). Queda en el historial."],
+    ["X", "Si te equivocaste: abre la compra → «Anular compra» con el motivo. Se restan esas prendas (si todavía están en esa sede)."],
+  ] },
   transfers: { title: "Traslados entre sedes", steps: [
     ["Plus", "Quien envía: «Nueva guía» → elige desde y hacia → escanea o busca las prendas → cantidad → «Emitir guía». Puedes imprimirla y enviarla con la mercadería."],
     ["Package", "Las prendas de la guía quedan «en camino»: no se venden en ninguna sede hasta que lleguen."],
@@ -8417,7 +8636,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -8633,6 +8852,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {isAdminRole && screen === "customers" && <CustomersScreen catalog={catalog} refreshData={refreshData} />}
         {screen === "manual" && <StaffManual role={role} />}
+        {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
