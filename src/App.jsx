@@ -14,6 +14,7 @@ const loadJsBarcode = () => (jsBarcodeMod ||= import("jsbarcode").then((m) => m.
 import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { supabase, setStaffSessionMode, clearStaffSessionMode } from "./supabaseClient.js";
+import { t, getLang, setLang, setStaffMode } from "./i18n.js";
 
 /* ------------------------------------------------------------------ */
 /*  DESIGN TOKENS — monochrome editorial, one burgundy accent          */
@@ -398,6 +399,9 @@ async function makeThumb(blobOrFile, folder = "productos") {
 }
 // Si una miniatura no carga, la foto usa la original (nunca se queda sin foto)
 const THUMB_ORIGINAL = new Map();
+// Nombre y descripción de la prenda en el idioma elegido (si se escribió en inglés en el editor)
+const pName = (p) => (getLang() === "en" && p?.nameEn) || p?.name || "";
+const pDesc = (p) => (getLang() === "en" && p?.descriptionEn) || p?.description || "";
 const imgThumb = (m) => { if (!m) return null; if (m.thumb && m.url) THUMB_ORIGINAL.set(m.thumb, m.url); return m.thumb || m.url; };
 // Para mover fotos viejas guardadas dentro de la base de datos (data:image/...) a Storage
 async function uploadDataUrl(dataUrl, folder) {
@@ -543,8 +547,8 @@ const webVisible = (p) => p.showOnline !== false && (!isOutlet(p) || outletOn())
 const OUTLET_RULES = ["Precio final: no aplican cupones ni puntos del Club, y no suman puntos.", "El envío se paga aparte (no cuenta para el envío gratis).", "Sin cambios ni devoluciones, salvo falla de fábrica."];
 const OutletRules = ({ compact }) => (
   <div style={{ background: C.paperDeep, borderRadius: 10, padding: compact ? "10px 12px" : "12px 14px", fontFamily: FONT_BODY, fontSize: compact ? 11.5 : 12, color: C.inkSoft, lineHeight: 1.55 }}>
-    <strong style={{ color: C.ink, letterSpacing: "0.08em", textTransform: "uppercase", fontSize: 10.5 }}>Outlet · Venta final</strong>
-    {OUTLET_RULES.map((r) => <div key={r}>· {r}</div>)}
+    <strong style={{ color: C.ink, letterSpacing: "0.08em", textTransform: "uppercase", fontSize: 10.5 }}>{t("Outlet · Venta final")}</strong>
+    {OUTLET_RULES.map((r) => <div key={r}>· {t(r)}</div>)}
   </div>
 );
 const BadgeLogo = ({ size = 34, dark }) => (
@@ -586,9 +590,9 @@ const UpdateBanner = ({ staff }) => {
   if (!ready || hidden) return null;
   return (
     <div role="status" style={{ position: "fixed", left: 12, right: 12, bottom: "calc(84px + env(safe-area-inset-bottom))", zIndex: 90, maxWidth: 460, margin: "0 auto", background: C.ink, color: C.paper, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", fontFamily: FONT_BODY }}>
-      <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4 }}><strong>Hay una versión nueva de Fly.</strong>{staff ? " Termina lo que estás haciendo y actualiza." : ""}</div>
-      <button onClick={() => window.location.reload()} style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Actualizar</button>
-      <button onClick={() => setHidden(true)} aria-label="Más tarde" style={{ background: "none", border: "none", color: C.paper, cursor: "pointer", padding: 4 }}><X size={16} /></button>
+      <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4 }}><strong>{t("Hay una versión nueva de Fly.")}</strong>{staff ? t(" Termina lo que estás haciendo y actualiza.") : ""}</div>
+      <button onClick={() => window.location.reload()} style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{t("Actualizar")}</button>
+      <button onClick={() => setHidden(true)} aria-label={t("Más tarde")} style={{ background: "none", border: "none", color: C.paper, cursor: "pointer", padding: 4 }}><X size={16} /></button>
     </div>
   );
 };
@@ -614,25 +618,27 @@ const ProductImg = ({ src, alt, style, dim }) => {
 /* ------------------------------------------------------------------ */
 /*  SMALL UI PRIMITIVES                                                */
 /* ------------------------------------------------------------------ */
+// Traduce si es texto (los componentes compartidos con el staff quedan en español allí)
+const tt = (x) => (typeof x === "string" ? t(x) : x);
 const Eyebrow = ({ children, color = C.stone }) => (
-  <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.2em", textTransform: "uppercase", color, fontWeight: 500, marginBottom: 5 }}>{children}</div>
+  <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.2em", textTransform: "uppercase", color, fontWeight: 500, marginBottom: 5 }}>{tt(children)}</div>
 );
 const SectionTitle = ({ eyebrow, title, action, onAction }) => (
   <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", padding: "0 20px", marginBottom: 14 }}>
-    <div>{eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}<h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: 0, letterSpacing: "-0.01em" }}>{title}</h2></div>
-    {action && <button onClick={onAction} style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 2, fontFamily: FONT_BODY, fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: C.ink, cursor: "pointer", padding: 4, fontWeight: 600 }}>{action} <ChevronRight size={13} /></button>}
+    <div>{eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}<h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: 0, letterSpacing: "-0.01em" }}>{tt(title)}</h2></div>
+    {action && <button onClick={onAction} style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 2, fontFamily: FONT_BODY, fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: C.ink, cursor: "pointer", padding: 4, fontWeight: 600 }}>{tt(action)} <ChevronRight size={13} /></button>}
   </div>
 );
 const Chip = ({ children, active, onClick }) => (
   <button onClick={onClick} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.03em", whiteSpace: "nowrap", padding: "9px 15px", borderRadius: 8,
-    border: `1px solid ${active ? C.ink : C.line}`, background: active ? C.ink : "transparent", color: active ? C.paper : C.ink, cursor: "pointer", fontWeight: 500 }}>{children}</button>
+    border: `1px solid ${active ? C.ink : C.line}`, background: active ? C.ink : "transparent", color: active ? C.paper : C.ink, cursor: "pointer", fontWeight: 500 }}>{tt(children)}</button>
 );
 const Tag = ({ label }) => {
   const map = { Nuevo: { bg: C.ink, fg: C.paper, border: C.ink }, Oferta: { bg: C.accent, fg: C.white, border: C.accent },
     Bestseller: { bg: "transparent", fg: C.ink, border: C.ink }, Agotado: { bg: C.white, fg: C.stone, border: C.stone }, Outlet: { bg: C.white, fg: C.ink, border: C.ink } };
   const s = map[label];
   if (!s) return null;
-  return <span style={{ position: "absolute", top: 10, left: 10, background: s.bg, color: s.fg, border: `1px solid ${s.border}`, fontFamily: FONT_BODY, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", padding: "4px 8px", borderRadius: 3, fontWeight: 600, zIndex: 2 }}>{label}</span>;
+  return <span style={{ position: "absolute", top: 10, left: 10, background: s.bg, color: s.fg, border: `1px solid ${s.border}`, fontFamily: FONT_BODY, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", padding: "4px 8px", borderRadius: 3, fontWeight: 600, zIndex: 2 }}>{t(label)}</span>;
 };
 const PrimaryButton = ({ children, onClick, dark = true, style, disabled }) => (
   <button onClick={onClick} disabled={disabled} style={{ fontFamily: FONT_BODY, fontSize: 12.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600,
@@ -641,7 +647,7 @@ const PrimaryButton = ({ children, onClick, dark = true, style, disabled }) => (
 );
 const Switch = ({ on, onClick, label }) => (
   <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-    {label && <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{label}</span>}
+    {label && <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{tt(label)}</span>}
     <span style={{ width: 38, height: 21, borderRadius: 999, border: `1px solid ${C.ink}`, background: on ? C.ink : "transparent", position: "relative", flexShrink: 0 }}>
       <span style={{ position: "absolute", top: 1.5, left: on ? 18 : 2, width: 15, height: 15, borderRadius: "50%", background: on ? C.paper : C.ink, transition: "left .15s ease" }} />
     </span>
@@ -668,23 +674,23 @@ const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId })
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
       <div className="sheet-panel" style={{ position: "relative", background: C.white, borderRadius: "18px 18px 0 0", padding: "20px 20px 26px", animation: "slideUp .25s cubic-bezier(.2,.8,.2,1)" }}>
         <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-          <div style={{ width: 56, height: 70, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}><ProductImg src={mainImageUrl(product)} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+          <div style={{ width: 56, height: 70, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}><ProductImg src={mainImageUrl(product)} alt={pName(product)} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
           <div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, fontWeight: 600, marginBottom: 2 }}>{product.name}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, fontWeight: 600, marginBottom: 2 }}>{pName(product)}</div>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, color: C.ink, fontWeight: 800 }}>{money(product.price)}</div>
           </div>
           <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", alignSelf: "flex-start" }}><X size={18} color={C.stone} /></button>
         </div>
         {colors.length > 0 && (
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.07em", textTransform: "uppercase", color: C.stone, marginBottom: 8 }}>Color — {color?.n}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.07em", textTransform: "uppercase", color: C.stone, marginBottom: 8 }}>{t("Color —")} {t(color?.n)}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {colors.map((c) => <button key={c.n} onClick={() => pickColor(c)} style={{ width: 28, height: 28, borderRadius: "50%", background: c.h, border: color?.n === c.n ? `2px solid ${C.ink}` : `1px solid ${C.line}`, cursor: "pointer" }} />)}
             </div>
           </div>
         )}
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.07em", textTransform: "uppercase", color: C.stone, marginBottom: 8 }}>Talla</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.07em", textTransform: "uppercase", color: C.stone, marginBottom: 8 }}>{t("Talla")}</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {sizes.map((s) => {
               const st = effStock(s, color?.n);
@@ -692,7 +698,7 @@ const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId })
             })}
           </div>
         </div>
-        <PrimaryButton disabled={!canAdd} onClick={() => { onQuickAdd(product, size, color, 1); onClose(); }}>{canAdd ? "Agregar a la bolsa" : "Elige talla"}</PrimaryButton>
+        <PrimaryButton disabled={!canAdd} onClick={() => { onQuickAdd(product, size, color, 1); onClose(); }}>{canAdd ? t("Agregar a la bolsa") : t("Elige talla")}</PrimaryButton>
       </div>
     </div>
   );
@@ -714,18 +720,18 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
     <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => onOpen(product, cardColor)}>
       <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
         <Tag label={label} />
-        <button aria-label={fav ? "Quitar de favoritos" : "Guardar en favoritos"} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+        <button aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
           <Heart size={14} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
         </button>
-        <ProductImg src={hovering && altImg ? altImg : baseImg} alt={product.name} dim={soldOut} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block", animation: "fadeIn .25s ease" }} />
+        <ProductImg src={hovering && altImg ? altImg : baseImg} alt={pName(product)} dim={soldOut} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block", animation: "fadeIn .25s ease" }} />
         {!soldOut && onQuickAdd && (
-          <button aria-label="Añadir a la cesta" onClick={(e) => { e.stopPropagation(); setQuickAddOpen(true); }} style={{ position: "absolute", bottom: 8, right: 8, zIndex: 2, width: 32, height: 32, borderRadius: "50%", background: C.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+          <button aria-label={t("Añadir a la cesta")} onClick={(e) => { e.stopPropagation(); setQuickAddOpen(true); }} style={{ position: "absolute", bottom: 8, right: 8, zIndex: 2, width: 32, height: 32, borderRadius: "50%", background: C.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <Plus size={15} color={C.paper} />
           </button>
         )}
       </div>
       <div style={{ padding: "9px 1px 0" }}>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, fontWeight: 500, lineHeight: 1.25, marginBottom: 4 }}>{product.name}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, fontWeight: 500, lineHeight: 1.25, marginBottom: 4 }}>{pName(product)}</div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
           <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, color: product.compareAtPrice ? C.accent : C.ink, fontWeight: 800 }}>{money(product.price)}</span>
           {product.compareAtPrice && <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "line-through" }}>{money(product.compareAtPrice)}</span>}
@@ -736,7 +742,7 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
               const active = cardColor === c.n;
               const withPhoto = hasColorPhoto(product, c.n);
               return (
-                <button key={c.n} title={withPhoto ? c.n : `${c.n} (sin foto aún)`} aria-label={`Ver en ${c.n}`}
+                <button key={c.n} title={withPhoto ? t(c.n) : t("{c} (sin foto aún)", { c: t(c.n) })} aria-label={t("Ver en {c}", { c: t(c.n) })}
                   onClick={(e) => { e.stopPropagation(); if (withPhoto) setCardColor(active ? null : c.n); else onOpen(product, c.n); }}
                   onMouseEnter={() => withPhoto && setCardColor(c.n)}
                   style={{ width: 22, height: 22, padding: 0, border: "none", background: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -768,11 +774,11 @@ const NAV_ITEMS = [
 ];
 const closeDrop = (e) => { const w = e.currentTarget; w.classList.add("nav-drop-closed"); try { document.activeElement && document.activeElement.blur(); } catch (err) { /* nada */ } };
 const reopenDrop = (e) => e.currentTarget.classList.remove("nav-drop-closed");
-const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMember, points = 0, onLogoutClub, products = [], onOpenProduct, onSearchQuery, onCategory, favCount = 0, hasOutlet = false }) => (
+const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMember, points = 0, onLogoutClub, products = [], onOpenProduct, onSearchQuery, onCategory, favCount = 0, hasOutlet = false, lang, onLang }) => (
   <div className="app-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "space-around", zIndex: 30 }}>
-    <button className="nav-brand" onClick={() => setScreen("home")} title="Ir al inicio" aria-label="Ir al inicio" style={{ display: "none", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+    <button className="nav-brand" onClick={() => setScreen("home")} title={t("Ir al inicio")} aria-label={t("Ir al inicio")} style={{ display: "none", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
       <BadgeLogo size={64} />
-      <span className="nav-brand-hint" style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>Inicio</span>
+      <span className="nav-brand-hint" style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{t("Inicio")}</span>
     </button>
     <div className="nav-search" style={{ display: "none", position: "relative" }}>
       <SearchBox products={products} onOpenProduct={onOpenProduct} onSearch={onSearchQuery} />
@@ -787,7 +793,7 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
             {key === "favorites" && favCount > 0 && <span style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{favCount}</span>}
             {key === "cart" && cartCount > 0 && <span style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{cartCount}</span>}
           </div>
-          <span className="nav-label" style={{ fontFamily: FONT_BODY, fontSize: 10, color: active ? C.ink : C.stone, fontWeight: active ? 600 : 400 }}>{label}</span>
+          <span className="nav-label" style={{ fontFamily: FONT_BODY, fontSize: 10, color: active ? C.ink : C.stone, fontWeight: active ? 600 : 400 }}>{t(label)}</span>
         </button>
       );
       if (key === "category") {
@@ -802,15 +808,15 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
                   if (!items.length) return null;
                   return (
                     <div key={group} style={{ minWidth: 140 }}>
-                      <button onClick={() => onCategory && onCategory("Todo", group)} style={{ display: "block", background: "none", border: "none", padding: "0 0 8px", cursor: "pointer", fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink }}>{group}</button>
-                      {items.map((c) => <button key={c} onClick={() => onCategory && onCategory(c)} className="nav-drop-link" style={{ display: "block", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, textAlign: "left" }}>{c}</button>)}
+                      <button onClick={() => onCategory && onCategory("Todo", group)} style={{ display: "block", background: "none", border: "none", padding: "0 0 8px", cursor: "pointer", fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink }}>{t(group)}</button>
+                      {items.map((c) => <button key={c} onClick={() => onCategory && onCategory(c)} className="nav-drop-link" style={{ display: "block", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, textAlign: "left" }}>{t(c)}</button>)}
                     </div>
                   );
                 })}
                 <div style={{ minWidth: 140 }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, paddingBottom: 8 }}>Destacado</div>
-                  <button onClick={() => onCategory && onCategory("Todo")} className="nav-drop-link" style={{ display: "block", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft }}>Ver todo</button>
-                  {hasOutlet && <button onClick={() => setScreen("outlet")} className="nav-drop-link" style={{ display: "block", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, letterSpacing: "0.08em" }}>OUTLET</button>}
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, paddingBottom: 8 }}>{t("Destacado")}</div>
+                  <button onClick={() => onCategory && onCategory("Todo")} className="nav-drop-link" style={{ display: "block", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft }}>{t("Ver todo")}</button>
+                  {hasOutlet && <button onClick={() => setScreen("outlet")} className="nav-drop-link" style={{ display: "block", background: "none", border: "none", padding: "6px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, letterSpacing: "0.08em" }}>{t("OUTLET")}</button>}
                 </div>
               </div>
             </div>
@@ -818,7 +824,7 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
         );
       }
       if (key !== "profile" && key !== "cart") return btn;
-      const link = (text, target, extra) => <button key={text} onClick={() => setScreen(target)} className="nav-drop-link" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 4px", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, cursor: "pointer" }}>{text}{extra}</button>;
+      const link = (text, target, extra) => <button key={text} onClick={() => setScreen(target)} className="nav-drop-link" style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 4px", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, cursor: "pointer" }}>{t(text)}{extra}</button>;
       const subtotal = cart.reduce((a, i) => a + i.price * i.qty, 0);
       return (
         <div key={key} className="nav-drop-wrap" onClickCapture={closeDrop} onMouseLeave={reopenDrop} style={{ position: "relative", display: "flex", flex: 1 }}>
@@ -826,21 +832,21 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
           <div className="nav-dropdown" style={{ display: "none" }}>
             {key === "profile" ? (
               <div style={{ padding: "14px 18px", width: 260 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink, marginBottom: 6 }}>{clubMember ? `Hola, ${clubMember.name.split(" ")[0]}` : "Mi cuenta"}</div>
-                {!clubMember && <button onClick={() => setScreen("loyalty")} style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", margin: "4px 0 8px" }}>Únete al Club Fly gratis</button>}
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink, marginBottom: 6 }}>{clubMember ? t("Hola, {n}", { n: clubMember.name.split(" ")[0] }) : t("Mi cuenta")}</div>
+                {!clubMember && <button onClick={() => setScreen("loyalty")} style={{ width: "100%", padding: "11px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", margin: "4px 0 8px" }}>{t("Únete al Club Fly gratis")}</button>}
                 {link("Tu perfil", "profile")}
                 {link("Mis pedidos", "orders")}
                 {link("Mis favoritos", "favorites")}
                 {link("Mis direcciones", "addresses")}
                 {link("Rastrear un pedido", "track")}
-                {clubMember && link("Club Fly", "loyalty", <span style={{ color: C.stone }}> · {points} puntos</span>)}
-                {clubMember && <button onClick={onLogoutClub} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${C.line}`, marginTop: 6, padding: "12px 4px 2px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, cursor: "pointer" }}>¿No eres {clubMember.name.split(" ")[0]}? Cerrar sesión</button>}
+                {clubMember && link("Club Fly", "loyalty", <span style={{ color: C.stone }}> · {points} {t("puntos")}</span>)}
+                {clubMember && <button onClick={onLogoutClub} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderTop: `1px solid ${C.line}`, marginTop: 6, padding: "12px 4px 2px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, cursor: "pointer" }}>{t("¿No eres {n}? Cerrar sesión", { n: clubMember.name.split(" ")[0] })}</button>}
               </div>
             ) : (
               <div style={{ padding: "14px 18px", width: 340 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink, marginBottom: 10 }}>Cesta {cartCount ? `(${cartCount})` : ""}</div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink, marginBottom: 10 }}>{t("Cesta")} {cartCount ? `(${cartCount})` : ""}</div>
                 {cart.length === 0 ? (
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, padding: "6px 0 10px" }}>Tu cesta está vacía.</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, padding: "6px 0 10px" }}>{t("Tu cesta está vacía.")}</div>
                 ) : (
                   <>
                     <div style={{ maxHeight: 260, overflowY: "auto" }}>
@@ -849,22 +855,23 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
                           <div style={{ width: 48, height: 60, borderRadius: 6, overflow: "hidden", background: C.paperDeep, flexShrink: 0 }}><ProductImg src={i.image} alt={i.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{i.name}</div>
-                            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>Color: {i.color?.n} · Talla: {i.size} · Cant.: {i.qty}</div>
+                            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>{t("Color:")} {t(i.color?.n)} {t("· Talla:")} {i.size} {t("· Cant.:")} {i.qty}</div>
                             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 800, color: C.ink }}>{money(i.price * i.qty)}</div>
                           </div>
                         </div>
                       ))}
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, padding: "12px 0" }}><span>Subtotal</span><span>{money(subtotal)}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, padding: "12px 0" }}><span>{t("Subtotal")}</span><span>{money(subtotal)}</span></div>
                   </>
                 )}
-                <button onClick={() => setScreen("cart")} style={{ width: "100%", padding: "12px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Ir a la cesta</button>
+                <button onClick={() => setScreen("cart")} style={{ width: "100%", padding: "12px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Ir a la cesta")}</button>
               </div>
             )}
           </div>
         </div>
       );
     })}
+    <LangSwitch className="nav-lang" lang={lang} onLang={onLang} />
   </div>
 );
 
@@ -874,7 +881,7 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
 // Ajustes de la tienda a mano para textos fijos (la cinta de arriba); se actualiza al cargar el catálogo
 let SHOP_SETTINGS = {};
 const Marquee = () => {
-  const text = `ENVÍO GRATIS EN TRUJILLO DESDE S/ ${localShippingOf(SHOP_SETTINGS).freeFrom}  ·  ${clubOn(SHOP_SETTINGS) ? "CLUB FLY: GANA PUNTOS EN CADA COMPRA  ·  " : ""}NUEVA COLECCIÓN DISPONIBLE  ·  `;
+  const text = `${t("ENVÍO GRATIS EN TRUJILLO DESDE S/ {n}", { n: localShippingOf(SHOP_SETTINGS).freeFrom })}  ·  ${clubOn(SHOP_SETTINGS) ? `${t("CLUB FLY: GANA PUNTOS EN CADA COMPRA")}  ·  ` : ""}${t("NUEVA COLECCIÓN DISPONIBLE")}  ·  `;
   return (
     <div style={{ background: C.ink, overflow: "hidden", height: 28, display: "flex", alignItems: "center" }}>
       <div style={{ display: "flex", animation: "marquee 22s linear infinite" }}>
@@ -896,29 +903,29 @@ const SearchBox = ({ products, onOpenProduct, onSearch }) => {
   const nq = normText(q.trim());
   const cats = [...new Set(products.map((p) => p.category))];
   const catSug = nq ? cats.filter((c) => normText(c).includes(nq)) : cats;
-  const prodSug = nq.length >= 2 ? products.filter((p) => normText(`${p.name} ${p.category} ${productColors(p).map((c) => c.n).join(" ")}`).includes(nq)).slice(0, 5) : [];
+  const prodSug = nq.length >= 2 ? products.filter((p) => normText(`${p.name} ${p.nameEn || ""} ${p.category} ${t(p.category)} ${productColors(p).map((c) => `${c.n} ${t(c.n)}`).join(" ")}`).includes(nq)).slice(0, 5) : [];
   const go = (term) => { const t = term.trim(); setOpen(false); setQ(""); onSearch(t); try { const rec = JSON.parse(localStorage.getItem(RECENT_SEARCH_KEY) || "[]"); localStorage.setItem(RECENT_SEARCH_KEY, JSON.stringify([t, ...rec.filter((r) => r !== t)].slice(0, 6))); } catch (e) { /* nada */ } };
   return (
     <div ref={boxRef} style={{ position: "relative", width: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.paper, border: `1px solid ${open ? C.ink : C.line}`, borderRadius: open ? "20px 20px 0 0" : 999, padding: "11px 18px" }}>
         <Search size={16} color={C.stone} strokeWidth={1.8} />
         <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onKeyDown={(e) => { if (e.key === "Enter" && q.trim()) go(q); if (e.key === "Escape") setOpen(false); }}
-          placeholder="¿Qué prenda buscas hoy?" style={{ flex: 1, border: "none", outline: "none", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, background: "transparent" }} />
-        {q && <button onClick={() => setQ("")} aria-label="Borrar" style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={15} color={C.stone} /></button>}
+          placeholder={t("¿Qué prenda buscas hoy?")} style={{ flex: 1, border: "none", outline: "none", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, background: "transparent" }} />
+        {q && <button onClick={() => setQ("")} aria-label={t("Borrar")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={15} color={C.stone} /></button>}
       </div>
       {open && (
         <div style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 70, background: C.paper, border: `1px solid ${C.ink}`, borderTop: "none", borderRadius: "0 0 20px 20px", boxShadow: "0 18px 40px rgba(0,0,0,0.14)", padding: "6px 0 10px", maxHeight: "70vh", overflowY: "auto" }}>
-          {q.trim() && <button onClick={() => go(q)} style={{ display: "flex", width: "100%", alignItems: "center", gap: 10, padding: "11px 18px", background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, textAlign: "left" }}><Search size={14} /> Ver resultados de "<strong>{q.trim()}</strong>"</button>}
+          {q.trim() && <button onClick={() => go(q)} style={{ display: "flex", width: "100%", alignItems: "center", gap: 10, padding: "11px 18px", background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, textAlign: "left" }}><Search size={14} /> {t("Ver resultados de")} «<strong>{q.trim()}</strong>»</button>}
           {catSug.slice(0, 6).map((c) => (
             <button key={c} onClick={() => go(c)} style={{ display: "block", width: "100%", padding: "10px 18px", background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, textAlign: "left" }}>
-              {nq ? <><strong>{c.slice(0, q.trim().length)}</strong>{c.slice(q.trim().length)}</> : c} <span style={{ color: C.stone, fontSize: 11.5 }}>· categoría</span>
+              {nq ? <><strong>{c.slice(0, q.trim().length)}</strong>{c.slice(q.trim().length)}</> : c} <span style={{ color: C.stone, fontSize: 11.5 }}>{t("· categoría")}</span>
             </button>
           ))}
           {prodSug.length > 0 && <div style={{ borderTop: `1px solid ${C.paperDeep}`, margin: "6px 0 2px" }} />}
           {prodSug.map((p) => (
             <button key={p.id} onClick={() => { setOpen(false); setQ(""); onOpenProduct(p); }} style={{ display: "flex", width: "100%", alignItems: "center", gap: 12, padding: "8px 18px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
-              <div style={{ width: 38, height: 48, borderRadius: 6, overflow: "hidden", background: C.paperDeep, flexShrink: 0 }}><ProductImg src={mainImageUrl(p)} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
-              <span style={{ flex: 1, fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{p.name}</span>
+              <div style={{ width: 38, height: 48, borderRadius: 6, overflow: "hidden", background: C.paperDeep, flexShrink: 0 }}><ProductImg src={mainImageUrl(p)} alt={pName(p)} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+              <span style={{ flex: 1, fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{pName(p)}</span>
               <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 800, color: p.compareAtPrice ? C.accent : C.ink }}>{money(p.price)}</span>
             </button>
           ))}
@@ -933,7 +940,7 @@ const SearchOverlay = ({ products, onClose, onOpenProduct, onSearchAll }) => {
   useEffect(() => { const onKey = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, []);
   const norm = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const nq = norm(q.trim());
-  const results = nq.length >= 2 ? products.filter((p) => norm(`${p.name} ${p.category} ${p.tag || ""} ${productColors(p).map((c) => c.n).join(" ")}`).includes(nq)) : [];
+  const results = nq.length >= 2 ? products.filter((p) => norm(`${p.name} ${p.nameEn || ""} ${p.category} ${t(p.category)} ${p.tag || ""} ${productColors(p).map((c) => `${c.n} ${t(c.n)}`).join(" ")}`).includes(nq)) : [];
   const categories = [...new Set(products.map((p) => p.category))];
   const suggestions = nq.length >= 1
     ? [...new Set([...categories.filter((c) => norm(c).includes(nq)), ...products.filter((p) => norm(p.name).includes(nq)).map((p) => p.name)])].slice(0, 6)
@@ -950,20 +957,20 @@ const SearchOverlay = ({ products, onClose, onOpenProduct, onSearchAll }) => {
       <div className="search-scrim" onClick={onClose} style={{ position: "absolute", inset: 0, background: C.paper }} />
       <div className="search-panel" style={{ position: "relative", flex: 1, display: "flex", flexDirection: "column", background: C.paper, minHeight: 0 }}>
         <div style={{ padding: "14px 16px 12px", display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${C.line}` }}>
-          <button onClick={onClose} aria-label="Cerrar búsqueda" style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><ArrowLeft size={19} color={C.ink} /></button>
+          <button onClick={onClose} aria-label={t("Cerrar búsqueda")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><ArrowLeft size={19} color={C.ink} /></button>
           <Search size={16} color={C.stone} />
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="¿Qué prenda buscas hoy?"
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("¿Qué prenda buscas hoy?")}
             onKeyDown={(e) => { if (e.key === "Enter" && q.trim()) { remember(q); if (onSearchAll) { onSearchAll(q.trim()); onClose(); } } }}
             style={{ flex: 1, border: "none", outline: "none", fontFamily: FONT_BODY, fontSize: 14, background: "transparent", color: C.ink }} />
-          {q && <button onClick={() => setQ("")} aria-label="Borrar" style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={16} color={C.stone} /></button>}
+          {q && <button onClick={() => setQ("")} aria-label={t("Borrar")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={16} color={C.stone} /></button>}
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 0 16px" }}>
           {suggestions.length > 0 && (
             <div style={{ padding: "4px 0 8px", borderBottom: `1px solid ${C.paperDeep}` }}>
-              {suggestions.map((t) => (
-                <button key={t} onClick={() => setQ(t)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 20px", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink }}>
+              {suggestions.map((sg) => (
+                <button key={sg} onClick={() => setQ(sg)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 20px", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink }}>
                   <Search size={14} color={C.stone} />
-                  <span><strong>{t.slice(0, q.trim().length)}</strong>{t.slice(q.trim().length)}</span>
+                  <span><strong>{sg.slice(0, q.trim().length)}</strong>{sg.slice(q.trim().length)}</span>
                 </button>
               ))}
             </div>
@@ -973,35 +980,35 @@ const SearchOverlay = ({ products, onClose, onOpenProduct, onSearchAll }) => {
               {recent.length > 0 && (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <Eyebrow>Búsquedas recientes</Eyebrow>
-                    <button onClick={() => { setRecent([]); try { localStorage.removeItem(RECENT_SEARCH_KEY); } catch (e) { /* nada */ } }} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer" }}>Borrar</button>
+                    <Eyebrow>{t("Búsquedas recientes")}</Eyebrow>
+                    <button onClick={() => { setRecent([]); try { localStorage.removeItem(RECENT_SEARCH_KEY); } catch (e) { /* nada */ } }} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer" }}>{t("Borrar")}</button>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>{recent.map((r) => <button key={r} onClick={() => setQ(r)} style={chip}>{r}</button>)}</div>
                 </>
               )}
-              <Eyebrow>Categorías</Eyebrow>
+              <Eyebrow>{t("Categorías")}</Eyebrow>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>{categories.map((c) => <button key={c} onClick={() => { onSearchAll && onSearchAll(c); onClose(); }} style={chip}>{c}</button>)}</div>
-              <Eyebrow>Lo más nuevo</Eyebrow>
+              <Eyebrow>{t("Lo más nuevo")}</Eyebrow>
               <div className="search-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 {products.filter((p) => !productSoldOut(p)).slice(0, 6).map((p) => (
                   <button key={p.id} onClick={() => pick(p)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
-                    <div style={{ borderRadius: 8, overflow: "hidden", background: C.paperDeep }}><ProductImg src={mainImageUrl(p)} alt={p.name} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block" }} /></div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                    <div style={{ borderRadius: 8, overflow: "hidden", background: C.paperDeep }}><ProductImg src={mainImageUrl(p)} alt={pName(p)} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block" }} /></div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pName(p)}</div>
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 12, fontWeight: 800, color: p.compareAtPrice ? C.accent : C.ink }}>{money(p.price)}</div>
                   </button>
                 ))}
               </div>
             </div>
           ) : results.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>No encontramos "{q}". Prueba con otra palabra, como "vestido" o "negro".</div>
+            <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>{t("No encontramos «{q}». Prueba con otra palabra, como «vestido» o «negro».", { q })}</div>
           ) : (
             <div style={{ padding: "12px 20px" }}>
-              <Eyebrow>{results.length} resultado{results.length !== 1 ? "s" : ""}</Eyebrow>
+              <Eyebrow>{t(results.length === 1 ? "{n} resultado" : "{n} resultados", { n: results.length })}</Eyebrow>
               <div className="search-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 {results.slice(0, 18).map((p) => (
                   <button key={p.id} onClick={() => pick(p)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
-                    <div style={{ borderRadius: 8, overflow: "hidden", background: C.paperDeep }}><ProductImg src={mainImageUrl(p)} alt={p.name} dim={productSoldOut(p)} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block" }} /></div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                    <div style={{ borderRadius: 8, overflow: "hidden", background: C.paperDeep }}><ProductImg src={mainImageUrl(p)} alt={pName(p)} dim={productSoldOut(p)} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block" }} /></div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginTop: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pName(p)}</div>
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 12, fontWeight: 800, color: p.compareAtPrice ? C.accent : C.ink }}>{money(p.price)}</div>
                   </button>
                 ))}
@@ -1014,15 +1021,29 @@ const SearchOverlay = ({ products, onClose, onOpenProduct, onSearchAll }) => {
   );
 };
 
-const Header = ({ onSearch, onHome }) => (
+// Idioma de la tienda: ES | EN (lo elegido se recuerda en este equipo)
+const LangSwitch = ({ lang, onLang, className }) => (
+  <div className={className} role="group" aria-label="Idioma / Language" style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0, fontFamily: FONT_BODY, fontSize: 12 }}>
+    {[["es", "ES"], ["en", "EN"]].map(([k, l], i) => (
+      <React.Fragment key={k}>
+        {i > 0 && <span style={{ color: C.line }}>|</span>}
+        <button onClick={() => onLang(k)} aria-pressed={lang === k} lang={k} title={k === "es" ? "Español" : "English"}
+          style={{ background: "none", border: "none", padding: "6px 5px", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.06em", color: lang === k ? C.ink : C.stone, fontWeight: lang === k ? 700 : 400, textDecoration: lang === k ? "underline" : "none", textUnderlineOffset: 4 }}>{l}</button>
+      </React.Fragment>
+    ))}
+  </div>
+);
+
+const Header = ({ onSearch, onHome, lang, onLang }) => (
   <div className="app-header" style={{ position: "sticky", top: 0, zIndex: 20, background: C.paper }}>
     <Marquee />
     <div style={{ padding: "14px 20px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-      <button onClick={onHome} aria-label="Ir al inicio" title="Ir al inicio" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" }}><BadgeLogo size={34} /></button>
+      <button onClick={onHome} aria-label={t("Ir al inicio")} title={t("Ir al inicio")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex" }}><BadgeLogo size={34} /></button>
       <button onClick={onSearch} style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 999, padding: "10px 14px", cursor: "pointer", textAlign: "left" }}>
         <Search size={15} color={C.stone} strokeWidth={1.8} />
-        <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>¿Qué prenda buscas hoy?</span>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>{t("¿Qué prenda buscas hoy?")}</span>
       </button>
+      <LangSwitch lang={lang} onLang={onLang} />
     </div>
   </div>
 );
@@ -1037,19 +1058,19 @@ const ViewedStrip = ({ items, onOpen, onQuickAdd, catalog, cartSessionId, onSeeA
   if (!items.length) return null;
   return (
     <div style={{ marginBottom: 32 }}>
-      <SectionTitle title="Visto recientemente" action="Ver todo" onAction={onSeeAll} />
+      <SectionTitle title={t("Visto recientemente")} action="Ver todo" onAction={onSeeAll} />
       <div className="hscroll" style={{ display: "flex", gap: 12, overflowX: "auto", padding: "0 20px 4px", scrollbarWidth: "none" }}>
         {items.map((p) => {
           const soldOut = productSoldOut(p);
           return (
             <div key={p.id} style={{ width: 136, flexShrink: 0 }}>
               <div onClick={() => onOpen(p)} style={{ cursor: "pointer", borderRadius: 8, overflow: "hidden", background: C.paperDeep }}>
-                <ProductImg src={mainImageUrl(p)} alt={p.name} dim={soldOut} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block" }} />
+                <ProductImg src={mainImageUrl(p)} alt={pName(p)} dim={soldOut} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block" }} />
               </div>
-              <div onClick={() => onOpen(p)} style={{ cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, marginTop: 7, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+              <div onClick={() => onOpen(p)} style={{ cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, marginTop: 7, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pName(p)}</div>
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 800, color: p.compareAtPrice ? C.accent : C.ink, marginTop: 2 }}>{money(p.price)}</div>
               <button disabled={soldOut} onClick={() => setQuick(p)} style={{ width: "100%", marginTop: 8, padding: "9px 6px", borderRadius: 8, border: `1px solid ${soldOut ? C.line : C.ink}`, background: "transparent", color: soldOut ? C.stone : C.ink, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: soldOut ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                <ShoppingBag size={13} /> {soldOut ? "Agotado" : "Añadir a la cesta"}
+                <ShoppingBag size={13} /> {soldOut ? t("Agotado") : t("Añadir a la cesta")}
               </button>
             </div>
           );
@@ -1096,7 +1117,7 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
           <div style={{ position: "absolute", inset: 0, background: `linear-gradient(0deg, ${C.scrim}CC 0%, ${C.scrim}10 42%, transparent 68%)` }} />
           <div style={{ position: "absolute", left: 20, right: 20, bottom: 28 }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, color: C.white, fontWeight: 800, lineHeight: 1.02, letterSpacing: "-0.01em", marginBottom: 14 }}>{hero.title}</div>
-            <button onClick={heroTarget} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: C.white, border: `1px solid ${C.white}`, padding: "12px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>{hero.ctaLabel || "Ver colección"} <ChevronRight size={14} /></button>
+            <button onClick={heroTarget} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: C.white, border: `1px solid ${C.white}`, padding: "12px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>{hero.ctaLabel ? (getLang() === "en" && hero.ctaLabelEn) || hero.ctaLabel : t("Ver colección")} <ChevronRight size={14} /></button>
           </div>
           {activeBanners.length > 1 && (
             <div style={{ position: "absolute", bottom: 10, right: 20, display: "flex", gap: 5 }}>
@@ -1106,30 +1127,30 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
         </div>
       ) : (
         <div style={{ margin: "0 20px 30px", padding: 30, textAlign: "center", border: `1px dashed ${C.line}`, borderRadius: 12 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Aún no hay un banner activo. Agrégalo desde el panel admin.</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{t("Aún no hay un banner activo. Agrégalo desde el panel admin.")}</div>
         </div>
       )}
 
-      <SectionTitle eyebrow="Recién llegado" title="Nueva colección" action="Ver todo" onAction={() => setScreen("category")} />
+      <SectionTitle eyebrow="Recién llegado" title={t("Nueva colección")} action="Ver todo" onAction={() => setScreen("category")} />
       <div className="nuevos-row" style={{ display: "flex", gap: 14, overflowX: "auto", padding: "0 20px 6px", marginBottom: 32, scrollbarWidth: "none" }}>
         {nuevos.length ? nuevos.slice(0, 8).map((p) => <ProductCard key={p.id} product={p} onOpen={onOpen} fav={favs.has(p.id)} onToggleFav={onToggleFav} wide onQuickAdd={onQuickAdd} catalog={catalog} cartSessionId={cartSessionId} />)
-          : <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, padding: "10px 0" }}>Sin novedades por ahora.</div>}
+          : <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, padding: "10px 0" }}>{t("Sin novedades por ahora.")}</div>}
       </div>
 
-      <SectionTitle eyebrow="Lo más amado" title="Destacados" />
+      <SectionTitle eyebrow="Lo más amado" title={t("Destacados")} />
       <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, padding: "0 20px", marginBottom: 32 }}>
         {destacados.map((p) => <ProductCard key={p.id} product={p} onOpen={onOpen} fav={favs.has(p.id)} onToggleFav={onToggleFav} onQuickAdd={onQuickAdd} catalog={catalog} cartSessionId={cartSessionId} />)}
       </div>
 
       {ofertas.length > 0 && (
         <div style={{ margin: "0 20px 32px", borderRadius: 14, border: `1px solid ${C.line}`, padding: "22px 20px" }}>
-          <Eyebrow color={C.accent}>Ofertas</Eyebrow>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, marginBottom: 4 }}>{maxOff > 0 ? `Hasta ${maxOff}% de descuento` : "En oferta"}</div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 16, maxWidth: 240 }}>En piezas seleccionadas, hasta agotar stock.</div>
+          <Eyebrow color={C.accent}>{t("Ofertas")}</Eyebrow>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, marginBottom: 4 }}>{maxOff > 0 ? t("Hasta {n}% de descuento", { n: maxOff }) : t("En oferta")}</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 16, maxWidth: 240 }}>{t("En piezas seleccionadas, hasta agotar stock.")}</div>
           <div style={{ display: "flex", gap: 12, overflowX: "auto", scrollbarWidth: "none" }}>
             {ofertas.map((p) => (
               <div key={p.id} style={{ width: 108, flexShrink: 0, cursor: "pointer" }} onClick={() => onOpen(p)}>
-                <div style={{ borderRadius: 8, overflow: "hidden" }}><ProductImg src={mainImageUrl(p)} alt={p.name} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover" }} /></div>
+                <div style={{ borderRadius: 8, overflow: "hidden" }}><ProductImg src={mainImageUrl(p)} alt={pName(p)} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover" }} /></div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginTop: 6, fontWeight: 600 }}>{money(p.price)}</div>
               </div>
             ))}
@@ -1140,8 +1161,8 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
       {outletCount > 0 && (
         <button onClick={() => setScreen("outlet")} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "calc(100% - 40px)", margin: "0 20px 32px", padding: "18px 20px", borderRadius: 12, border: `1px solid ${C.ink}`, background: C.paper, cursor: "pointer", textAlign: "left" }}>
           <span>
-            <span style={{ display: "block", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.ink }}>OUTLET</span>
-            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 3 }}>Últimas unidades a precio final · {outletCount} {outletCount === 1 ? "prenda" : "prendas"}</span>
+            <span style={{ display: "block", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.ink }}>{t("OUTLET")}</span>
+            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 3 }}>{t(outletCount === 1 ? "Últimas unidades a precio final · {n} prenda" : "Últimas unidades a precio final · {n} prendas", { n: outletCount })}</span>
           </span>
           <ChevronRight size={18} color={C.ink} />
         </button>
@@ -1161,12 +1182,12 @@ const SortSheet = ({ sort, setSort, onClose }) => (
     <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
     <div className="sheet-panel sheet-small" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: "18px 22px calc(22px + env(safe-area-inset-bottom))", animation: "slideUp .25s ease" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>Ordenar por</div>
-        <button onClick={onClose} aria-label="Cerrar" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={19} color={C.ink} /></button>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>{t("Ordenar por")}</div>
+        <button onClick={onClose} aria-label={t("Cerrar")} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={19} color={C.ink} /></button>
       </div>
       {SORT_OPTIONS.map(([key, label]) => (
         <button key={key} onClick={() => { setSort(key); onClose(); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 2px", background: "none", border: "none", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
-          <span style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.ink, fontWeight: sort === key ? 600 : 400 }}>{label}</span>
+          <span style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.ink, fontWeight: sort === key ? 600 : 400 }}>{t(label)}</span>
           {sort === key && <Check size={16} color={C.ink} />}
         </button>
       ))}
@@ -1184,30 +1205,30 @@ const FilterSheet = ({ allSizes, allColors, sizes, setSizes, colors, setColors, 
       <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", maxHeight: "82%", overflowY: "auto", animation: "slideUp .25s ease" }}>
         <div style={{ padding: "18px 22px 28px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink }}>Filtrar</div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink }}>{t("Filtrar")}</div>
             <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={19} color={C.ink} /></button>
           </div>
-          <Eyebrow>Precio máximo — {money(priceLimit)}</Eyebrow>
+          <Eyebrow>{t("Precio máximo —")} {money(priceLimit)}</Eyebrow>
           <input type="range" min={0} max={maxPrice} step={10} value={priceLimit} onChange={(e) => setPriceLimit(Number(e.target.value))} style={{ width: "100%", marginBottom: 22, accentColor: C.ink }} />
-          <Eyebrow>Destacado</Eyebrow>
+          <Eyebrow>{t("Destacado")}</Eyebrow>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 22 }}>
-            {TAGS.map((t) => <button key={t} onClick={() => toggle(tags, setTags, t)} style={{ padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, border: `1px solid ${tags.has(t) ? C.ink : C.line}`, background: tags.has(t) ? C.ink : "transparent", color: tags.has(t) ? C.paper : C.ink }}>{t}</button>)}
+            {TAGS.map((tg) => <button key={tg} onClick={() => toggle(tags, setTags, tg)} style={{ padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, border: `1px solid ${tags.has(tg) ? C.ink : C.line}`, background: tags.has(tg) ? C.ink : "transparent", color: tags.has(tg) ? C.paper : C.ink }}>{t(tg)}</button>)}
           </div>
-          <Eyebrow>Talla</Eyebrow>
+          <Eyebrow>{t("Talla")}</Eyebrow>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 22 }}>
             {allSizes.map((s) => <button key={s} onClick={() => toggle(sizes, setSizes, s)} style={{ minWidth: 44, padding: "9px 6px", borderRadius: 8, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, border: `1px solid ${sizes.has(s) ? C.ink : C.line}`, background: sizes.has(s) ? C.ink : "transparent", color: sizes.has(s) ? C.paper : C.ink }}>{s}</button>)}
           </div>
-          <Eyebrow>Color</Eyebrow>
+          <Eyebrow>{t("Color")}</Eyebrow>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 26 }}>
             {allColors.map((c) => (
               <button key={c.n} onClick={() => toggle(colors, setColors, c.n)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 6px", borderRadius: 999, border: `1px solid ${colors.has(c.n) ? C.ink : C.line}`, background: "transparent", cursor: "pointer" }}>
-                <span style={{ width: 16, height: 16, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} /><span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink }}>{c.n}</span>
+                <span style={{ width: 16, height: 16, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} /><span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink }}>{t(c.n)}</span>
               </button>
             ))}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={onClear} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>Limpiar</button>
-            <button onClick={onClose} style={{ flex: 2, padding: "14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>Aplicar</button>
+            <button onClick={onClear} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>{t("Limpiar")}</button>
+            <button onClick={onClose} style={{ flex: 2, padding: "14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>{t("Aplicar")}</button>
           </div>
         </div>
       </div>
@@ -1226,14 +1247,14 @@ const ViewedScreen = ({ catalog, viewedIds, onOpen, favs, onToggleFav, onQuickAd
   return (
     <div style={{ padding: "18px 20px 24px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: 0 }}>Visto</h1>
-        {vistos.length > 0 && <button onClick={() => { if (confirm("¿Vaciar tu historial de vistos?")) vistos.forEach((p) => onRemoveViewed(p.id)); }} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 12, color: C.stone, textDecoration: "underline", cursor: "pointer" }}>Eliminar</button>}
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: 0 }}>{t("Visto")}</h1>
+        {vistos.length > 0 && <button onClick={() => { if (confirm(t("¿Vaciar tu historial de vistos?"))) vistos.forEach((p) => onRemoveViewed(p.id)); }} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 12, color: C.stone, textDecoration: "underline", cursor: "pointer" }}>{t("Eliminar")}</button>}
       </div>
       {vistos.length === 0 ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 320, textAlign: "center" }}>
           <Eye size={30} color={C.line} style={{ marginBottom: 14 }} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, marginBottom: 20, maxWidth: 240 }}>Aún no has visto ninguna prenda. Explora el catálogo y lo que mires va a quedar guardado aquí.</div>
-          <button onClick={() => setScreen("category")} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: C.ink, color: C.paper, border: "none", padding: "13px 26px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>Explorar</button>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, marginBottom: 20, maxWidth: 240 }}>{t("Aún no has visto ninguna prenda. Explora el catálogo y lo que mires va a quedar guardado aquí.")}</div>
+          <button onClick={() => setScreen("category")} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: C.ink, color: C.paper, border: "none", padding: "13px 26px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>{t("Explorar")}</button>
         </div>
       ) : (
         <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -1273,7 +1294,7 @@ const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCate
   let filtered = activeCategory === "Todo" ? [...products] : products.filter((p) => p.category === activeCategory);
   if (activeCategory === "Todo" && group) filtered = filtered.filter((p) => (group === "Ropa" ? groupOfCategory(p.category) === "Ropa" : groupCats.includes(p.category)));
   const nq = normText(searchQuery.trim());
-  if (nq) filtered = filtered.filter((p) => normText(`${p.name} ${p.category} ${p.tag || ""} ${p.description || ""} ${productColors(p).map((c) => c.n).join(" ")}`).includes(nq));
+  if (nq) filtered = filtered.filter((p) => normText(`${p.name} ${p.nameEn || ""} ${p.category} ${t(p.category)} ${p.tag || ""} ${p.description || ""} ${productColors(p).map((c) => `${c.n} ${t(c.n)}`).join(" ")}`).includes(nq));
   if (activeCollection) { const col = collections.find((c) => c.id === activeCollection); if (col) filtered = filtered.filter((p) => col.productIds.includes(p.id)); }
   if (sizes.size) filtered = filtered.filter((p) => productSizes(p).some((s) => sizes.has(s)));
   if (colors.size) filtered = filtered.filter((p) => productColors(p).some((c) => colors.has(c.n)));
@@ -1288,10 +1309,10 @@ const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCate
   const toggleSet = (set, setter, v) => { const n = new Set(set); n.has(v) ? n.delete(v) : n.add(v); setter(n); };
   const allTags = [...new Set(products.map((p) => p.tag).filter(Boolean))];
   const visibleCats = [...new Set(products.map((p) => p.category))].filter((c) => !group || (group === "Ropa" ? groupOfCategory(c) === "Ropa" : groupCats.includes(c)));
-  const title = outlet ? "Outlet" : searchQuery ? `"${searchQuery}"` : activeCategory !== "Todo" ? activeCategory : group || "Todo el catálogo";
+  const title = outlet ? "Outlet" : searchQuery ? `"${searchQuery}"` : activeCategory !== "Todo" ? t(activeCategory) : group ? t(group) : t("Todo el catálogo");
   const filterBtn = (key, label, Icon, count) => (
     <button key={key} onClick={() => setPanel(panel === key ? null : key)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 999, border: `1px solid ${panel === key || count ? C.ink : C.line}`, background: count ? C.ink : panel === key ? C.paperDeep : C.paper, color: count ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
-      <Icon size={13} /> {label}{count ? ` (${count})` : ""} <ChevronDown size={13} style={{ transform: panel === key ? "rotate(180deg)" : "none" }} />
+      <Icon size={13} /> {t(label)}{count ? ` (${count})` : ""} <ChevronDown size={13} style={{ transform: panel === key ? "rotate(180deg)" : "none" }} />
     </button>
   );
 
@@ -1299,13 +1320,13 @@ const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCate
     <div style={{ paddingBottom: 20, position: "relative" }}>
       <div style={{ padding: "18px 20px 4px" }}>
         <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 6 }}>
-          <button onClick={clearAll} style={{ background: "none", border: "none", padding: 0, color: C.stone, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12 }}>Catálogo</button>
-          {group && <> / <button onClick={() => { setActiveCategory("Todo"); setSearchQuery && setSearchQuery(""); }} style={{ background: "none", border: "none", padding: 0, color: C.stone, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12 }}>{group}</button></>}
-          {activeCategory !== "Todo" && <> / <span style={{ color: C.ink }}>{activeCategory}</span></>}
+          <button onClick={clearAll} style={{ background: "none", border: "none", padding: 0, color: C.stone, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12 }}>{t("Catálogo")}</button>
+          {group && <> / <button onClick={() => { setActiveCategory("Todo"); setSearchQuery && setSearchQuery(""); }} style={{ background: "none", border: "none", padding: 0, color: C.stone, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12 }}>{t(group)}</button></>}
+          {activeCategory !== "Todo" && <> / <span style={{ color: C.ink }}>{t(activeCategory)}</span></>}
         </div>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>{title}</h1>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>{filtered.length} {filtered.length === 1 ? "prenda" : "prendas"}{outlet ? " · últimas unidades" : ""}</div>
-        {outlet && (outletOn(catalog.settings) ? <div style={{ marginBottom: 14 }}><OutletRules compact /></div> : <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, marginBottom: 14 }}>El Outlet está cerrado por ahora. Vuelve pronto.</div>)}
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>{t(filtered.length === 1 ? "{n} prenda" : "{n} prendas", { n: filtered.length })}{outlet ? ` · ${t("últimas unidades")}` : ""}</div>
+        {outlet && (outletOn(catalog.settings) ? <div style={{ marginBottom: 14 }}><OutletRules compact /></div> : <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, marginBottom: 14 }}>{t("El Outlet está cerrado por ahora. Vuelve pronto.")}</div>)}
       </div>
       <div className="filter-bar" style={{ padding: "10px 20px", marginBottom: 12, borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`, position: "sticky", top: 88, zIndex: 15, background: C.paper }}>
         <div className="hscroll" style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none" }}>
@@ -1325,26 +1346,26 @@ const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCate
                   if (!cats.length) return null;
                   return (
                     <div key={g} style={{ minWidth: 140 }}>
-                      <button onClick={() => { setGroup && setGroup(g); setActiveCategory("Todo"); setPanel(null); }} style={{ background: "none", border: "none", padding: "0 0 6px", cursor: "pointer", fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, textDecoration: group === g && activeCategory === "Todo" ? "underline" : "none" }}>{g}</button>
-                      {cats.map((c) => <button key={c} onClick={() => { setGroup && setGroup(g); setActiveCategory(c); setPanel(null); }} style={{ display: "block", background: "none", border: "none", padding: "5px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: activeCategory === c ? C.ink : C.inkSoft, fontWeight: activeCategory === c ? 700 : 400 }}>{c}</button>)}
+                      <button onClick={() => { setGroup && setGroup(g); setActiveCategory("Todo"); setPanel(null); }} style={{ background: "none", border: "none", padding: "0 0 6px", cursor: "pointer", fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, textDecoration: group === g && activeCategory === "Todo" ? "underline" : "none" }}>{t(g)}</button>
+                      {cats.map((c) => <button key={c} onClick={() => { setGroup && setGroup(g); setActiveCategory(c); setPanel(null); }} style={{ display: "block", background: "none", border: "none", padding: "5px 0", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: activeCategory === c ? C.ink : C.inkSoft, fontWeight: activeCategory === c ? 700 : 400 }}>{t(c)}</button>)}
                     </div>
                   );
                 })}
               </div>
             )}
             {panel === "talla" && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{allSizes.map((sz) => <button key={sz} onClick={() => toggleSet(sizes, setSizes, sz)} style={{ minWidth: 48, padding: "9px 12px", borderRadius: 8, border: `1px solid ${sizes.has(sz) ? C.ink : C.line}`, background: sizes.has(sz) ? C.ink : "transparent", color: sizes.has(sz) ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>{sz}</button>)}</div>}
-            {panel === "color" && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{allColors.map((c) => <button key={c.n} onClick={() => toggleSet(colors, setColors, c.n)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 999, border: `1px solid ${colors.has(c.n) ? C.ink : C.line}`, background: colors.has(c.n) ? C.paperDeep : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}><span style={{ width: 14, height: 14, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} />{c.n}</button>)}</div>}
+            {panel === "color" && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{allColors.map((c) => <button key={c.n} onClick={() => toggleSet(colors, setColors, c.n)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 999, border: `1px solid ${colors.has(c.n) ? C.ink : C.line}`, background: colors.has(c.n) ? C.paperDeep : "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}><span style={{ width: 14, height: 14, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} />{t(c.n)}</button>)}</div>}
             {panel === "precio" && (
               <div style={{ maxWidth: 420 }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 8 }}>Hasta <strong>{money(priceLimit)}</strong></div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 8 }}>{t("Hasta")} <strong>{money(priceLimit)}</strong></div>
                 <input type="range" min={Math.min(...products.map((p) => p.price), 0)} max={maxPrice} step="1" value={priceLimit} onChange={(e) => setPriceLimit(Number(e.target.value))} style={{ width: "100%", accentColor: C.ink }} />
               </div>
             )}
-            {panel === "destacado" && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{allTags.map((t) => <Chip key={t} active={tags.has(t)} onClick={() => toggleSet(tags, setTags, t)}>{t}</Chip>)}</div>}
+            {panel === "destacado" && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{allTags.map((tg) => <Chip key={tg} active={tags.has(tg)} onClick={() => toggleSet(tags, setTags, tg)}>{tg}</Chip>)}</div>}
             {panel === "orden" && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{SORT_OPTIONS.map(([k, l]) => <Chip key={k} active={sort === k} onClick={() => { setSort(k); setPanel(null); }}>{l}</Chip>)}</div>}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
-              <button onClick={clearAll} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer", padding: 0 }}><RotateCcw size={12} /> Restablecer todos</button>
-              <button onClick={() => setPanel(null)} style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Ver {filtered.length} prendas</button>
+              <button onClick={clearAll} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer", padding: 0 }}><RotateCcw size={12} /> {t("Restablecer todos")}</button>
+              <button onClick={() => setPanel(null)} style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{t("Ver {n} prendas", { n: filtered.length })}</button>
             </div>
           </div>
         )}
@@ -1352,15 +1373,15 @@ const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCate
 
       {activeFilterCount > 0 && (
         <div className="hscroll" style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 20px 4px", marginBottom: 14, scrollbarWidth: "none", alignItems: "center" }}>
-          {searchQuery && <button onClick={() => setSearchQuery && setSearchQuery("")} style={activeChipStyle}>Búsqueda: {searchQuery} <X size={11} /></button>}
+          {searchQuery && <button onClick={() => setSearchQuery && setSearchQuery("")} style={activeChipStyle}>{t("Búsqueda:")} {searchQuery} <X size={11} /></button>}
           {group && <button onClick={() => setGroup && setGroup(null)} style={activeChipStyle}>{group} <X size={11} /></button>}
-          {activeCategory !== "Todo" && <button onClick={() => setActiveCategory("Todo")} style={activeChipStyle}>{activeCategory} <X size={11} /></button>}
-          {[...sizes].map((x) => <button key={"s" + x} onClick={() => toggleSet(sizes, setSizes, x)} style={activeChipStyle}>Talla {x} <X size={11} /></button>)}
+          {activeCategory !== "Todo" && <button onClick={() => setActiveCategory("Todo")} style={activeChipStyle}>{t(activeCategory)} <X size={11} /></button>}
+          {[...sizes].map((x) => <button key={"s" + x} onClick={() => toggleSet(sizes, setSizes, x)} style={activeChipStyle}>{t("Talla")} {x} <X size={11} /></button>)}
           {[...colors].map((x) => <button key={"c" + x} onClick={() => toggleSet(colors, setColors, x)} style={activeChipStyle}>{x} <X size={11} /></button>)}
           {[...tags].map((x) => <button key={"t" + x} onClick={() => toggleSet(tags, setTags, x)} style={activeChipStyle}>{x} <X size={11} /></button>)}
-          {priceLimit < maxPrice && <button onClick={() => setPriceLimit(maxPrice)} style={activeChipStyle}>Hasta {money(priceLimit)} <X size={11} /></button>}
+          {priceLimit < maxPrice && <button onClick={() => setPriceLimit(maxPrice)} style={activeChipStyle}>{t("Hasta")} {money(priceLimit)} <X size={11} /></button>}
           {sort !== "relevance" && <button onClick={() => setSort("relevance")} style={activeChipStyle}>{(SORT_OPTIONS.find(([k]) => k === sort) || [])[1]} <X size={11} /></button>}
-          <button onClick={clearAll} style={{ ...activeChipStyle, border: "none", background: "transparent", color: C.ink, fontWeight: 600, textDecoration: "underline", flexShrink: 0 }}><RotateCcw size={11} /> Restablecer todos</button>
+          <button onClick={clearAll} style={{ ...activeChipStyle, border: "none", background: "transparent", color: C.ink, fontWeight: 600, textDecoration: "underline", flexShrink: 0 }}><RotateCcw size={11} /> {t("Restablecer todos")}</button>
         </div>
       )}
 
@@ -1369,8 +1390,8 @@ const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCate
       </div>
       {filtered.length === 0 && (
         <div style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ color: C.stone, fontFamily: FONT_BODY, fontSize: 13, marginBottom: 14 }}>No hay piezas que combinen todos esos filtros a la vez.</div>
-          {activeFilterCount > 0 && <button onClick={clearAll} style={{ padding: "11px 22px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Quitar filtros</button>}
+          <div style={{ color: C.stone, fontFamily: FONT_BODY, fontSize: 13, marginBottom: 14 }}>{t("No hay piezas que combinen todos esos filtros a la vez.")}</div>
+          {activeFilterCount > 0 && <button onClick={clearAll} style={{ padding: "11px 22px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Quitar filtros")}</button>}
         </div>
       )}
 
@@ -1471,8 +1492,8 @@ const ZoomableImage = ({ src, alt, height = 260, dim, fit = "cover", fill = fals
       {usable && !lens && (
         <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5, pointerEvents: "none" }}>
           <Search size={11} color={C.ink} />
-          <span className="hint-touch" style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.ink }}>Mantén presionado para ampliar</span>
-          <span className="hint-mouse" style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.ink }}>Pasa el mouse para ampliar</span>
+          <span className="hint-touch" style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.ink }}>{t("Mantén presionado para ampliar")}</span>
+          <span className="hint-mouse" style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.ink }}>{t("Pasa el mouse para ampliar")}</span>
         </div>
       )}
     </div>
@@ -1570,10 +1591,10 @@ const PhotoViewer = ({ items, start = 0, alt, onClose }) => {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", paddingTop: "max(10px, env(safe-area-inset-top))" }}>
         <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>
           {imgs.length > 1 ? `${idx + 1} / ${imgs.length} · ` : ""}
-          <span className="hint-mouse">{zoom ? "Clic para alejar" : "Clic en la foto para acercar"}</span>
-          <span className="hint-touch">{touchZoomed ? "Doble toque para alejar" : "Pellizca o toca dos veces para acercar"}</span>
+          <span className="hint-mouse">{zoom ? t("Clic para alejar") : t("Clic en la foto para acercar")}</span>
+          <span className="hint-touch">{touchZoomed ? t("Doble toque para alejar") : t("Pellizca o toca dos veces para acercar")}</span>
         </span>
-        <button onClick={onClose} aria-label="Cerrar" style={round}><X size={18} /></button>
+        <button onClick={onClose} aria-label={t("Cerrar")} style={round}><X size={18} /></button>
       </div>
       <div className="viewer-body" style={{ flex: 1, minHeight: 0, display: "flex", gap: 12, padding: "0 16px 16px" }}>
         {imgs.length > 1 && (
@@ -1585,8 +1606,8 @@ const PhotoViewer = ({ items, start = 0, alt, onClose }) => {
           onClick={(e) => { if (Date.now() - lastTouch.current < 700) return; setZoom(zoom ? null : point(e)); }} onMouseMove={(e) => zoom && setZoom(point(e))}>
           <img src={cur.url} alt={alt} draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", transform: imgTransform, transformOrigin: touchZoomed ? "center" : zoom || "center", transition: touchZoomed ? "none" : zoom ? "transform-origin .05s linear" : "transform .2s ease", userSelect: "none", WebkitUserSelect: "none" }} />
           {imgs.length > 1 && !touchZoomed && <>
-            <button onClick={(e) => { e.stopPropagation(); go(-1); }} aria-label="Anterior" style={{ ...round, position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)" }}><ArrowLeft size={17} /></button>
-            <button onClick={(e) => { e.stopPropagation(); go(1); }} aria-label="Siguiente" style={{ ...round, position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)" }}><ChevronRight size={18} /></button>
+            <button onClick={(e) => { e.stopPropagation(); go(-1); }} aria-label={t("Anterior")} style={{ ...round, position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)" }}><ArrowLeft size={17} /></button>
+            <button onClick={(e) => { e.stopPropagation(); go(1); }} aria-label={t("Siguiente")} style={{ ...round, position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)" }}><ChevronRight size={18} /></button>
           </>}
         </div>
       </div>
@@ -1630,9 +1651,9 @@ const ProductGallery = ({ items, alt, dim }) => {
               {m.type === "video" ? (
                 <video src={m.url} autoPlay muted loop playsInline style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", filter: dim ? "grayscale(1)" : "none", opacity: dim ? 0.5 : 1 }} />
               ) : (
-                <button onClick={() => !dim && setViewer(items.filter((x) => x.type !== "video").findIndex((x) => x.url === m.url))} aria-label="Ver foto en grande" style={{ position: "absolute", inset: 0, padding: 0, border: "none", background: "none", cursor: dim ? "default" : "zoom-in" }}>
+                <button onClick={() => !dim && setViewer(items.filter((x) => x.type !== "video").findIndex((x) => x.url === m.url))} aria-label={t("Ver foto en grande")} style={{ position: "absolute", inset: 0, padding: 0, border: "none", background: "none", cursor: dim ? "default" : "zoom-in" }}>
                   <ProductImg src={m.url} alt={alt} dim={dim} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                  {!dim && <span style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY, fontSize: 10.5, color: C.ink }}><Search size={11} /> <span className="hint-touch">Toca para ampliar</span><span className="hint-mouse">Clic para ampliar</span></span>}
+                  {!dim && <span style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY, fontSize: 10.5, color: C.ink }}><Search size={11} /> <span className="hint-touch">{t("Toca para ampliar")}</span><span className="hint-mouse">{t("Clic para ampliar")}</span></span>}
                 </button>
               )}
             </div>
@@ -1640,8 +1661,8 @@ const ProductGallery = ({ items, alt, dim }) => {
         </div>
         {items.length > 1 && (
           <>
-            <button className="pdp-arrow" onClick={() => go(idx - 1)} aria-label="Foto anterior" style={{ ...arrowStyle, left: 12, display: "flex" }}><ArrowLeft size={16} color={C.ink} /></button>
-            <button className="pdp-arrow" onClick={() => go(idx + 1)} aria-label="Foto siguiente" style={{ ...arrowStyle, right: 12, display: "flex" }}><ChevronRight size={17} color={C.ink} /></button>
+            <button className="pdp-arrow" onClick={() => go(idx - 1)} aria-label={t("Foto anterior")} style={{ ...arrowStyle, left: 12, display: "flex" }}><ArrowLeft size={16} color={C.ink} /></button>
+            <button className="pdp-arrow" onClick={() => go(idx + 1)} aria-label={t("Foto siguiente")} style={{ ...arrowStyle, right: 12, display: "flex" }}><ChevronRight size={17} color={C.ink} /></button>
             <div style={{ position: "absolute", bottom: 12, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 5, pointerEvents: "none" }}>
               {items.map((m, i) => <span key={i} style={{ width: i === idx ? 16 : 6, height: 6, borderRadius: 999, background: i === idx ? C.ink : "rgba(0,0,0,0.25)", transition: "width .2s ease" }} />)}
             </div>
@@ -1682,36 +1703,36 @@ const SizeGuideModal = ({ category, onClose, onRecommend }) => {
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
       <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", padding: "20px 22px 30px", animation: "slideUp .25s ease" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>Guía de tallas</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>{t("Guía de tallas")}</div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={18} color={C.ink} /></button>
         </div>
         {isShoes ? (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>{["Talla PE", "Largo (cm)"].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+            <thead><tr>{[t("Talla PE"), t("Largo (cm)")].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
             <tbody>{SIZE_CHART_SHOES.map(([t, cm]) => <tr key={t}><td style={tdStyle}>{t}</td><td style={tdStyle}>{cm}</td></tr>)}</tbody>
           </table>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr>{["Talla", "Busto (cm)", "Cintura (cm)", "Cadera (cm)"].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+            <thead><tr>{[t("Talla"), t("Busto (cm)"), t("Cintura (cm)"), t("Cadera (cm)")].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
             <tbody>{SIZE_CHART_CLOTHING.map((r) => <tr key={r.talla}><td style={tdStyle}>{r.talla}</td><td style={tdStyle}>{r.busto}</td><td style={tdStyle}>{r.cintura}</td><td style={tdStyle}>{r.cadera}</td></tr>)}</tbody>
           </table>
         )}
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 16, lineHeight: 1.6 }}>Medidas referenciales. Si estás entre dos tallas, te recomendamos elegir la mayor.</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 16, lineHeight: 1.6 }}>{t("Medidas referenciales. Si estás entre dos tallas, te recomendamos elegir la mayor.")}</div>
         {!isShoes && (
           <div style={{ background: C.paper, borderRadius: 12, padding: "14px 16px", marginTop: 16 }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 4 }}>¿Dudas sobre tu talla?</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 10, lineHeight: 1.5 }}>Escribe tus medidas en centímetros y te recomendamos la talla. Las guardamos en este celular para las próximas prendas.</div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 4 }}>{t("¿Dudas sobre tu talla?")}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 10, lineHeight: 1.5 }}>{t("Escribe tus medidas en centímetros y te recomendamos la talla. Las guardamos en este celular para las próximas prendas.")}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-              {[["busto", "Busto"], ["cintura", "Cintura"], ["cadera", "Cadera"]].map(([k, l]) => (
+              {[["busto", t("Busto")], ["cintura", t("Cintura")], ["cadera", t("Cadera")]].map(([k, l]) => (
                 <label key={k} style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{l}
-                  <input inputMode="numeric" value={m[k] || ""} onChange={(e) => setM((x) => ({ ...x, [k]: e.target.value.replace(/\D/g, "").slice(0, 3) }))} placeholder="cm" style={{ ...inputStyle, marginTop: 4, textAlign: "center" }} />
+                  <input inputMode="numeric" value={m[k] || ""} onChange={(e) => setM((x) => ({ ...x, [k]: e.target.value.replace(/\D/g, "").slice(0, 3) }))} placeholder={t("cm")} style={{ ...inputStyle, marginTop: 4, textAlign: "center" }} />
                 </label>
               ))}
             </div>
             {rec && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 12 }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>Te recomendamos la talla <strong style={{ fontSize: 16 }}>{rec === "XL+" ? "XL (escríbenos para confirmar)" : rec}</strong></div>
-                <button onClick={saveMeasures} style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Usar esta talla</button>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{t("Te recomendamos la talla")} <strong style={{ fontSize: 16 }}>{rec === "XL+" ? t("XL (escríbenos para confirmar)") : rec}</strong></div>
+                <button onClick={saveMeasures} style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>{t("Usar esta talla")}</button>
               </div>
             )}
           </div>
@@ -1740,17 +1761,17 @@ const ReviewForm = ({ onSubmit, onCancel }) => {
   const handleFile = async (e) => { const f = e.target.files?.[0]; if (!f) return; try { setPhoto(await resizeImageFile(f, 700, 0.75)); } catch (err) { console.error(err); } };
   return (
     <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: 14, marginTop: 12 }}>
-      <span style={sheetLabelStyle}>Tu calificación</span>
+      <span style={sheetLabelStyle}>{t("Tu calificación")}</span>
       <div style={{ marginBottom: 10 }}><StarRating value={rating} onChange={setRating} size={20} /></div>
-      <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Tu nombre" style={{ ...inputStyle, marginBottom: 8 }} />
-      <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Cuéntanos qué te pareció…" style={{ ...inputStyle, minHeight: 60, marginBottom: 8 }} />
+      <input value={author} onChange={(e) => setAuthor(e.target.value)} placeholder={t("Tu nombre")} style={{ ...inputStyle, marginBottom: 8 }} />
+      <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={t("Cuéntanos qué te pareció…")} style={{ ...inputStyle, minHeight: 60, marginBottom: 8 }} />
       {photo && <div style={{ width: 60, height: 60, borderRadius: 8, overflow: "hidden", marginBottom: 8 }}><ProductImg src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
-      <button onClick={() => fileRef.current?.click()} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, cursor: "pointer", marginBottom: 12 }}><ImageIcon size={13} /> {photo ? "Cambiar foto" : "Agregar foto (opcional)"}</button>
+      <button onClick={() => fileRef.current?.click()} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, cursor: "pointer", marginBottom: 12 }}><ImageIcon size={13} /> {photo ? t("Cambiar foto") : t("Agregar foto (opcional)")}</button>
       <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={onCancel} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Cancelar</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{t("Cancelar")}</button>
         <button disabled={!author.trim() || !text.trim()} onClick={() => onSubmit({ author: author.trim(), rating, text: text.trim(), photo })}
-          style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: (!author.trim() || !text.trim()) ? C.line : C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Publicar reseña</button>
+          style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: (!author.trim() || !text.trim()) ? C.line : C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{t("Publicar reseña")}</button>
       </div>
     </div>
   );
@@ -1761,7 +1782,7 @@ const Accordion = ({ title, children, defaultOpen = false }) => {
   return (
     <div style={{ borderBottom: `1px solid ${C.line}` }}>
       <button onClick={() => setOpen((o) => !o)} aria-expanded={open} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 0", background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.ink }}>
-        {title}<ChevronDown size={16} color={C.ink} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s ease" }} />
+        {tt(title)}<ChevronDown size={16} color={C.ink} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s ease" }} />
       </button>
       {open && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.7, paddingBottom: 16 }}>{children}</div>}
     </div>
@@ -1809,7 +1830,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
   // Al cambiar de color, si la talla elegida no existe (o no tiene stock) en ese color, se quita: no se puede seguir con algo que no hay
   const pickColor = (c) => {
     setColor(c);
-    if (size && effectiveVariantStock(size, c.n) <= 0) { setSizeNote(`La talla ${size} no está disponible en ${c.n}. Elige otra.`); setSize(null); setQty(1); return; }
+    if (size && effectiveVariantStock(size, c.n) <= 0) { setSizeNote(t("La talla {s} no está disponible en {c}. Elige otra.", { s: size, c: c.n })); setSize(null); setQty(1); return; }
     setSizeNote("");
     if (size) setQty((q) => Math.max(1, Math.min(q, effectiveVariantStock(size, c.n))));
   };
@@ -1823,7 +1844,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
   const look = collections?.find((c) => c.productIds.includes(product.id) && c.productIds.length > 1);
   const lookItems = look ? look.productIds.filter((id) => id !== product.id).map((id) => allProducts.find((p) => p.id === id)).filter(Boolean) : [];
 
-  const buyLabel = soldOut ? "Agotado" : canAdd ? "Agregar a la cesta" : !size ? "Elige una talla" : "Sin stock en esta talla";
+  const buyLabel = soldOut ? "Agotado" : canAdd ? t("Agregar a la cesta") : !size ? t("Elige una talla") : t("Sin stock en esta talla");
   const addNow = () => { if (canAdd) onAdd(product, size, color, qty); };
 
   return (
@@ -1831,14 +1852,14 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
     <div ref={scrollRef} className="pdp" style={{ position: "relative", background: C.paper, display: "flex", flexDirection: "column", animation: "fadeIn .2s ease" }}>
       <div className="pdp-topbar" style={{ position: "sticky", top: 88, zIndex: 20, background: C.paper, borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <button onClick={onClose} aria-label="Volver" style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, padding: 8 }}><ArrowLeft size={17} /> <span className="pdp-close-label">Volver</span></button>
+          <button onClick={onClose} aria-label={t("Volver")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, padding: 8 }}><ArrowLeft size={17} /> <span className="pdp-close-label">{t("Volver")}</span></button>
           <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            <button onClick={() => onNavigate && onNavigate("home")} style={{ background: "none", border: "none", padding: 0, color: C.stone, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12 }}>Inicio</button> /{" "}
-            <button onClick={() => onNavigate && onNavigate("category", product.category)} style={{ background: "none", border: "none", padding: 0, color: C.stone, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, textDecoration: "underline" }}>{product.category}</button>
-            <span className="pdp-crumb-name"> / <span style={{ color: C.ink }}>{product.name}</span></span>
+            <button onClick={() => onNavigate && onNavigate("home")} style={{ background: "none", border: "none", padding: 0, color: C.stone, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12 }}>{t("Inicio")}</button> /{" "}
+            <button onClick={() => onNavigate && onNavigate("category", product.category)} style={{ background: "none", border: "none", padding: 0, color: C.stone, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, textDecoration: "underline" }}>{t(product.category)}</button>
+            <span className="pdp-crumb-name"> / <span style={{ color: C.ink }}>{pName(product)}</span></span>
           </span>
         </div>
-        <button onClick={() => onToggleFav(product.id)} aria-label={fav ? "Quitar de favoritos" : "Guardar en favoritos"} style={{ width: 38, height: 38, borderRadius: "50%", background: "transparent", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+        <button onClick={() => onToggleFav(product.id)} aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} style={{ width: 38, height: 38, borderRadius: "50%", background: "transparent", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
           <Heart size={17} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
         </button>
       </div>
@@ -1846,22 +1867,22 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
       <div className="pdp-wrap" style={{ flex: "1 0 auto", width: "100%", maxWidth: 1180, margin: "0 auto" }}>
         <div className="pdp-gallery" style={{ position: "relative" }}>
           {(soldOut || product.tag || isOutlet(product)) && <Tag label={soldOut ? "Agotado" : isOutlet(product) ? "Outlet" : product.tag} />}
-          <ProductGallery items={gallery} alt={product.name} dim={soldOut} />
+          <ProductGallery items={gallery} alt={pName(product)} dim={soldOut} />
           {colors.length > 1 && color && !hasColorPhoto(product, color.n) && (
             <div style={{ position: "absolute", top: 12, right: 12, zIndex: 13, background: "rgba(255,255,255,0.94)", borderRadius: 999, padding: "6px 11px", fontFamily: FONT_BODY, fontSize: 11, color: C.ink, display: "flex", alignItems: "center", gap: 6, pointerEvents: "none" }}>
               <span style={{ width: 10, height: 10, borderRadius: "50%", background: color.h, border: `1px solid ${C.line}` }} />
-              Foto referencial, color {color.n.toLowerCase()} sin foto aún
+              {t("Foto referencial, color {c} sin foto aún", { c: t(color.n).toLowerCase() })}
             </div>
           )}
         </div>
 
         <div className="pdp-info" style={{ padding: "20px 20px 28px" }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 4 }}>{product.category}</div>
-          <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px", lineHeight: 1.15, letterSpacing: "-0.01em" }}>{product.name}</h1>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 4 }}>{t(product.category)}</div>
+          <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px", lineHeight: 1.15, letterSpacing: "-0.01em" }}>{pName(product)}</h1>
           {avgRating && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
               <StarRating value={Math.round(avgRating)} />
-              <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{avgRating.toFixed(1)} ({productReviews.length} reseña{productReviews.length !== 1 ? "s" : ""})</span>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{avgRating.toFixed(1)} ({t(productReviews.length === 1 ? "{n} reseña" : "{n} reseñas", { n: productReviews.length })})</span>
             </div>
           )}
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 18 }}>
@@ -1873,13 +1894,13 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           {soldOut ? (
             <div style={{ background: C.paperDeep, borderRadius: 10, padding: "14px 16px", display: "flex", gap: 10, alignItems: "center", marginBottom: 18 }}>
               <AlertCircle size={16} color={C.ink} />
-              <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft }}>Este producto está agotado por ahora.</span>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft }}>{t("Este producto está agotado por ahora.")}</span>
             </div>
           ) : (
             <>
               {colors.length > 0 && (
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 10 }}>Color: <strong style={{ fontWeight: 600 }}>{hoverColor || color?.n}</strong>{colorTotalStock(product, hoverColor || color?.n) === 0 && <span style={{ color: C.stone }}> (agotado)</span>}</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 10 }}>{t("Color:")} <strong style={{ fontWeight: 600 }}>{t(hoverColor || color?.n)}</strong>{colorTotalStock(product, hoverColor || color?.n) === 0 && <span style={{ color: C.stone }}> {t("(agotado)")}</span>}</div>
                   <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }} onMouseLeave={() => setHoverColor(null)}>
                     {colors.map((c) => {
                       const outOfStock = colorTotalStock(product, c.n) === 0;
@@ -1888,13 +1909,13 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                       return (
                         // Con foto de ese color: miniatura de la prenda (como Zalando). Sin foto: círculo del color.
                         tilePhoto ? (
-                          <button key={c.n} onClick={() => pickColor(c)} onMouseEnter={() => setHoverColor(c.n)} onFocus={() => setHoverColor(c.n)} title={outOfStock ? `${c.n} (agotado)` : c.n} aria-label={c.n} aria-pressed={active}
+                          <button key={c.n} onClick={() => pickColor(c)} onMouseEnter={() => setHoverColor(c.n)} onFocus={() => setHoverColor(c.n)} title={outOfStock ? `${t(c.n)} (agotado)` : c.n} aria-label={t(c.n)} aria-pressed={active}
                             style={{ position: "relative", width: 60, height: 80, borderRadius: 8, overflow: "hidden", background: C.paperDeep, cursor: "pointer", border: `2px solid ${active ? C.ink : C.line}`, opacity: outOfStock ? 0.45 : 1, transition: "border-color .15s ease", padding: 0 }}>
                             <ProductImg src={tilePhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                             {outOfStock && <span style={{ position: "absolute", inset: 0, background: `linear-gradient(to top right, transparent calc(50% - 1px), ${C.ink} calc(50% - 1px), ${C.ink} calc(50% + 1px), transparent calc(50% + 1px))` }} />}
                           </button>
                         ) : (
-                        <button key={c.n} onClick={() => pickColor(c)} onMouseEnter={() => setHoverColor(c.n)} title={outOfStock ? `${c.n} (agotado)` : c.n} aria-label={c.n}
+                        <button key={c.n} onClick={() => pickColor(c)} onMouseEnter={() => setHoverColor(c.n)} title={outOfStock ? `${t(c.n)} (agotado)` : c.n} aria-label={t(c.n)}
                           style={{ position: "relative", width: active ? 42 : 36, height: active ? 42 : 36, borderRadius: "50%", background: c.h, cursor: "pointer", border: `1px solid ${C.line}`, boxShadow: active ? `0 0 0 3px ${C.paper}, 0 0 0 4px ${C.ink}` : "none", opacity: outOfStock ? 0.4 : 1, transition: "all .15s ease", padding: 0, alignSelf: "center" }}>
                           {outOfStock && <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: `linear-gradient(to top right, transparent calc(50% - 1px), ${C.ink} calc(50% - 1px), ${C.ink} calc(50% + 1px), transparent calc(50% + 1px))` }} />}
                         </button>
@@ -1907,8 +1928,8 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
 
               <div style={{ marginBottom: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>Talla: <strong style={{ fontWeight: 600 }}>{size || "elige una"}</strong></div>
-                  <button onClick={() => setShowSizeGuide(true)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", padding: 0 }}>{recSize ? "Guía de tallas" : "¿Dudas con la talla?"}</button>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{t("Talla:")} <strong style={{ fontWeight: 600 }}>{size || t("elige una")}</strong></div>
+                  <button onClick={() => setShowSizeGuide(true)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", padding: 0 }}>{recSize ? t("Guía de tallas") : t("¿Dudas con la talla?")}</button>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {sizes.map((s) => {
@@ -1919,25 +1940,25 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                 </div>
                 {recSize && product.category !== "Calzado" && sizes.length > 1 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, background: C.paperDeep, borderRadius: 8, padding: "8px 12px", fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>
-                    <Ruler size={14} color={C.ink} /> Según tus medidas, te recomendamos la talla <strong>{recSize === "XL+" ? "XL" : recSize}</strong>
-                    {sizes.includes(recSize) && size !== recSize && effectiveVariantStock(recSize, color?.n) > 0 && <button onClick={() => pickSize(recSize)} style={{ marginLeft: "auto", background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Elegir</button>}
+                    <Ruler size={14} color={C.ink} /> {t("Según tus medidas, te recomendamos la talla")} <strong>{recSize === "XL+" ? "XL" : recSize}</strong>
+                    {sizes.includes(recSize) && size !== recSize && effectiveVariantStock(recSize, color?.n) > 0 && <button onClick={() => pickSize(recSize)} style={{ marginLeft: "auto", background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>{t("Elegir")}</button>}
                   </div>
                 )}
                 {sizeNote && !size && <div role="status" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, fontWeight: 600, marginTop: 10 }}>{sizeNote}</div>}
-                {stock > 0 && stock <= 5 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, fontWeight: 600, marginTop: 10 }}>{stock === 1 ? "¡Última unidad en esta talla!" : `¡Solo quedan ${stock} unidades en esta talla!`}</div>}
+                {stock > 0 && stock <= 5 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, fontWeight: 600, marginTop: 10 }}>{stock === 1 ? t("¡Última unidad en esta talla!") : t("¡Solo quedan {n} unidades en esta talla!", { n: stock })}</div>}
                 {stock === 0 && size && (() => {
                   const v = product.variants.find((vv) => vv.size === size && vv.colorName === color?.n);
                   const reservedElsewhere = v && v.stock > 0;
-                  return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 10 }}>{reservedElsewhere ? "Otra persona la tiene en su cesta ahora mismo. Vuelve a intentar en unos minutos." : "Sin stock en esta combinación."}</div>;
+                  return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 10 }}>{reservedElsewhere ? t("Otra persona la tiene en su cesta ahora mismo. Vuelve a intentar en unos minutos.") : t("Sin stock en esta combinación.")}</div>;
                 })()}
               </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "18px 0 20px" }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>Cantidad</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{t("Cantidad")}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, border: `1px solid ${C.line}`, borderRadius: 999, padding: "6px 14px" }}>
-                  <button aria-label="Menos" onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><Minus size={14} color={C.ink} /></button>
+                  <button aria-label={t("Menos")} onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><Minus size={14} color={C.ink} /></button>
                   <span style={{ fontFamily: FONT_BODY, fontSize: 14, minWidth: 14, textAlign: "center" }}>{qty}</span>
-                  <button aria-label="Más" onClick={() => setQty((q) => Math.min(stock || 1, q + 1))} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><Plus size={14} color={C.ink} /></button>
+                  <button aria-label={t("Más")} onClick={() => setQty((q) => Math.min(stock || 1, q + 1))} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><Plus size={14} color={C.ink} /></button>
                 </div>
               </div>
             </>
@@ -1949,33 +1970,33 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
 
           {isOutlet(product) && <div style={{ marginBottom: 18 }}><OutletRules compact /></div>}
           <div style={{ display: isOutlet(product) ? "none" : "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Package size={15} color={C.ink} /> Envío gratis en Trujillo desde S/ {localShippingOf(catalog?.settings).freeFrom}, o recojo en tienda gratis.</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Undo2 size={15} color={C.ink} /> Cambios de talla o color hasta 7 días después de recibir.</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Package size={15} color={C.ink} /> {t("Envío gratis en Trujillo desde S/")} {localShippingOf(catalog?.settings).freeFrom}{t(", o recojo en tienda gratis.")}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}><Undo2 size={15} color={C.ink} /> {t("Cambios de talla o color hasta 7 días después de recibir.")}</div>
           </div>
           <div style={{ borderTop: `1px solid ${C.line}`, marginBottom: 22 }}>
-            {product.description && <Accordion title="Detalles" defaultOpen>{product.description}</Accordion>}
-            <Accordion title="Talla y corte">
-              {product.fit || "Calce regular: si estás entre dos tallas, elige la mayor."}
-              {product.category !== "Calzado" && <div style={{ marginTop: 8 }}><button onClick={() => setShowSizeGuide(true)} style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, cursor: "pointer" }}>Ver guía de tallas y recomendación</button></div>}
+            {product.description && <Accordion title={t("Detalles")} defaultOpen>{pDesc(product)}</Accordion>}
+            <Accordion title={t("Talla y corte")}>
+              {product.fit || t("Calce regular: si estás entre dos tallas, elige la mayor.")}
+              {product.category !== "Calzado" && <div style={{ marginTop: 8 }}><button onClick={() => setShowSizeGuide(true)} style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, cursor: "pointer" }}>{t("Ver guía de tallas y recomendación")}</button></div>}
             </Accordion>
-            <Accordion title="Composición y cuidado">
-              {product.materials ? <div><strong style={{ color: C.ink, fontWeight: 600 }}>Composición:</strong> {product.materials}</div> : null}
-              <div style={{ marginTop: product.materials ? 6 : 0 }}><strong style={{ color: C.ink, fontWeight: 600 }}>Cuidado:</strong> {product.care || "Lavar a mano o en ciclo delicado con agua fría. No usar secadora. Planchar a baja temperatura."}</div>
+            <Accordion title={t("Composición y cuidado")}>
+              {product.materials ? <div><strong style={{ color: C.ink, fontWeight: 600 }}>{t("Composición:")}</strong> {product.materials}</div> : null}
+              <div style={{ marginTop: product.materials ? 6 : 0 }}><strong style={{ color: C.ink, fontWeight: 600 }}>{t("Cuidado:")}</strong> {product.care || t("Lavar a mano o en ciclo delicado con agua fría. No usar secadora. Planchar a baja temperatura.")}</div>
             </Accordion>
-            <Accordion title="Envío y devoluciones">
-              <div>Recojo en tienda gratis (Av. Larco 126, Trujillo). Delivery en Trujillo S/ {localShippingOf(catalog?.settings).price}, gratis desde S/ {localShippingOf(catalog?.settings).freeFrom}. Envío a provincia desde S/ 12 según departamento.</div>
-              <div style={{ marginTop: 6 }}>Tienes 7 días desde que recibes tu pedido para cambiar talla o color, con la prenda sin uso y con etiquetas.</div>
+            <Accordion title={t("Envío y devoluciones")}>
+              <div>Recojo en tienda gratis (Av. Larco 126, Trujillo). Delivery en Trujillo S/ {localShippingOf(catalog?.settings).price}{t(", gratis desde S/")} {localShippingOf(catalog?.settings).freeFrom}{t(". Envío a provincia desde S/ 12 según departamento.")}</div>
+              <div style={{ marginTop: 6 }}>{t("Tienes 7 días desde que recibes tu pedido para cambiar talla o color, con la prenda sin uso y con etiquetas.")}</div>
             </Accordion>
           </div>
 
           {lookItems.length > 0 && (
             <div style={{ marginBottom: 26 }}>
-              <div style={sheetLabelStyle}>Completa el look</div>
+              <div style={sheetLabelStyle}>{t("Completa el look")}</div>
               <div className="hscroll" style={{ display: "flex", gap: 10, overflowX: "auto", scrollbarWidth: "none" }}>
                 {lookItems.map((p) => (
                   <button key={p.id} onClick={() => onOpenProduct(p)} style={{ width: 104, flexShrink: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>
-                    <div style={{ borderRadius: 8, overflow: "hidden", marginBottom: 6, background: C.paperDeep }}><ProductImg src={mainImageUrl(p)} alt={p.name} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block" }} /></div>
-                    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                    <div style={{ borderRadius: 8, overflow: "hidden", marginBottom: 6, background: C.paperDeep }}><ProductImg src={mainImageUrl(p)} alt={pName(p)} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block" }} /></div>
+                    <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pName(p)}</div>
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 12.5, color: C.ink, fontWeight: 800 }}>{money(p.price)}</div>
                   </button>
                 ))}
@@ -1985,12 +2006,12 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
 
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ ...sheetLabelStyle, marginBottom: 0 }}>Reseñas ({productReviews.length})</div>
-              {!showReviewForm && <button onClick={() => setShowReviewForm(true)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline" }}>Escribir reseña</button>}
+              <div style={{ ...sheetLabelStyle, marginBottom: 0 }}>{t("Reseñas")} ({productReviews.length})</div>
+              {!showReviewForm && <button onClick={() => setShowReviewForm(true)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline" }}>{t("Escribir reseña")}</button>}
             </div>
             {showReviewForm && <ReviewForm onCancel={() => setShowReviewForm(false)} onSubmit={(r) => { onAddReview(product.id, r); setShowReviewForm(false); }} />}
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 12 }}>
-              {productReviews.length === 0 && !showReviewForm && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Todavía no hay reseñas. Cuéntanos qué te pareció si ya la tienes.</div>}
+              {productReviews.length === 0 && !showReviewForm && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>{t("Todavía no hay reseñas. Cuéntanos qué te pareció si ya la tienes.")}</div>}
               {productReviews.slice().sort((a, b) => b.createdAt - a.createdAt).map((r) => (
                 <div key={r.id} style={{ borderBottom: `1px solid ${C.line}`, paddingBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
@@ -2012,7 +2033,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
         if (!rel.length) return null;
         return (
           <div style={{ width: "100%", maxWidth: 1240, margin: "0 auto", padding: "10px 0 30px" }}>
-            <SectionTitle title="También te puede gustar" />
+            <SectionTitle title={t("También te puede gustar")} />
             <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, padding: "0 20px" }}>
               {rel.map((p) => <ProductCard key={p.id} product={p} onOpen={onOpenProduct} fav={favs ? favs.has(p.id) : false} onToggleFav={onToggleFav} catalog={catalog} cartSessionId={cartSessionId} />)}
             </div>
@@ -2022,12 +2043,12 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
       <div className="pdp-buybar" style={{ position: "sticky", bottom: 0, zIndex: 20, background: C.paper, borderTop: `1px solid ${C.line}`, padding: "10px 16px calc(10px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
         <div style={{ flexShrink: 0 }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: discountPct ? C.accent : C.ink }}>{money(product.price * qty)}</div>
-          {!soldOut && size && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>Talla {size}{color ? `, ${color.n}` : ""}</div>}
+          {!soldOut && size && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{t("Talla")} {size}{color ? `, ${t(color.n)}` : ""}</div>}
         </div>
         <PrimaryButton disabled={!canAdd} onClick={addNow} style={{ flex: 1, width: "auto", padding: "14px 16px" }}><ShoppingBag size={16} /> {buyLabel}</PrimaryButton>
       </div>
 
-      {showSizeGuide && createPortal(<SizeGuideModal category={product.category} onClose={() => setShowSizeGuide(false)} onRecommend={(r) => { setRecSize(r); if (r && sizes.includes(r) && effectiveVariantStock(r, color?.n) > 0) pickSize(r); }} />, document.body)}
+      {showSizeGuide && createPortal(<SizeGuideModal category={t(product.category)} onClose={() => setShowSizeGuide(false)} onRecommend={(r) => { setRecSize(r); if (r && sizes.includes(r) && effectiveVariantStock(r, color?.n) > 0) pickSize(r); }} />, document.body)}
     </div>
     </div>
   );
@@ -2038,7 +2059,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
 /* ------------------------------------------------------------------ */
 const Row = ({ label, value, bold }) => (
   <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
-    <span style={{ fontFamily: FONT_BODY, fontSize: bold ? 14 : 12.5, color: C.ink, fontWeight: bold ? 600 : 400 }}>{label}</span>
+    <span style={{ fontFamily: FONT_BODY, fontSize: bold ? 14 : 12.5, color: C.ink, fontWeight: bold ? 600 : 400 }}>{tt(label)}</span>
     <span style={{ fontFamily: FONT_DISPLAY, fontSize: bold ? 17 : 12.5, color: C.ink, fontWeight: bold ? 800 : 500 }}>{value}</span>
   </div>
 );
@@ -2066,7 +2087,7 @@ const CountryCodeSelect = ({ code, onPick }) => {
     .sort((a, b) => { const pa = POPULAR_COUNTRIES.indexOf(a[0]), pb = POPULAR_COUNTRIES.indexOf(b[0]); if (!nq && (pa >= 0 || pb >= 0)) return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb); return a[1].localeCompare(b[1], "es"); });
   return (
     <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-label={`País: ${current[1]}`} style={{ ...inputStyle, width: 112, display: "flex", alignItems: "center", gap: 7, cursor: "pointer", paddingRight: 8 }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-label={t("País: {c}", { c: t(current[1]) })} style={{ ...inputStyle, width: 112, display: "flex", alignItems: "center", gap: 7, cursor: "pointer", paddingRight: 8 }}>
         <img src={flagUrl(current[0])} alt="" width="22" height="15" style={{ borderRadius: 2, objectFit: "cover", flexShrink: 0 }} />
         <span style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink }}>+{current[2]}</span>
         <ChevronDown size={13} style={{ marginLeft: "auto" }} />
@@ -2074,7 +2095,7 @@ const CountryCodeSelect = ({ code, onPick }) => {
       {open && (
         <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 80, width: 280, marginTop: 4, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 14px 34px rgba(0,0,0,0.16)" }}>
           <div style={{ padding: 8, borderBottom: `1px solid ${C.paperDeep}` }}>
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar país o código" style={{ ...inputStyle, padding: "9px 10px" }} />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Buscar país o código")} style={{ ...inputStyle, padding: "9px 10px" }} />
           </div>
           <div style={{ maxHeight: 260, overflowY: "auto" }}>
             {list.map((c, i) => (
@@ -2090,7 +2111,7 @@ const CountryCodeSelect = ({ code, onPick }) => {
     </div>
   );
 };
-const PhoneInput = ({ value, onChange, placeholder = "Celular (WhatsApp)", style }) => {
+const PhoneInput = ({ value, onChange, placeholder = t("Celular (WhatsApp)"), style }) => {
   const { code, number } = splitPhone(value);
   return (
     <div style={{ display: "flex", gap: 6, ...style }}>
@@ -2185,7 +2206,7 @@ const buildWhatsAppOrderMessage = (cart, subtotal, shipping, discount, promoCode
     "",
     `Subtotal: ${money(subtotal)}`,
     ...(discount > 0 ? [`Descuento (${promoCode}): -${money(discount)}`] : []),
-    `Envío: ${shipping === 0 ? "Gratis" : money(shipping)}`,
+    `Envío: ${shipping === 0 ? t("Gratis") : money(shipping)}`,
     `Total: ${money(total)}`,
     "",
     DELIVERY_LABELS[deliveryMethod] || DELIVERY_LABELS_EXTRA[deliveryMethod] || deliveryMethod,
@@ -2205,7 +2226,7 @@ function loadCulqiScript() {
     const script = document.createElement("script");
     script.src = "https://js.culqi.com/checkout-js";
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error("No se pudo cargar Culqi"));
+    script.onerror = () => reject(new Error(t("No se pudo cargar Culqi")));
     document.body.appendChild(script);
     setTimeout(() => reject(new Error("timeout")), 4000);
   });
@@ -2222,14 +2243,14 @@ const CartHoldNotice = ({ cart, onRenew }) => {
   if (left <= 0) return (
     <div style={box}>
       <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
-      <span style={{ flex: 1 }}>Pasó el tiempo de reserva: tus prendas siguen en la cesta, pero otra persona podría llevárselas.</span>
-      {onRenew && <button onClick={onRenew} style={{ padding: "7px 10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>Apartar de nuevo</button>}
+      <span style={{ flex: 1 }}>{t("Pasó el tiempo de reserva: tus prendas siguen en la cesta, pero otra persona podría llevárselas.")}</span>
+      {onRenew && <button onClick={onRenew} style={{ padding: "7px 10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>{t("Apartar de nuevo")}</button>}
     </div>
   );
   return (
     <div style={box}>
       <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
-      <span>Te apartamos estas prendas <strong style={{ color: C.ink }}>{left} min más</strong> (hasta las {new Date(until).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}). Después quedan libres para otras personas.</span>
+      <span>{t("Te apartamos estas prendas")} <strong style={{ color: C.ink }}>{t("{n} min más", { n: left })}</strong> {t("(hasta las {h}). Después quedan libres para otras personas.", { h: new Date(until).toLocaleTimeString(getLang() === "en" ? "en-US" : "es-PE", { hour: "2-digit", minute: "2-digit" }) })}</span>
     </div>
   );
 };
@@ -2274,10 +2295,10 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
 
   const applyPromo = () => {
     const promo = findPromo(promoCodes, promoInput);
-    if (!promo) { setPromoMsg({ ok: false, text: "Código no válido" }); return; }
-    if (promo.clubOnly && !clubMember) { setPromoMsg({ ok: false, text: "Este código es solo para el Club Fly — únete gratis en la pestaña Club Fly." }); return; }
+    if (!promo) { setPromoMsg({ ok: false, text: t("Código no válido") }); return; }
+    if (promo.clubOnly && !clubMember) { setPromoMsg({ ok: false, text: t("Este código es solo para el Club Fly — únete gratis en la pestaña Club Fly.") }); return; }
     setAppliedPromo(promo);
-    setPromoMsg({ ok: true, text: `Código ${promo.code} aplicado` });
+    setPromoMsg({ ok: true, text: t("Código {c} aplicado", { c: promo.code }) });
   };
 
   const [placing, setPlacing] = useState(false);
@@ -2315,7 +2336,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
   };
 
   const payWithCulqi = async () => {
-    if (!customerName.trim() || !phoneIsValid(customerPhone) || !addressOk) { alert("Completa los datos con * (nombre, celular" + (deliveryMethod !== "recojo" ? " y dirección" : "") + ") antes de pagar."); return; }
+    if (!customerName.trim() || !phoneIsValid(customerPhone) || !addressOk) { alert(deliveryMethod !== "recojo" ? t("Completa los datos con * (nombre, celular y dirección) antes de pagar.") : t("Completa los datos con * (nombre y celular) antes de pagar.")); return; }
     if (!culqiPublicKey) { alert("Aún no se configuró la llave pública de Culqi. Un administrador debe agregarla en Panel → Configuración de pagos."); return; }
     setCulqiLoading(true);
     try {
@@ -2331,7 +2352,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
           placeOrder(`Tarjeta validada (token Culqi: ${tokenId}) — pendiente de confirmar el cobro desde el servidor.`, "Tarjeta (Culqi)");
           alert("Tarjeta validada correctamente. El cobro se confirma desde tu servidor (aún no conectado) — mientras tanto se registró el pedido con el token.");
         } else {
-          alert("No se pudo validar la tarjeta: " + (culqiInstance.error?.user_message || "intenta de nuevo."));
+          alert(t("No se pudo validar la tarjeta: ") + (culqiInstance.error?.user_message || t("intenta de nuevo.")));
         }
       };
       culqiInstance.open();
@@ -2342,12 +2363,12 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
   };
 
   if (confirmedSale) {
-    const deliveryLabel = confirmedSale.deliveryMethod === "recojo" ? "preparando para que lo recojas en tienda" : confirmedSale.deliveryMethod === "provincia" ? "alistando para enviarlo a tu provincia" : "alistando para el delivery en Trujillo";
+    const deliveryLabel = confirmedSale.deliveryMethod === "recojo" ? t("preparando para que lo recojas en tienda") : confirmedSale.deliveryMethod === "provincia" ? t("alistando para enviarlo a tu provincia") : t("alistando para el delivery en Trujillo");
     return (
       <div style={{ padding: "18px 20px", textAlign: "center" }}>
         <BadgeLogo size={48} />
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 21, fontWeight: 800, color: C.ink, margin: "16px 0 6px" }}>¡Pedido enviado!</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 4 }}>Pedido {confirmedSale.serie}-{String(confirmedSale.numero).padStart(6, "0")}</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 21, fontWeight: 800, color: C.ink, margin: "16px 0 6px" }}>{t("¡Pedido enviado!")}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 4 }}>{t("Pedido")} {confirmedSale.serie}-{String(confirmedSale.numero).padStart(6, "0")}</div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 10, maxWidth: 260, marginLeft: "auto", marginRight: "auto" }}>
           Fly Boutique ya tiene tu pedido y lo está {deliveryLabel}.
         </div>
@@ -2356,15 +2377,15 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
             No olvides adjuntar la captura de tu pago en el mensaje de WhatsApp — así confirmamos más rápido y alistamos tu pedido.
           </div>
         )}
-        <button onClick={() => setScreen("track")} style={{ display: "block", margin: "0 auto 12px", background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, cursor: "pointer" }}>Guarda tu número de pedido: con él puedes rastrearlo aquí</button>
+        <button onClick={() => setScreen("track")} style={{ display: "block", margin: "0 auto 12px", background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, cursor: "pointer" }}>{t("Guarda tu número de pedido: con él puedes rastrearlo aquí")}</button>
         {confirmedSale.whatsappUrl && (
           <a href={confirmedSale.whatsappUrl} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, maxWidth: 280, margin: "0 auto 16px", padding: "13px 16px", borderRadius: 9, border: `1px solid ${C.ink}`, color: C.ink, textDecoration: "none", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600 }}>
             <MessageCircle size={15} /> ¿No se abrió WhatsApp? Toca aquí
           </a>
         )}
         <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-          {clubMember && <button onClick={() => setScreen("orders")} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", background: "transparent", color: C.ink, border: `1px solid ${C.ink}`, padding: "13px 20px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>Ver mi pedido</button>}
-          <button onClick={() => setScreen("home")} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", background: C.ink, color: C.paper, border: "none", padding: "13px 20px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>Seguir viendo</button>
+          {clubMember && <button onClick={() => setScreen("orders")} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", background: "transparent", color: C.ink, border: `1px solid ${C.ink}`, padding: "13px 20px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>{t("Ver mi pedido")}</button>}
+          <button onClick={() => setScreen("home")} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", background: C.ink, color: C.paper, border: "none", padding: "13px 20px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>{t("Seguir viendo")}</button>
         </div>
       </div>
     );
@@ -2374,9 +2395,9 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
     return (
       <div style={{ padding: "18px 20px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 420, textAlign: "center" }}>
         <BadgeLogo size={52} />
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: "18px 0 6px" }}>Tu bolsa está vacía</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, marginBottom: 22, maxWidth: 240 }}>Explora el catálogo y encuentra piezas que valen la pena.</div>
-        <button onClick={() => setScreen("home")} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: C.ink, color: C.paper, border: "none", padding: "13px 26px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>Ir de compras</button>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: "18px 0 6px" }}>{t("Tu bolsa está vacía")}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, marginBottom: 22, maxWidth: 240 }}>{t("Explora el catálogo y encuentra piezas que valen la pena.")}</div>
+        <button onClick={() => setScreen("home")} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: C.ink, color: C.paper, border: "none", padding: "13px 26px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>{t("Ir de compras")}</button>
       </div>
     );
   }
@@ -2387,8 +2408,8 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
 
   return (
     <div style={{ padding: "18px 20px 20px" }}>
-      <Eyebrow>{cart.reduce((a, i) => a + i.qty, 0)} artículos</Eyebrow>
-      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>Mi Cesta</h1>
+      <Eyebrow>{cart.reduce((a, i) => a + i.qty, 0)} {t("artículos")}</Eyebrow>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>{t("Mi Cesta")}</h1>
       <CartHoldNotice cart={cart} onRenew={onRenewHold} />
       {hasOutlet && <div style={{ marginBottom: 14 }}><OutletRules compact /></div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
@@ -2400,7 +2421,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
                 <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: C.ink, fontWeight: 600, lineHeight: 1.25 }}>{item.name}</div>
                 <button onClick={() => removeItem(item.cartId)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}><Trash2 size={14} color={C.stone} /></button>
               </div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "3px 0 6px" }}>Talla {item.size} · {item.color?.n}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "3px 0 6px" }}>{t("Talla")} {item.size} · {t(item.color?.n)}</div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "auto" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${C.line}`, borderRadius: 999, padding: "3px 10px" }}>
                   <button onClick={() => updateQty(item.cartId, -1)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><Minus size={12} color={C.ink} /></button>
@@ -2414,24 +2435,24 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
         ))}
       </div>
 
-      <span style={labelStyle}>Entrega</span>
+      <span style={labelStyle}>{t("Entrega")}</span>
       <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-        <Chip active={deliveryMethod === "recojo"} onClick={() => setDeliveryMethod("recojo")}>Recojo en tienda</Chip>
-        <Chip active={deliveryMethod === "local"} onClick={() => setDeliveryMethod("local")}>Delivery en Trujillo</Chip>
-        <Chip active={deliveryMethod === "provincia"} onClick={() => setDeliveryMethod("provincia")}>Envío a otra provincia</Chip>
-        <Chip active={deliveryMethod === "internacional"} onClick={() => setDeliveryMethod("internacional")}>Envío internacional</Chip>
+        <Chip active={deliveryMethod === "recojo"} onClick={() => setDeliveryMethod("recojo")}>{t("Recojo en tienda")}</Chip>
+        <Chip active={deliveryMethod === "local"} onClick={() => setDeliveryMethod("local")}>{t("Delivery en Trujillo")}</Chip>
+        <Chip active={deliveryMethod === "provincia"} onClick={() => setDeliveryMethod("provincia")}>{t("Envío a otra provincia")}</Chip>
+        <Chip active={deliveryMethod === "internacional"} onClick={() => setDeliveryMethod("internacional")}>{t("Envío internacional")}</Chip>
       </div>
       {deliveryMethod === "internacional" && (
         <div style={{ marginBottom: 10 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
             {Object.entries(INTL_CARRIERS).map(([k, c]) => (
               <button key={k} onClick={() => setIntlCarrier(k)} style={{ flex: "1 1 140px", textAlign: "left", padding: "10px 12px", borderRadius: 10, border: `1px solid ${intlCarrier === k ? C.ink : C.line}`, background: intlCarrier === k ? C.paperDeep : "transparent", cursor: "pointer" }}>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink }}>{c.name}</div>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{c.note}{addr?.country && intlRate(payAccounts, addr.country, k) ? ` · ${money(intlRate(payAccounts, addr.country, k))}` : ""}</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink }}>{t(c.name)}</div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{t(c.note)}{addr?.country && intlRate(payAccounts, addr.country, k) ? ` · ${money(intlRate(payAccounts, addr.country, k))}` : ""}</div>
               </button>
             ))}
           </div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, lineHeight: 1.6 }}>Enviamos desde Trujillo, Perú. Los impuestos de importación del país de destino los paga quien recibe. {intlToQuote ? "Te confirmamos el costo exacto del envío por WhatsApp antes de que pagues." : ""}</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, lineHeight: 1.6 }}>{t("Enviamos desde Trujillo, Perú. Los impuestos de importación del país de destino los paga quien recibe.")} {intlToQuote ? t("Te confirmamos el costo exacto del envío por WhatsApp antes de que pagues.") : ""}</div>
         </div>
       )}
       {deliveryMethod !== "recojo" && (
@@ -2439,101 +2460,101 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
           {savedAddrs.filter((x) => x.type === deliveryMethod).length > 0 && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
               {savedAddrs.filter((x) => x.type === deliveryMethod).map((x) => <Chip key={x.id} active={addr?.id === x.id} onClick={() => setAddr(x)}>{x.label}</Chip>)}
-              <Chip active={!!addr && !addr.id} onClick={() => setAddr({ type: deliveryMethod })}>Otra dirección</Chip>
+              <Chip active={!!addr && !addr.id} onClick={() => setAddr({ type: deliveryMethod })}>{t("Otra dirección")}</Chip>
             </div>
           )}
           <AddressFields value={addr} type={deliveryMethod} onChange={(v) => setAddr({ ...v, id: undefined })} />
-          {deliveryMethod === "provincia" && addr?.department && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8 }}>Envío a {addr.department}: {money(provinceRate(addr.department, payAccounts))}. Te enviamos la clave de recojo de la agencia por WhatsApp.</div>}
+          {deliveryMethod === "provincia" && addr?.department && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8 }}>{t("Envío a")} {addr.department}: {money(provinceRate(addr.department, payAccounts))}{t(". Te enviamos la clave de recojo de la agencia por WhatsApp.")}</div>}
         </div>
       )}
       {false && (
-        <input value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder={deliveryMethod === "provincia" ? "Dirección completa + ciudad/provincia" : "Dirección de entrega en Trujillo"} style={{ ...inputStyle, marginBottom: 10 }} />
+        <input value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder={deliveryMethod === "provincia" ? t("Dirección completa + ciudad/provincia") : t("Dirección de entrega en Trujillo")} style={{ ...inputStyle, marginBottom: 10 }} />
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>Los datos con * son obligatorios.</div>
-        <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Tu nombre *" style={inputStyle} />
-        <PhoneInput value={customerPhone} onChange={setCustomerPhone} placeholder="Celular (WhatsApp) *" />
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{t("Los datos con * son obligatorios.")}</div>
+        <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder={t("Tu nombre *")} style={inputStyle} />
+        <PhoneInput value={customerPhone} onChange={setCustomerPhone} placeholder={t("Celular (WhatsApp) *")} />
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${C.line}`, borderRadius: 8, padding: "0 12px" }}>
           <Ticket size={14} color={C.stone} />
-          <input value={promoInput} onChange={(e) => setPromoInput(e.target.value)} placeholder="Código promocional" disabled={!!appliedPromo} style={{ border: "none", outline: "none", padding: "11px 0", fontFamily: FONT_BODY, fontSize: 12.5, flex: 1, background: "transparent", color: C.ink }} />
+          <input value={promoInput} onChange={(e) => setPromoInput(e.target.value)} placeholder={t("Código promocional")} disabled={!!appliedPromo} style={{ border: "none", outline: "none", padding: "11px 0", fontFamily: FONT_BODY, fontSize: 12.5, flex: 1, background: "transparent", color: C.ink }} />
         </div>
         {appliedPromo ? (
-          <button onClick={() => { setAppliedPromo(null); setPromoInput(""); setPromoMsg(null); }} style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, padding: "0 16px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, cursor: "pointer" }}>Quitar</button>
+          <button onClick={() => { setAppliedPromo(null); setPromoInput(""); setPromoMsg(null); }} style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, padding: "0 16px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, cursor: "pointer" }}>{t("Quitar")}</button>
         ) : (
-          <button onClick={applyPromo} style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, padding: "0 16px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, cursor: "pointer" }}>Aplicar</button>
+          <button onClick={applyPromo} style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, padding: "0 16px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, cursor: "pointer" }}>{t("Aplicar")}</button>
         )}
       </div>
       {promoMsg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: promoMsg.ok ? C.ink : C.accent, marginBottom: 16 }}>{promoMsg.text}</div>}
       {pointsNeedGoogle && (
         <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 12px", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.5 }}>
-          <Star size={13} color={C.ink} style={{ verticalAlign: "-2px", marginRight: 6 }} />Tienes {points} puntos. Para usarlos en la web, confirma tu cuenta en Club Fly (con Google o con un código a tu correo), o úsalos en la tienda.
+          <Star size={13} color={C.ink} style={{ verticalAlign: "-2px", marginRight: 6 }} />{t("Tienes")} {points} puntos. Para usarlos en la web, confirma tu cuenta en Club Fly (con Google o con un código a tu correo), o úsalos en la tienda.
         </div>
       )}
       {blocksAllowed > 0 && (
         <label style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${usePoints ? C.ink : C.line}`, borderRadius: 10, padding: "11px 12px", marginBottom: 14, cursor: "pointer" }}>
           <input type="checkbox" checked={usePoints} onChange={(e) => setUsePoints(e.target.checked)} />
           <Star size={14} color={C.ink} />
-          <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>Usar {blocksAllowed * loyalty.blockPoints} puntos y ahorrar <strong>{money(blocksAllowed * loyalty.blockValue)}</strong> <span style={{ color: C.stone }}>(tienes {points})</span></span>
+          <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{t("Usar")} {blocksAllowed * loyalty.blockPoints} {t("puntos y ahorrar")} <strong>{money(blocksAllowed * loyalty.blockValue)}</strong> <span style={{ color: C.stone }}>({t("tienes {n}", { n: points })})</span></span>
         </label>
       )}
       <div style={{ background: C.paperDeep, borderRadius: 12, padding: "16px 18px", marginBottom: 20 }}>
-        <Row label="Subtotal" value={money(subtotal)} />
-        {discount > 0 && <Row label={`Descuento (${appliedPromo.code})`} value={`-${money(discount)}`} />}
-        {pointsDiscount > 0 && <Row label={`Puntos Fly (${pointsUsed} pts)`} value={`-${money(pointsDiscount)}`} />}
-        <Row label="Envío" value={intlToQuote ? "Por cotizar" : shipping === 0 ? "Gratis" : money(shipping)} />
+        <Row label={t("Subtotal")} value={money(subtotal)} />
+        {discount > 0 && <Row label={t("Descuento ({c})", { c: appliedPromo.code })} value={`-${money(discount)}`} />}
+        {pointsDiscount > 0 && <Row label={t("Puntos Fly ({n} pts)", { n: pointsUsed })} value={`-${money(pointsDiscount)}`} />}
+        <Row label={t("Envío")} value={intlToQuote ? t("Por cotizar") : shipping === 0 ? t("Gratis") : money(shipping)} />
         <div style={{ height: 1, background: C.line, margin: "10px 0" }} />
-        <Row label="Total" value={money(total)} bold />
-        {clubActive && earned > 0 && (<div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}><Star size={12} fill={C.brass} color={C.brass} /> Ganarás {earned} puntos Fly con esta compra</div>)}
+        <Row label={t("Total")} value={money(total)} bold />
+        {clubActive && earned > 0 && (<div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}><Star size={12} fill={C.brass} color={C.brass} /> {t("Ganarás")} {earned} {t("puntos Fly con esta compra")}</div>)}
       </div>
-      {shipping > 0 && deliveryMethod === "local" && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 16, textAlign: "center" }}>Agrega {money(200 - subtotal)} más para envío gratis en Trujillo</div>}
+      {shipping > 0 && deliveryMethod === "local" && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 16, textAlign: "center" }}>{t("Agrega")} {money(200 - subtotal)} {t("más para envío gratis en Trujillo")}</div>}
 
-      <span style={labelStyle}>Método de pago</span>
+      <span style={labelStyle}>{t("Método de pago")}</span>
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         {(deliveryMethod === "internacional" ? ["Transferencia", "Tarjeta"] : ["Yape", "Plin", "Transferencia", "Tarjeta"]).map((m) => (
           <button key={m} onClick={() => setPaymentMethod(m)} aria-pressed={paymentMethod === m} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px 8px 8px", borderRadius: 12, border: `1.5px solid ${paymentMethod === m ? C.ink : C.line}`, background: paymentMethod === m ? C.paperDeep : C.paper, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink }}>
-            <PayBadge method={m} size={28} /> {m}
+            <PayBadge method={m} size={28} /> {t(m)}
           </button>
         ))}
       </div>
 
       {paymentMethod === "Yape" && payAccounts?.yapeNumber && (
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 2 }}>Yapea el total a:</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 2 }}>{t("Yapea el total a:")}</div>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>{payAccounts.yapeNumber}</div>
         </div>
       )}
       {paymentMethod === "Plin" && payAccounts?.plinNumber && (
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 2 }}>Plinea el total a:</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 2 }}>{t("Plinea el total a:")}</div>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>{payAccounts.plinNumber}</div>
         </div>
       )}
       {paymentMethod === "Transferencia" && (payAccounts?.bankAccount || payAccounts?.bankCCI) && (
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, lineHeight: 1.7 }}>
-          <div>Banco: <strong>{payAccounts.bankName || "—"}</strong></div>
-          <div>Cuenta: <strong>{payAccounts.bankAccount || "—"}</strong></div>
-          <div>CCI: <strong>{payAccounts.bankCCI || "—"}</strong></div>
+          <div>{t("Banco:")} <strong>{payAccounts.bankName || "—"}</strong></div>
+          <div>{t("Cuenta:")} <strong>{payAccounts.bankAccount || "—"}</strong></div>
+          <div>{t("CCI:")} <strong>{payAccounts.bankCCI || "—"}</strong></div>
         </div>
       )}
       {(paymentMethod === "Yape" || paymentMethod === "Plin" || paymentMethod === "Transferencia") && (
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "flex-start" }}>
           <AlertCircle size={15} color={C.ink} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, lineHeight: 1.6 }}>Realiza el pago, escribe abajo el <strong>número de operación</strong> y adjunta la captura en el WhatsApp que se abrirá. Con ese número validamos tu pago rápido.</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, lineHeight: 1.6 }}>{t("Realiza el pago, escribe abajo el")} <strong>{t("número de operación")}</strong> {t("y adjunta la captura en el WhatsApp que se abrirá. Con ese número validamos tu pago rápido.")}</div>
         </div>
       )}
       {needsOp && (
-        <input value={opNumber} onChange={(e) => setOpNumber(e.target.value.replace(/[^0-9A-Za-z-]/g, "").slice(0, 20))} placeholder="Número de operación del pago" inputMode="numeric" style={{ ...inputStyle, marginBottom: 14 }} />
+        <input value={opNumber} onChange={(e) => setOpNumber(e.target.value.replace(/[^0-9A-Za-z-]/g, "").slice(0, 20))} placeholder={t("Número de operación del pago")} inputMode="numeric" style={{ ...inputStyle, marginBottom: 14 }} />
       )}
 
       {paymentMethod === "Tarjeta" ? (
-        <PrimaryButton onClick={payWithCulqi} disabled={culqiLoading}><CreditCard size={16} /> {culqiLoading ? "Abriendo…" : "Pagar con tarjeta (Culqi)"}</PrimaryButton>
+        <PrimaryButton onClick={payWithCulqi} disabled={culqiLoading}><CreditCard size={16} /> {culqiLoading ? t("Abriendo…") : t("Pagar con tarjeta (Culqi)")}</PrimaryButton>
       ) : (
-        <PrimaryButton onClick={confirmManualPayment} disabled={!canPlaceManual || placing}><MessageCircle size={16} /> {placing ? "Registrando tu pedido…" : "Confirmar pedido por WhatsApp"}</PrimaryButton>
+        <PrimaryButton onClick={confirmManualPayment} disabled={!canPlaceManual || placing}><MessageCircle size={16} /> {placing ? t("Registrando tu pedido…") : t("Confirmar pedido por WhatsApp")}</PrimaryButton>
       )}
-      {!canPlaceManual && paymentMethod !== "Tarjeta" && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 8, textAlign: "center" }}>Completa tu nombre, celular{deliveryMethod !== "recojo" ? ", dirección" : ""}{needsOp ? " y el número de operación" : ""} para continuar.</div>}
+      {!canPlaceManual && paymentMethod !== "Tarjeta" && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 8, textAlign: "center" }}>{t("Completa tu nombre, celular")}{deliveryMethod !== "recojo" ? t(", dirección") : ""}{needsOp ? t(" y el número de operación") : ""} {t("para continuar.")}</div>}
     </div>
   );
 };
@@ -2550,8 +2571,8 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
     return (
       <div style={{ padding: "40px 24px", textAlign: "center" }}>
         <Award size={30} color={C.line} style={{ marginBottom: 14 }} />
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Club Fly en pausa</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 280, margin: "0 auto", lineHeight: 1.6 }}>Por ahora no se suman ni se canjean puntos.{clubMember ? ` Tus ${points} puntos están guardados y seguirán ahí cuando el club vuelva.` : ""}</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink, marginBottom: 8 }}>{t("Club Fly en pausa")}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 280, margin: "0 auto", lineHeight: 1.6 }}>{t("Por ahora no se suman ni se canjean puntos.")}{clubMember ? ` ${t("Tus {n} puntos están guardados y seguirán ahí cuando el club vuelva.", { n: points })}` : ""}</div>
       </div>
     );
   }
@@ -2562,24 +2583,24 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
   return (
     <div style={{ padding: "18px 20px 24px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <Eyebrow>Programa de fidelidad</Eyebrow>
-        <button onClick={onLogoutClub} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textDecoration: "underline" }}>¿No eres {clubMember.name.split(" ")[0]}? Cerrar sesión</button>
+        <Eyebrow>{t("Programa de fidelidad")}</Eyebrow>
+        <button onClick={onLogoutClub} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textDecoration: "underline" }}>{t("¿No eres {n}? Cerrar sesión", { n: clubMember.name.split(" ")[0] })}</button>
       </div>
-      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>Club Fly</h1>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>{t("Club Fly")}</h1>
       {!clubMember.google && <VerifyAccountBox onGoogleSignIn={onGoogleSignIn} />}
       <div style={{ borderRadius: 14, padding: "24px 22px", background: C.ink, position: "relative", overflow: "hidden", marginBottom: 22, color: C.paper }}>
         <div style={{ position: "absolute", right: 18, top: 18, opacity: 0.5 }}><BadgeLogo size={28} dark /></div>
-        <Eyebrow color={C.brassSoft}>Nivel {TIERS[tierIdx].n}</Eyebrow>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 38, fontWeight: 800, margin: "2px 0 14px" }}>{points} <span style={{ fontSize: 14, fontFamily: FONT_BODY, fontWeight: 400, opacity: 0.75 }}>puntos</span></div>
-        {nextTier ? (<><div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,0.18)", overflow: "hidden", marginBottom: 8 }}><div style={{ height: "100%", width: `${progress}%`, background: C.brass, borderRadius: 999 }} /></div><div style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.8 }}>{nextTier.min - points} puntos para nivel {nextTier.n}</div></>) : <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.8 }}>Has alcanzado el nivel máximo</div>}
+        <Eyebrow color={C.brassSoft}>{t("Nivel")} {t(TIERS[tierIdx].n)}</Eyebrow>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 38, fontWeight: 800, margin: "2px 0 14px" }}>{points} <span style={{ fontSize: 14, fontFamily: FONT_BODY, fontWeight: 400, opacity: 0.75 }}>{t("puntos")}</span></div>
+        {nextTier ? (<><div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,0.18)", overflow: "hidden", marginBottom: 8 }}><div style={{ height: "100%", width: `${progress}%`, background: C.brass, borderRadius: 999 }} /></div><div style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.8 }}>{nextTier.min - points} {t("puntos para nivel")} {t(nextTier.n)}</div></>) : <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.8 }}>{t("Has alcanzado el nivel máximo")}</div>}
       </div>
-      <SectionTitle title="Cómo funciona" />
+      <SectionTitle title={t("Cómo funciona")} />
       <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 20px", marginBottom: 22 }}>
         {[
-          [`Ganas ${loyalty.pointsPerStep} punto${loyalty.pointsPerStep === 1 ? "" : "s"} por cada S/ ${loyalty.solesPerStep} en compras (web y tienda)`, Sparkles],
-          [`Cada ${loyalty.blockPoints} puntos valen ${money(loyalty.blockValue)} de descuento`, Gift],
-          ["En la web los usas en la cesta al pagar (con tu cuenta confirmada: Google o código al correo)", ShoppingBag],
-          ["En la tienda física, da tu DNI o celular al pagar para sumar y usar tus puntos", Store],
+          [t(loyalty.pointsPerStep === 1 ? "Ganas {p} punto por cada S/ {s} en compras (web y tienda)" : "Ganas {p} puntos por cada S/ {s} en compras (web y tienda)", { p: loyalty.pointsPerStep, s: loyalty.solesPerStep }), Sparkles],
+          [t("Cada {p} puntos valen {m} de descuento", { p: loyalty.blockPoints, m: money(loyalty.blockValue) }), Gift],
+          [t("En la web los usas en la cesta al pagar (con tu cuenta confirmada: Google o código al correo)"), ShoppingBag],
+          [t("En la tienda física, da tu DNI o celular al pagar para sumar y usar tus puntos"), Store],
         ].map(([text, Icon], i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, background: C.paperDeep, borderRadius: 10, padding: "12px 14px" }}>
             <Icon size={16} color={C.ink} style={{ flexShrink: 0 }} />
@@ -2594,17 +2615,17 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
           const usable = pointsValue(points, settings);
           const rest = loyalty.blockPoints - (points % loyalty.blockPoints);
           const pct = Math.round(((points % loyalty.blockPoints) / loyalty.blockPoints) * 100);
-          if (loyalty.blockValue <= 0) return <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>Tienes {points} puntos.</div>;
+          if (loyalty.blockValue <= 0) return <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{t("Tienes {n} puntos.", { n: points })}</div>;
           return (
             <>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{usable > 0 ? "Ya puedes usar" : "Tu primer descuento"}</div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 800, color: C.ink }}>{usable > 0 ? `${moneyExact(usable)} de descuento` : moneyExact(loyalty.blockValue)}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{usable > 0 ? t("Ya puedes usar") : t("Tu primer descuento")}</div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 800, color: C.ink }}>{usable > 0 ? t("{m} de descuento", { m: moneyExact(usable) }) : moneyExact(loyalty.blockValue)}</div>
               <div style={{ height: 6, borderRadius: 999, background: C.paperDeep, overflow: "hidden", margin: "10px 0 6px" }}><div style={{ height: "100%", width: `${pct}%`, background: C.ink, borderRadius: 999 }} /></div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>Te faltan <strong>{rest} puntos</strong> para {usable > 0 ? "sumar otros" : "ganar"} {moneyExact(loyalty.blockValue)} de descuento.</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>{t("Te faltan")} <strong>{t("{n} puntos", { n: rest })}</strong> {t(usable > 0 ? "para sumar otros {m} de descuento." : "para ganar {m} de descuento.", { m: moneyExact(loyalty.blockValue) })}</div>
             </>
           );
         })()}
-        {!clubMember.phone && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>Tu cuenta se activa para puntos con tu primera compra (al dar tu celular).</div>}
+        {!clubMember.phone && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>{t("Tu cuenta se activa para puntos con tu primera compra (al dar tu celular).")}</div>}
       </div>
       <MarketingConsentBox verified={!!clubMember.google} />
       {clubMember.google && googlePrefill && <ClubPasswordBox />}
@@ -2626,23 +2647,23 @@ const MarketingConsentBox = ({ verified }) => {
     setBusy(true); setMsg("");
     const { error } = await supabase.rpc("set_marketing_consent", { p_optin: next });
     setBusy(false);
-    if (error) { setMsg("No se pudo guardar. Intenta de nuevo."); return; }
-    setOn(next); setMsg(next ? "Listo: te avisaremos de novedades y ofertas." : "Listo: ya no te enviaremos publicidad.");
+    if (error) { setMsg(t("No se pudo guardar. Intenta de nuevo.")); return; }
+    setOn(next); setMsg(next ? t("Listo: te avisaremos de novedades y ofertas.") : t("Listo: ya no te enviaremos publicidad."));
   };
   return (
     <div style={{ margin: "16px 20px 0", background: C.paperDeep, borderRadius: 12, padding: "14px 16px", fontFamily: FONT_BODY }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Novedades y ofertas</div>
-          <div style={{ fontSize: 11.5, color: C.stone, lineHeight: 1.5 }}>Por WhatsApp o correo. Los avisos de tus pedidos llegan siempre.</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{t("Novedades y ofertas")}</div>
+          <div style={{ fontSize: 11.5, color: C.stone, lineHeight: 1.5 }}>{t("Por WhatsApp o correo. Los avisos de tus pedidos llegan siempre.")}</div>
         </div>
         {verified && on !== null && (
-          <button onClick={change} disabled={busy} aria-pressed={on} aria-label="Recibir novedades y ofertas" style={{ width: 44, height: 24, borderRadius: 999, border: "none", background: on ? C.ink : C.line, position: "relative", cursor: "pointer", flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
+          <button onClick={change} disabled={busy} aria-pressed={on} aria-label={t("Recibir novedades y ofertas")} style={{ width: 44, height: 24, borderRadius: 999, border: "none", background: on ? C.ink : C.line, position: "relative", cursor: "pointer", flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
             <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 18, height: 18, borderRadius: "50%", background: C.paper, transition: "left .15s ease" }} />
           </button>
         )}
       </div>
-      {!verified && <div style={{ fontSize: 11.5, color: C.inkSoft, marginTop: 8, lineHeight: 1.5 }}>Para cambiarlo aquí, confirma tu cuenta (Google o código al correo), o escríbenos por WhatsApp.</div>}
+      {!verified && <div style={{ fontSize: 11.5, color: C.inkSoft, marginTop: 8, lineHeight: 1.5 }}>{t("Para cambiarlo aquí, confirma tu cuenta (Google o código al correo), o escríbenos por WhatsApp.")}</div>}
       {msg && <div style={{ fontSize: 11.5, color: C.ink, marginTop: 8 }}>{msg}</div>}
     </div>
   );
@@ -2680,8 +2701,8 @@ const JobApplicationForm = ({ onClose }) => {
     const f = e.target.files?.[0];
     if (!f) { setFile(null); setFileError(""); return; }
     const okType = /\.(pdf|doc|docx)$/i.test(f.name);
-    if (!okType) { setFile(null); setFileError("Solo se aceptan archivos PDF o Word (.pdf, .doc, .docx)."); return; }
-    if (f.size > CV_MAX_MB * 1024 * 1024) { setFile(null); setFileError(`El archivo pesa más de ${CV_MAX_MB} MB — comprímelo o usa un PDF más liviano.`); return; }
+    if (!okType) { setFile(null); setFileError(t("Solo se aceptan archivos PDF o Word (.pdf, .doc, .docx).")); return; }
+    if (f.size > CV_MAX_MB * 1024 * 1024) { setFile(null); setFileError(t("El archivo pesa más de {n} MB — comprímelo o usa un PDF más liviano.", { n: CV_MAX_MB })); return; }
     setFile(f); setFileError("");
   };
 
@@ -2709,45 +2730,45 @@ const JobApplicationForm = ({ onClose }) => {
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
       <div className="sheet-panel" style={{ position: "relative", background: C.white, borderRadius: "18px 18px 0 0", padding: "22px 20px 28px", maxHeight: "85%", overflowY: "auto", animation: "slideUp .25s cubic-bezier(.2,.8,.2,1)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>Trabaja con nosotros</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>{t("Trabaja con nosotros")}</div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={18} color={C.stone} /></button>
         </div>
 
         {sent ? (
           <div style={{ textAlign: "center", padding: "20px 0" }}>
             <Check size={30} color={C.ink} style={{ marginBottom: 10 }} />
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, fontWeight: 600, marginBottom: 6 }}>{sendVia === "email" ? "¡Listo, se abrió tu correo!" : "¡Listo, se abrió WhatsApp!"}</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, lineHeight: 1.6 }}>{file ? <>No olvides <strong>adjuntar tu archivo "{file.name}"</strong> manualmente {sendVia === "email" ? "a ese correo" : "en ese chat"} antes de enviarlo — no se adjunta solo.</> : `Envía el mensaje ${sendVia === "email" ? "desde tu correo" : "en WhatsApp"} para completar tu postulación.`}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, fontWeight: 600, marginBottom: 6 }}>{sendVia === "email" ? t("¡Listo, se abrió tu correo!") : t("¡Listo, se abrió WhatsApp!")}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, lineHeight: 1.6 }}>{file ? <>{t("No olvides")} <strong>{t("adjuntar tu archivo «{f}»", { f: file.name })}</strong> {t(sendVia === "email" ? "manualmente a ese correo antes de enviarlo — no se adjunta solo." : "manualmente en ese chat antes de enviarlo — no se adjunta solo.")}</> : t(sendVia === "email" ? "Envía el mensaje desde tu correo para completar tu postulación." : "Envía el mensaje en WhatsApp para completar tu postulación.")}</div>
           </div>
         ) : (
           <>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, lineHeight: 1.6, marginBottom: 18 }}>Fly es una boutique familiar en Trujillo. Cuéntanos sobre ti — guardamos tu contacto para cuando tengamos una vacante que encaje contigo.</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, lineHeight: 1.6, marginBottom: 18 }}>{t("Fly es una boutique familiar en Trujillo. Cuéntanos sobre ti — guardamos tu contacto para cuando tengamos una vacante que encaje contigo.")}</div>
             <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>¿Cómo prefieres enviarla?</label>
+              <label style={labelStyle}>{t("¿Cómo prefieres enviarla?")}</label>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setSendVia("whatsapp")} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${sendVia === "whatsapp" ? C.ink : C.line}`, background: sendVia === "whatsapp" ? C.ink : "transparent", color: sendVia === "whatsapp" ? C.white : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>WhatsApp</button>
-                <button onClick={() => setSendVia("email")} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${sendVia === "email" ? C.ink : C.line}`, background: sendVia === "email" ? C.ink : "transparent", color: sendVia === "email" ? C.white : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Correo</button>
+                <button onClick={() => setSendVia("whatsapp")} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${sendVia === "whatsapp" ? C.ink : C.line}`, background: sendVia === "whatsapp" ? C.ink : "transparent", color: sendVia === "whatsapp" ? C.white : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("WhatsApp")}</button>
+                <button onClick={() => setSendVia("email")} style={{ flex: 1, padding: "10px", borderRadius: 8, border: `1px solid ${sendVia === "email" ? C.ink : C.line}`, background: sendVia === "email" ? C.ink : "transparent", color: sendVia === "email" ? C.white : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Correo")}</button>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-              <div><label style={labelStyle}>Nombre</label><input style={inputStyle} value={form.nombre} onChange={(e) => set("nombre", e.target.value)} />{touched && !nameValid && <div style={errStyle}>Requerido</div>}</div>
-              <div><label style={labelStyle}>Apellidos</label><input style={inputStyle} value={form.apellidos} onChange={(e) => set("apellidos", e.target.value)} />{touched && !lastNameValid && <div style={errStyle}>Requerido</div>}</div>
+              <div><label style={labelStyle}>{t("Nombre")}</label><input style={inputStyle} value={form.nombre} onChange={(e) => set("nombre", e.target.value)} />{touched && !nameValid && <div style={errStyle}>{t("Requerido")}</div>}</div>
+              <div><label style={labelStyle}>{t("Apellidos")}</label><input style={inputStyle} value={form.apellidos} onChange={(e) => set("apellidos", e.target.value)} />{touched && !lastNameValid && <div style={errStyle}>{t("Requerido")}</div>}</div>
             </div>
-            <div style={{ marginBottom: 12 }}><label style={labelStyle}>Correo electrónico</label><input style={inputStyle} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />{touched && !emailValid && <div style={errStyle}>Correo inválido</div>}</div>
-            <div style={{ marginBottom: 12 }}><label style={labelStyle}>Celular</label><PhoneInput value={form.telefono} onChange={(v) => set("telefono", v)} />{touched && !phoneValid && <div style={errStyle}>Celular inválido</div>}</div>
+            <div style={{ marginBottom: 12 }}><label style={labelStyle}>{t("Correo electrónico")}</label><input style={inputStyle} type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />{touched && !emailValid && <div style={errStyle}>{t("Correo inválido")}</div>}</div>
+            <div style={{ marginBottom: 12 }}><label style={labelStyle}>{t("Celular")}</label><PhoneInput value={form.telefono} onChange={(v) => set("telefono", v)} />{touched && !phoneValid && <div style={errStyle}>{t("Celular inválido")}</div>}</div>
             <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Puesto de interés</label>
-              <select style={inputStyle} value={form.puesto} onChange={(e) => set("puesto", e.target.value)}>{JOB_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+              <label style={labelStyle}>{t("Puesto de interés")}</label>
+              <select style={inputStyle} value={form.puesto} onChange={(e) => set("puesto", e.target.value)}>{JOB_ROLES.map((r) => <option key={r} value={r}>{t(r)}</option>)}</select>
             </div>
-            <div style={{ marginBottom: 12 }}><label style={labelStyle}>Cuéntanos sobre ti (opcional)</label><textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={form.mensaje} onChange={(e) => set("mensaje", e.target.value)} /></div>
+            <div style={{ marginBottom: 12 }}><label style={labelStyle}>{t("Cuéntanos sobre ti (opcional)")}</label><textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={form.mensaje} onChange={(e) => set("mensaje", e.target.value)} /></div>
             <div style={{ marginBottom: 20 }}>
               <label style={labelStyle}>CV (PDF o Word, máx. {CV_MAX_MB}MB) — opcional</label>
               <input type="file" accept=".pdf,.doc,.docx" onChange={handleFile} style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink }} />
               {fileError && <div style={errStyle}>{fileError}</div>}
               {file && !fileError && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 4 }}>✓ {file.name}</div>}
             </div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, lineHeight: 1.5, marginBottom: 16 }}>Tus datos se usan solo para evaluar tu postulación, según nuestra política de protección de datos.</div>
-            <PrimaryButton onClick={submit}>{sendVia === "email" ? "Enviar postulación por correo" : "Enviar postulación por WhatsApp"}</PrimaryButton>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, lineHeight: 1.5, marginBottom: 16 }}>{t("Tus datos se usan solo para evaluar tu postulación, según nuestra política de protección de datos.")}</div>
+            <PrimaryButton onClick={submit}>{sendVia === "email" ? t("Enviar postulación por correo") : t("Enviar postulación por WhatsApp")}</PrimaryButton>
           </>
         )}
       </div>
@@ -2764,17 +2785,17 @@ const InfoScreen = ({ sectionIndex, setScreen }) => {
   return (
     <div style={{ padding: "18px 20px 24px" }}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
-        <button onClick={() => setScreen("home")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 18, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver</button>
-        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 24, color: C.ink, fontWeight: 800, margin: "0 0 18px", textAlign: "center" }}>Ayuda e información</h1>
+        <button onClick={() => setScreen("home")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 18, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> {t("Volver")}</button>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 24, color: C.ink, fontWeight: 800, margin: "0 0 18px", textAlign: "center" }}>{t("Ayuda e información")}</h1>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 24, paddingBottom: 18, borderBottom: `1px solid ${C.line}` }}>
           {FOOTER_SECTIONS.map((s, i) => (
-            <button key={s.title} onClick={() => setActive(i)} style={{ fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, color: active === i ? C.white : C.ink, background: active === i ? C.ink : C.paperDeep, border: `1px solid ${active === i ? C.ink : C.line}`, borderRadius: 999, padding: "9px 14px", cursor: "pointer", whiteSpace: "nowrap" }}>{s.title}</button>
+            <button key={s.title} onClick={() => setActive(i)} style={{ fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, color: active === i ? C.white : C.ink, background: active === i ? C.ink : C.paperDeep, border: `1px solid ${active === i ? C.ink : C.line}`, borderRadius: 999, padding: "9px 14px", cursor: "pointer", whiteSpace: "nowrap" }}>{t(s.title)}</button>
           ))}
         </div>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 12, textAlign: "center" }}>{section.title}</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.8, textAlign: "justify" }}>{section.body}</div>
-        {section.isJobForm && <div style={{ textAlign: "center" }}><button onClick={() => setShowJobForm(true)} style={{ marginTop: 18, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.white, background: C.ink, border: "none", borderRadius: 8, padding: "12px 18px", cursor: "pointer" }}>Enviar mi postulación</button></div>}
-        <div style={{ marginTop: 40, fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textAlign: "center" }}>Fly — Av. Larco 126, Trujillo, Perú · @flyboutiqueperu</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink, marginBottom: 12, textAlign: "center" }}>{t(section.title)}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.8, textAlign: "justify" }}>{t(section.body)}</div>
+        {section.isJobForm && <div style={{ textAlign: "center" }}><button onClick={() => setShowJobForm(true)} style={{ marginTop: 18, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.white, background: C.ink, border: "none", borderRadius: 8, padding: "12px 18px", cursor: "pointer" }}>{t("Enviar mi postulación")}</button></div>}
+        <div style={{ marginTop: 40, fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textAlign: "center" }}>{t("Fly — Av. Larco 126, Trujillo, Perú · @flyboutiqueperu")}</div>
       </div>
       {showJobForm && <JobApplicationForm onClose={() => setShowJobForm(false)} />}
     </div>
@@ -2801,19 +2822,19 @@ const ComplaintsScreen = ({ settings, setScreen }) => {
     const payload = { ...f, name: f.name.trim(), docNumber: f.docNumber.trim(), email: f.email.trim(), companyName: company.legalName, companyRuc: company.ruc, companyAddress: company.address };
     const { data, error } = await supabase.rpc("submit_complaint", { p: payload });
     setBusy(false);
-    if (error || !data) { alert("No se pudo registrar tu hoja de reclamación. Revisa tu conexión e intenta de nuevo, o escríbenos al " + company.email + "."); return; }
+    if (error || !data) { alert(t("No se pudo registrar tu hoja de reclamación. Revisa tu conexión e intenta de nuevo, o escríbenos al {e}.", { e: company.email })); return; }
     setSent({ ...payload, code: data.code, createdAt: data.createdAt });
   };
   const check = async () => {
     setLookup((l) => ({ ...l, error: "", result: null }));
     const { data, error } = await supabase.rpc("complaint_status", { p_code: lookup.code, p_doc: lookup.doc });
-    if (error || !data) { setLookup((l) => ({ ...l, error: "No encontramos una hoja con ese código y documento." })); return; }
+    if (error || !data) { setLookup((l) => ({ ...l, error: t("No encontramos una hoja con ese código y documento.") })); return; }
     setLookup((l) => ({ ...l, result: data }));
   };
-  const label = (t) => <div style={{ fontFamily: FONT_BODY, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.stone, margin: "16px 0 8px" }}>{t}</div>;
+  const label = (x) => <div style={{ fontFamily: FONT_BODY, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: C.stone, margin: "16px 0 8px" }}>{t(x)}</div>;
   const legal = (
     <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, lineHeight: 1.6, background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginTop: 14 }}>
-      La formulación del reclamo no impide acudir a otras vías de solución de controversias ni es requisito previo para interponer una denuncia ante el INDECOPI. El proveedor debe dar respuesta al reclamo o queja en un plazo no mayor a quince (15) días hábiles improrrogables.
+      {t("La formulación del reclamo no impide acudir a otras vías de solución de controversias ni es requisito previo para interponer una denuncia ante el INDECOPI. El proveedor debe dar respuesta al reclamo o queja en un plazo no mayor a quince (15) días hábiles improrrogables.")}
     </div>
   );
   if (sent) {
@@ -2822,81 +2843,81 @@ const ComplaintsScreen = ({ settings, setScreen }) => {
     return (
       <div className="page-narrow" style={{ padding: "18px 20px 30px" }}>
         <div className="print-area" style={{ border: `1px solid ${C.ink}`, borderRadius: 12, padding: "16px 18px" }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>Hoja de reclamación N.° {sent.code}</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>{t("Hoja de reclamación N.°")} {sent.code}</div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "4px 0 12px" }}>{company.legalName}{company.ruc ? ` · RUC ${company.ruc}` : ""} · {company.address}</div>
-          <div style={rowS}><strong>Fecha:</strong> {new Date(sent.createdAt).toLocaleString("es-PE")}</div>
-          <div style={rowS}><strong>Consumidor:</strong> {sent.name} ({sent.docType} {sent.docNumber})</div>
-          <div style={rowS}><strong>Domicilio:</strong> {sent.address}</div>
-          <div style={rowS}><strong>Contacto:</strong> +{sent.phone} · {sent.email}</div>
-          {sent.minor && <div style={rowS}><strong>Padre/madre o apoderado:</strong> {sent.guardian}</div>}
-          <div style={rowS}><strong>Bien contratado:</strong> {sent.itemType === "producto" ? "Producto" : "Servicio"}{sent.amount ? ` · Monto: S/ ${sent.amount}` : ""}{sent.orderRef ? ` · Pedido: ${sent.orderRef}` : ""}</div>
-          <div style={rowS}><strong>Descripción:</strong> {sent.itemDesc}</div>
-          <div style={rowS}><strong>Tipo:</strong> {sent.kind === "reclamo" ? "Reclamo" : "Queja"}</div>
-          <div style={rowS}><strong>Detalle:</strong> {sent.detail}</div>
-          <div style={rowS}><strong>Pedido del consumidor:</strong> {sent.request}</div>
-          <div style={{ ...rowS, marginTop: 6 }}><strong>Fecha límite de respuesta:</strong> {deadline.toLocaleDateString("es-PE")}</div>
+          <div style={rowS}><strong>{t("Fecha:")}</strong> {new Date(sent.createdAt).toLocaleString("es-PE")}</div>
+          <div style={rowS}><strong>{t("Consumidor:")}</strong> {sent.name} ({sent.docType} {sent.docNumber})</div>
+          <div style={rowS}><strong>{t("Domicilio:")}</strong> {sent.address}</div>
+          <div style={rowS}><strong>{t("Contacto:")}</strong> +{sent.phone} · {sent.email}</div>
+          {sent.minor && <div style={rowS}><strong>{t("Padre/madre o apoderado:")}</strong> {sent.guardian}</div>}
+          <div style={rowS}><strong>{t("Bien contratado:")}</strong> {sent.itemType === "producto" ? t("Producto") : t("Servicio")}{sent.amount ? ` · ${t("Monto")}: S/ ${sent.amount}` : ""}{sent.orderRef ? ` · ${t("Pedido")}: ${sent.orderRef}` : ""}</div>
+          <div style={rowS}><strong>{t("Descripción:")}</strong> {sent.itemDesc}</div>
+          <div style={rowS}><strong>{t("Tipo:")}</strong> {sent.kind === "reclamo" ? "Reclamo" : "Queja"}</div>
+          <div style={rowS}><strong>{t("Detalle:")}</strong> {sent.detail}</div>
+          <div style={rowS}><strong>{t("Pedido del consumidor:")}</strong> {sent.request}</div>
+          <div style={{ ...rowS, marginTop: 6 }}><strong>{t("Fecha límite de respuesta:")}</strong> {deadline.toLocaleDateString("es-PE")}</div>
           {legal}
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.6, margin: "12px 0" }}>Guarda esta hoja: con el código <strong>{sent.code}</strong> y tu número de documento puedes consultar el estado aquí mismo. Te responderemos al correo {sent.email}.</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.6, margin: "12px 0" }}>{t("Guarda esta hoja: con el código")} <strong>{sent.code}</strong> {t("y tu número de documento puedes consultar el estado aquí mismo. Te responderemos al correo")} {sent.email}.</div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => window.print()} style={{ flex: 1, padding: "13px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Imprimir o guardar PDF</button>
-          <button onClick={() => { setSent(null); setF(empty); setScreen("home"); }} style={{ flex: 1, padding: "13px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Volver a la tienda</button>
+          <button onClick={() => window.print()} style={{ flex: 1, padding: "13px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Imprimir o guardar PDF")}</button>
+          <button onClick={() => { setSent(null); setF(empty); setScreen("home"); }} style={{ flex: 1, padding: "13px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Volver a la tienda")}</button>
         </div>
       </div>
     );
   }
   return (
     <div className="page-narrow" style={{ padding: "18px 20px 30px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}><BookOpen size={22} color={C.ink} /><h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: 0 }}>Libro de Reclamaciones</h1></div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.6 }}>Conforme al Código de Protección y Defensa del Consumidor, contamos con un Libro de Reclamaciones virtual a tu disposición.</div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 6 }}>{company.legalName}{company.ruc ? ` · RUC ${company.ruc}` : ""} · {company.address} · Fecha: {new Date().toLocaleDateString("es-PE")}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}><BookOpen size={22} color={C.ink} /><h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: 0 }}>{t("Libro de Reclamaciones")}</h1></div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.6 }}>{t("Conforme al Código de Protección y Defensa del Consumidor, contamos con un Libro de Reclamaciones virtual a tu disposición.")}</div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 6 }}>{company.legalName}{company.ruc ? ` · RUC ${company.ruc}` : ""} · {company.address} {t("· Fecha:")} {new Date().toLocaleDateString("es-PE")}</div>
 
-      {label("1. Identificación del consumidor")}
-      <input style={{ ...inputStyle, marginBottom: 8 }} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Nombres y apellidos" />
+      {label(t("1. Identificación del consumidor"))}
+      <input style={{ ...inputStyle, marginBottom: 8 }} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder={t("Nombres y apellidos")} />
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <select value={f.docType} onChange={(e) => set("docType", e.target.value)} style={{ ...inputStyle, width: 120 }}>{["DNI", "CE", "Pasaporte", "RUC"].map((d) => <option key={d}>{d}</option>)}</select>
-        <input style={{ ...inputStyle, flex: 1 }} value={f.docNumber} onChange={(e) => set("docNumber", e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 12))} placeholder="Número de documento" />
+        <input style={{ ...inputStyle, flex: 1 }} value={f.docNumber} onChange={(e) => set("docNumber", e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 12))} placeholder={t("Número de documento")} />
       </div>
-      <input style={{ ...inputStyle, marginBottom: 8 }} value={f.address} onChange={(e) => set("address", e.target.value)} placeholder="Domicilio" />
-      <PhoneInput value={f.phone} onChange={(v) => set("phone", v)} placeholder="Teléfono" style={{ marginBottom: 8 }} />
-      <input style={{ ...inputStyle, marginBottom: 8 }} type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="Correo electrónico (aquí te responderemos)" />
-      <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 8 }}><input type="checkbox" checked={f.minor} onChange={(e) => set("minor", e.target.checked)} /> Soy menor de edad</label>
-      {f.minor && <input style={{ ...inputStyle, marginBottom: 8 }} value={f.guardian} onChange={(e) => set("guardian", e.target.value)} placeholder="Nombre del padre, madre o apoderado" />}
+      <input style={{ ...inputStyle, marginBottom: 8 }} value={f.address} onChange={(e) => set("address", e.target.value)} placeholder={t("Domicilio")} />
+      <PhoneInput value={f.phone} onChange={(v) => set("phone", v)} placeholder={t("Teléfono")} style={{ marginBottom: 8 }} />
+      <input style={{ ...inputStyle, marginBottom: 8 }} type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder={t("Correo electrónico (aquí te responderemos)")} />
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 8 }}><input type="checkbox" checked={f.minor} onChange={(e) => set("minor", e.target.checked)} /> {t("Soy menor de edad")}</label>
+      {f.minor && <input style={{ ...inputStyle, marginBottom: 8 }} value={f.guardian} onChange={(e) => set("guardian", e.target.value)} placeholder={t("Nombre del padre, madre o apoderado")} />}
 
-      {label("2. Identificación del bien contratado")}
+      {label(t("2. Identificación del bien contratado"))}
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <Chip active={f.itemType === "producto"} onClick={() => set("itemType", "producto")}>Producto</Chip>
-        <Chip active={f.itemType === "servicio"} onClick={() => set("itemType", "servicio")}>Servicio</Chip>
+        <Chip active={f.itemType === "producto"} onClick={() => set("itemType", "producto")}>{t("Producto")}</Chip>
+        <Chip active={f.itemType === "servicio"} onClick={() => set("itemType", "servicio")}>{t("Servicio")}</Chip>
       </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-        <input style={{ ...inputStyle, flex: 1 }} inputMode="decimal" value={f.amount} onChange={(e) => set("amount", e.target.value.replace(/[^0-9.]/g, "").slice(0, 9))} placeholder="Monto reclamado (S/)" />
-        <input style={{ ...inputStyle, flex: 1 }} value={f.orderRef} onChange={(e) => set("orderRef", e.target.value.slice(0, 30))} placeholder="N.° de pedido o boleta (opcional)" />
+        <input style={{ ...inputStyle, flex: 1 }} inputMode="decimal" value={f.amount} onChange={(e) => set("amount", e.target.value.replace(/[^0-9.]/g, "").slice(0, 9))} placeholder={t("Monto reclamado (S/)")} />
+        <input style={{ ...inputStyle, flex: 1 }} value={f.orderRef} onChange={(e) => set("orderRef", e.target.value.slice(0, 30))} placeholder={t("N.° de pedido o boleta (opcional)")} />
       </div>
-      <input style={{ ...inputStyle, marginBottom: 8 }} value={f.itemDesc} onChange={(e) => set("itemDesc", e.target.value)} placeholder="Descripción del producto o servicio" />
+      <input style={{ ...inputStyle, marginBottom: 8 }} value={f.itemDesc} onChange={(e) => set("itemDesc", e.target.value)} placeholder={t("Descripción del producto o servicio")} />
 
-      {label("3. Detalle de la reclamación y pedido")}
+      {label(t("3. Detalle de la reclamación y pedido"))}
       <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-        <Chip active={f.kind === "reclamo"} onClick={() => set("kind", "reclamo")}>Reclamo</Chip>
-        <Chip active={f.kind === "queja"} onClick={() => set("kind", "queja")}>Queja</Chip>
+        <Chip active={f.kind === "reclamo"} onClick={() => set("kind", "reclamo")}>{t("Reclamo")}</Chip>
+        <Chip active={f.kind === "queja"} onClick={() => set("kind", "queja")}>{t("Queja")}</Chip>
       </div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, lineHeight: 1.5, marginBottom: 8 }}><strong>Reclamo:</strong> disconformidad con los productos o servicios. <strong>Queja:</strong> malestar con la atención, no relacionado con el producto.</div>
-      <textarea style={{ ...inputStyle, minHeight: 90, marginBottom: 8, resize: "vertical" }} value={f.detail} onChange={(e) => set("detail", e.target.value.slice(0, 2000))} placeholder="Cuéntanos qué pasó" />
-      <textarea style={{ ...inputStyle, minHeight: 60, marginBottom: 8, resize: "vertical" }} value={f.request} onChange={(e) => set("request", e.target.value.slice(0, 1000))} placeholder="¿Qué solicitas? (cambio, devolución, otro)" />
-      <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.5, margin: "6px 0" }}><input type="checkbox" checked={f.accept} onChange={(e) => set("accept", e.target.checked)} style={{ marginTop: 3 }} /> Declaro que los datos son verdaderos y acepto que se usen solo para atender esta hoja, según la Política de privacidad.</label>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, lineHeight: 1.5, marginBottom: 8 }}><strong>{t("Reclamo:")}</strong> {t("disconformidad con los productos o servicios.")} <strong>{t("Queja:")}</strong> {t("malestar con la atención, no relacionado con el producto.")}</div>
+      <textarea style={{ ...inputStyle, minHeight: 90, marginBottom: 8, resize: "vertical" }} value={f.detail} onChange={(e) => set("detail", e.target.value.slice(0, 2000))} placeholder={t("Cuéntanos qué pasó")} />
+      <textarea style={{ ...inputStyle, minHeight: 60, marginBottom: 8, resize: "vertical" }} value={f.request} onChange={(e) => set("request", e.target.value.slice(0, 1000))} placeholder={t("¿Qué solicitas? (cambio, devolución, otro)")} />
+      <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.5, margin: "6px 0" }}><input type="checkbox" checked={f.accept} onChange={(e) => set("accept", e.target.checked)} style={{ marginTop: 3 }} /> {t("Declaro que los datos son verdaderos y acepto que se usen solo para atender esta hoja, según la Política de privacidad.")}</label>
       {legal}
-      <div style={{ marginTop: 14 }}><PrimaryButton disabled={!valid || busy} onClick={submit}>{busy ? "Registrando…" : "Enviar hoja de reclamación"}</PrimaryButton></div>
+      <div style={{ marginTop: 14 }}><PrimaryButton disabled={!valid || busy} onClick={submit}>{busy ? t("Registrando…") : t("Enviar hoja de reclamación")}</PrimaryButton></div>
 
-      {label("Consultar una hoja ya registrada")}
+      {label(t("Consultar una hoja ya registrada"))}
       <div style={{ display: "flex", gap: 8 }}>
-        <input style={{ ...inputStyle, flex: 1 }} value={lookup.code} onChange={(e) => setLookup({ ...lookup, code: e.target.value })} placeholder="Código (LR-2026-000001)" />
-        <input style={{ ...inputStyle, flex: 1 }} value={lookup.doc} onChange={(e) => setLookup({ ...lookup, doc: e.target.value })} placeholder="N.° de documento" />
-        <button onClick={check} style={{ padding: "0 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Ver</button>
+        <input style={{ ...inputStyle, flex: 1 }} value={lookup.code} onChange={(e) => setLookup({ ...lookup, code: e.target.value })} placeholder={t("Código (LR-2026-000001)")} />
+        <input style={{ ...inputStyle, flex: 1 }} value={lookup.doc} onChange={(e) => setLookup({ ...lookup, doc: e.target.value })} placeholder={t("N.° de documento")} />
+        <button onClick={check} style={{ padding: "0 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{t("Ver")}</button>
       </div>
       {lookup.error && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginTop: 8 }}>{lookup.error}</div>}
       {lookup.result && (
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginTop: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.6 }}>
-          <div><strong>{lookup.result.code}</strong> · {COMPLAINT_STATUS[lookup.result.status] || lookup.result.status}</div>
-          {lookup.result.response && <div style={{ marginTop: 6 }}><strong>Respuesta:</strong> {lookup.result.response}</div>}
+          <div><strong>{lookup.result.code}</strong> · {t(COMPLAINT_STATUS[lookup.result.status] || lookup.result.status)}</div>
+          {lookup.result.response && <div style={{ marginTop: 6 }}><strong>{t("Respuesta:")}</strong> {lookup.result.response}</div>}
         </div>
       )}
     </div>
@@ -2914,37 +2935,37 @@ const TrackOrderScreen = ({ settings, setScreen, initialCode = "" }) => {
     setBusy(true); setErr(""); setRes(null);
     const { data, error } = await supabase.rpc("track_order", { p_code: code.trim().toUpperCase(), p_phone: phone });
     setBusy(false);
-    if (error || !data) { setErr("No encontramos ese pedido. Revisa el número (ej. B001-000123) y el celular con el que compraste."); return; }
+    if (error || !data) { setErr(t("No encontramos ese pedido. Revisa el número (ej. B001-000123) y el celular con el que compraste.")); return; }
     setRes(data);
   };
   const stepIdx = res ? Math.max(0, TRACK_STEPS.findIndex(([k]) => k === (res.fulfillment || "pendiente"))) : 0;
   const trackUrl = res?.trackingAgency && settings?.trackingUrls?.[res.trackingAgency];
   return (
     <div className="page-narrow" style={{ padding: "18px 20px 30px" }}>
-      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 23, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>Rastrea tu pedido</h1>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>Escribe el número de tu pedido (te llegó por WhatsApp, ej. B001-000123) y tu celular.</div>
-      <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Número de pedido" style={{ ...inputStyle, marginBottom: 8, fontSize: 15 }} />
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 23, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>{t("Rastrea tu pedido")}</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>{t("Escribe el número de tu pedido (te llegó por WhatsApp, ej. B001-000123) y tu celular.")}</div>
+      <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder={t("Número de pedido")} style={{ ...inputStyle, marginBottom: 8, fontSize: 15 }} />
       <PhoneInput value={phone} onChange={setPhone} style={{ marginBottom: 10 }} />
-      <PrimaryButton disabled={busy || code.trim().length < 6 || !phoneIsValid(phone)} onClick={search}>{busy ? "Buscando…" : "Ver estado"}</PrimaryButton>
+      <PrimaryButton disabled={busy || code.trim().length < 6 || !phoneIsValid(phone)} onClick={search}>{busy ? t("Buscando…") : t("Ver estado")}</PrimaryButton>
       {err && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginTop: 10 }}>{err}</div>}
       {res && (
         <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px", marginTop: 16 }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, color: C.ink }}>Pedido {res.serie}-{String(res.numero).padStart(6, "0")}</div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14 }}>{new Date(res.createdAt).toLocaleDateString("es-PE")} · {money(res.total)} · {res.paymentStatus === "confirmado" ? "Pago confirmado" : "Pago por confirmar"}</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, color: C.ink }}>{t("Pedido")} {res.serie}-{String(res.numero).padStart(6, "0")}</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14 }}>{new Date(res.createdAt).toLocaleDateString("es-PE")} · {money(res.total)} · {res.paymentStatus === "confirmado" ? t("Pago confirmado") : t("Pago por confirmar")}</div>
           {TRACK_STEPS.filter(([k]) => res.deliveryMethod === "recojo" ? k !== "enviado" : true).map(([k, label], i) => {
             const idx = TRACK_STEPS.findIndex(([kk]) => kk === k); const done = idx <= stepIdx;
             return (
               <div key={k} style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 0" }}>
                 <span style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${done ? C.ink : C.line}`, background: done ? C.ink : "transparent", color: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{done ? "✓" : ""}</span>
-                <span style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: done ? C.ink : C.stone, fontWeight: idx === stepIdx ? 700 : 400 }}>{k === "listo" && res.deliveryMethod === "recojo" ? "Listo para recoger en tienda" : label}</span>
+                <span style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: done ? C.ink : C.stone, fontWeight: idx === stepIdx ? 700 : 400 }}>{k === "listo" && res.deliveryMethod === "recojo" ? t("Listo para recoger en tienda") : t(label)}</span>
               </div>
             );
           })}
           {res.trackingNumber && (
             <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginTop: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.6 }}>
-              Enviado por <strong>{res.trackingAgency}</strong>. N.° de seguimiento: <strong>{res.trackingNumber}</strong>
-              <button onClick={() => { try { navigator.clipboard.writeText(res.trackingNumber); } catch (e) { /* nada */ } }} style={{ marginLeft: 8, background: "none", border: "none", textDecoration: "underline", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12 }}>Copiar</button>
-              {trackUrl ? <div><a href={trackUrl} target="_blank" rel="noreferrer" style={{ color: C.ink, fontWeight: 600 }}>Rastrear en la web de {res.trackingAgency}</a></div> : <div style={{ color: C.stone }}>Ingresa este número en la web o app de {res.trackingAgency} para ver dónde está tu paquete.</div>}
+              {t("Enviado por")} <strong>{res.trackingAgency}</strong>{t(". N.° de seguimiento:")} <strong>{res.trackingNumber}</strong>
+              <button onClick={() => { try { navigator.clipboard.writeText(res.trackingNumber); } catch (e) { /* nada */ } }} style={{ marginLeft: 8, background: "none", border: "none", textDecoration: "underline", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12 }}>{t("Copiar")}</button>
+              {trackUrl ? <div><a href={trackUrl} target="_blank" rel="noreferrer" style={{ color: C.ink, fontWeight: 600 }}>{t("Rastrear en la web de")} {res.trackingAgency}</a></div> : <div style={{ color: C.stone }}>{t("Ingresa este número en la web o app de")} {res.trackingAgency} {t("para ver dónde está tu paquete.")}</div>}
             </div>
           )}
         </div>
@@ -2955,22 +2976,22 @@ const TrackOrderScreen = ({ settings, setScreen, initialCode = "" }) => {
 
 const InfoFooter = ({ onOpenInfo, onCookiePrefs, onComplaints, onTrack, socials }) => (
   <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 20, padding: "18px 0 22px" }}>
-    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10, padding: "0 20px" }}>Ayuda e información</div>
+    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 10, padding: "0 20px" }}>{t("Ayuda e información")}</div>
     <div className="hscroll" style={{ display: "flex", gap: 16, overflowX: "auto", padding: "0 20px", scrollbarWidth: "none" }}>
       {FOOTER_SECTIONS.map((s, i) => (
-        <button key={s.title} onClick={() => onOpenInfo(i)} style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, fontWeight: 500, background: "none", border: "none", textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer", whiteSpace: "nowrap", padding: "4px 2px" }}>{s.title}</button>
+        <button key={s.title} onClick={() => onOpenInfo(i)} style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, fontWeight: 500, background: "none", border: "none", textDecoration: "underline", textUnderlineOffset: 3, cursor: "pointer", whiteSpace: "nowrap", padding: "4px 2px" }}>{t(s.title)}</button>
       ))}
     </div>
     {onComplaints && (
       <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
-        {onTrack && <button onClick={onTrack} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer" }}><Package size={15} /> Rastrea tu pedido</button>}
-        <button onClick={onComplaints} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer" }}><BookOpen size={15} /> Libro de Reclamaciones</button>
+        {onTrack && <button onClick={onTrack} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer" }}><Package size={15} /> {t("Rastrea tu pedido")}</button>}
+        <button onClick={onComplaints} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer" }}><BookOpen size={15} /> {t("Libro de Reclamaciones")}</button>
       </div>
     )}
     <SocialLinks socials={socials} />
     <div style={{ marginTop: 12, fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textAlign: "center", padding: "0 20px" }}>
       Fly Boutique, Trujillo, Perú
-      {onCookiePrefs && <> · <button onClick={onCookiePrefs} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textDecoration: "underline", cursor: "pointer" }}>Preferencias de cookies</button></>}
+      {onCookiePrefs && <> · <button onClick={onCookiePrefs} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textDecoration: "underline", cursor: "pointer" }}>{t("Preferencias de cookies")}</button></>}
     </div>
   </div>
 );
@@ -2980,14 +3001,14 @@ const PolicyModal = ({ onClose }) => (
     <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
     <div className="sheet-panel" style={{ position: "relative", background: C.paperDeep, borderRadius: "18px 18px 0 0", padding: "20px 22px 30px", maxHeight: "80%", overflowY: "auto", animation: "slideUp .25s ease" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>Cambios y devoluciones</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>{t("Cambios y devoluciones")}</div>
         <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={18} color={C.ink} /></button>
       </div>
       <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.8 }}>
-        <p>Tienes <strong>7 días calendario</strong> desde que recibes tu pedido para solicitar un cambio de talla o color, siempre que la prenda esté sin uso, con etiquetas y en su empaque original.</p>
-        <p>Para iniciar un cambio o devolución, escríbenos por WhatsApp con tu número de pedido y el motivo — coordinamos la recogida o el punto de entrega en Trujillo.</p>
-        <p>Las prendas en oferta final o los accesorios en aretes no tienen cambio por temas de higiene, salvo defecto de fábrica.</p>
-        <p>Si la prenda llega con algún defecto, el cambio o la devolución del dinero no tiene costo para ti.</p>
+        <p>{t("Tienes")} <strong>{t("7 días calendario")}</strong> {t("desde que recibes tu pedido para solicitar un cambio de talla o color, siempre que la prenda esté sin uso, con etiquetas y en su empaque original.")}</p>
+        <p>{t("Para iniciar un cambio o devolución, escríbenos por WhatsApp con tu número de pedido y el motivo — coordinamos la recogida o el punto de entrega en Trujillo.")}</p>
+        <p>{t("Las prendas en oferta final o los accesorios en aretes no tienen cambio por temas de higiene, salvo defecto de fábrica.")}</p>
+        <p>{t("Si la prenda llega con algún defecto, el cambio o la devolución del dinero no tiene costo para ti.")}</p>
       </div>
     </div>
   </div>
@@ -3021,7 +3042,7 @@ const loadTurnstile = () => {
       sc.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
       sc.async = true;
       sc.onload = () => resolve(window.turnstile);
-      sc.onerror = () => { turnstileScript = null; reject(new Error("No se pudo cargar el captcha")); };
+      sc.onerror = () => { turnstileScript = null; reject(new Error(t("No se pudo cargar el captcha"))); };
       document.head.appendChild(sc);
     });
   }
@@ -3045,7 +3066,7 @@ const TurnstileBox = ({ siteKey, onToken }) => {
     }).catch(() => setFailed(true));
     return () => { alive = false; try { if (id !== null && window.turnstile) window.turnstile.remove(id); } catch (e) { /* ya removido */ } };
   }, [siteKey]);
-  if (failed) return <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginTop: 10 }}>No se pudo cargar la verificación. Revisa tu conexión y recarga la página.</div>;
+  if (failed) return <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginTop: 10 }}>{t("No se pudo cargar la verificación. Revisa tu conexión y recarga la página.")}</div>;
   return <div ref={boxRef} style={{ display: "flex", justifyContent: "center", marginTop: 12, minHeight: 66 }} />;
 };
 
@@ -3060,18 +3081,18 @@ const PasswordLogin = ({ onForgot }) => {
   const login = async () => {
     if (busy) return;
     const em = email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setMsg("Escribe tu correo completo."); return; }
-    if (!pass) { setMsg("Falta la contraseña."); return; }
-    if (em.endsWith("@" + STAFF_EMAIL_DOMAIN)) { setMsg("Las cuentas del equipo entran por el panel del staff."); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setMsg(t("Escribe tu correo completo.")); return; }
+    if (!pass) { setMsg(t("Falta la contraseña.")); return; }
+    if (em.endsWith("@" + STAFF_EMAIL_DOMAIN)) { setMsg(t("Las cuentas del equipo entran por el panel del staff.")); return; }
     let lock = {}; try { lock = JSON.parse(localStorage.getItem(CLUB_PASS_LOCK_KEY) || "{}"); } catch (e) { /* nada */ }
-    if (lock.until > Date.now()) { setMsg(`Demasiados intentos. Espera ${Math.ceil((lock.until - Date.now()) / 60000)} min o entra con código.`); return; }
+    if (lock.until > Date.now()) { setMsg(t("Demasiados intentos. Espera {n} min o entra con código.", { n: Math.ceil((lock.until - Date.now()) / 60000) })); return; }
     setBusy(true); setMsg("");
     const { error } = await supabase.auth.signInWithPassword({ email: em, password: pass });
     setBusy(false);
     if (error) {
       const n = (lock.n || 0) + 1;
       try { localStorage.setItem(CLUB_PASS_LOCK_KEY, JSON.stringify(n >= 5 ? { n: 0, until: Date.now() + 15 * 60000 } : { n })); } catch (e) { /* nada */ }
-      setMsg(n >= 5 ? "Demasiados intentos. Espera 15 min o entra con código." : `Correo o contraseña incorrectos (te quedan ${5 - n} intentos). Si nunca creaste contraseña, entra con código.`);
+      setMsg(n >= 5 ? t("Demasiados intentos. Espera 15 min o entra con código.") : t("Correo o contraseña incorrectos (te quedan {n} intentos). Si nunca creaste contraseña, entra con código.", { n: 5 - n }));
       return;
     }
     try { localStorage.removeItem(CLUB_PASS_LOCK_KEY); } catch (e) { /* nada */ }
@@ -3080,13 +3101,13 @@ const PasswordLogin = ({ onForgot }) => {
   const btn = { width: "100%", padding: "12px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" };
   return (
     <div style={{ textAlign: "left" }}>
-      <input value={email} onChange={(e) => { setEmail(e.target.value); setMsg(""); }} placeholder="Tu correo *" type="email" autoComplete="email" style={{ ...inputStyle, marginBottom: 8 }} />
+      <input value={email} onChange={(e) => { setEmail(e.target.value); setMsg(""); }} placeholder={t("Tu correo *")} type="email" autoComplete="email" style={{ ...inputStyle, marginBottom: 8 }} />
       <div style={{ position: "relative", marginBottom: 8 }}>
-        <input value={pass} onChange={(e) => { setPass(e.target.value); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && login()} placeholder="Contraseña *" type={show ? "text" : "password"} autoComplete="current-password" style={{ ...inputStyle, paddingRight: 44 }} />
-        <button type="button" aria-label={show ? "Ocultar contraseña" : "Ver contraseña"} onClick={() => setShow((x) => !x)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }}><Eye size={16} color={C.stone} /></button>
+        <input value={pass} onChange={(e) => { setPass(e.target.value); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && login()} placeholder={t("Contraseña *")} type={show ? "text" : "password"} autoComplete="current-password" style={{ ...inputStyle, paddingRight: 44 }} />
+        <button type="button" aria-label={show ? t("Ocultar contraseña") : t("Ver contraseña")} onClick={() => setShow((x) => !x)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }}><Eye size={16} color={C.stone} /></button>
       </div>
-      <button onClick={login} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>{busy ? "Entrando…" : "Entrar"}</button>
-      <button onClick={onForgot} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer", marginTop: 8, padding: 0 }}>¿Olvidaste tu contraseña? Entra con código y crea una nueva</button>
+      <button onClick={login} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>{busy ? t("Entrando…") : t("Entrar")}</button>
+      <button onClick={onForgot} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer", marginTop: 8, padding: 0 }}>{t("¿Olvidaste tu contraseña? Entra con código y crea una nueva")}</button>
       {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginTop: 8 }}>{msg}</div>}
     </div>
   );
@@ -3100,30 +3121,30 @@ const ClubPasswordBox = () => {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const save = async () => {
-    if (p1.length < 8) { setMsg({ ok: false, t: "Mínimo 8 caracteres." }); return; }
-    if (p1 !== p2) { setMsg({ ok: false, t: "Las dos contraseñas no coinciden." }); return; }
+    if (p1.length < 8) { setMsg({ ok: false, t: t("Mínimo 8 caracteres.") }); return; }
+    if (p1 !== p2) { setMsg({ ok: false, t: t("Las dos contraseñas no coinciden.") }); return; }
     setBusy(true); setMsg(null);
     const { error } = await supabase.auth.updateUser({ password: p1 });
-    if (error) { setBusy(false); setMsg({ ok: false, t: /different|same/i.test(error.message) ? "Es igual a la anterior: elige otra." : /weak|short|characters/i.test(error.message) ? "Muy débil: usa letras y números." : "No se pudo guardar. Intenta de nuevo." }); return; }
+    if (error) { setBusy(false); setMsg({ ok: false, t: /different|same/i.test(error.message) ? t("Es igual a la anterior: elige otra.") : /weak|short|characters/i.test(error.message) ? t("Muy débil: usa letras y números.") : t("No se pudo guardar. Intenta de nuevo.") }); return; }
     const { error: e2 } = await supabase.rpc("mark_customer_password");
     setBusy(false);
     // Si entró con contraseña, ya estaba registrada: el cambio vale igual
-    if (e2 && !/SOLO_VERIFICADA/.test(e2.message || "")) { setMsg({ ok: false, t: "Se guardó, pero falta activarla. Vuelve a intentar más tarde." }); return; }
+    if (e2 && !/SOLO_VERIFICADA/.test(e2.message || "")) { setMsg({ ok: false, t: t("Se guardó, pero falta activarla. Vuelve a intentar más tarde.") }); return; }
     setP1(""); setP2(""); setOpen(false);
-    setMsg({ ok: true, t: "Listo. La próxima vez puedes entrar con tu correo y esta contraseña." });
+    setMsg({ ok: true, t: t("Listo. La próxima vez puedes entrar con tu correo y esta contraseña.") });
   };
   return (
     <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 18, paddingTop: 14 }}>
       {!open ? (
-        <button onClick={() => { setOpen(true); setMsg(null); }} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer" }}>Crear o cambiar mi contraseña</button>
+        <button onClick={() => { setOpen(true); setMsg(null); }} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer" }}>{t("Crear o cambiar mi contraseña")}</button>
       ) : (
         <div style={{ maxWidth: 320 }}>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8 }}>Para entrar la próxima vez con tu correo y contraseña (también puedes seguir usando el código).</div>
-          <input value={p1} onChange={(e) => setP1(e.target.value)} type="password" autoComplete="new-password" placeholder="Nueva contraseña (mín. 8) *" style={{ ...inputStyle, marginBottom: 8 }} />
-          <input value={p2} onChange={(e) => setP2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} type="password" autoComplete="new-password" placeholder="Repite la contraseña *" style={{ ...inputStyle, marginBottom: 8 }} />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8 }}>{t("Para entrar la próxima vez con tu correo y contraseña (también puedes seguir usando el código).")}</div>
+          <input value={p1} onChange={(e) => setP1(e.target.value)} type="password" autoComplete="new-password" placeholder={t("Nueva contraseña (mín. 8) *")} style={{ ...inputStyle, marginBottom: 8 }} />
+          <input value={p2} onChange={(e) => setP2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} type="password" autoComplete="new-password" placeholder={t("Repite la contraseña *")} style={{ ...inputStyle, marginBottom: 8 }} />
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setOpen(false)} style={{ flex: 1, padding: "11px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", color: C.ink }}>Cancelar</button>
-            <button onClick={save} disabled={busy} style={{ flex: 2, padding: "11px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? "Guardando…" : "Guardar contraseña"}</button>
+            <button onClick={() => setOpen(false)} style={{ flex: 1, padding: "11px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", color: C.ink }}>{t("Cancelar")}</button>
+            <button onClick={save} disabled={busy} style={{ flex: 2, padding: "11px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>{busy ? t("Guardando…") : t("Guardar contraseña")}</button>
           </div>
         </div>
       )}
@@ -3141,11 +3162,11 @@ const EmailCodeLogin = () => {
   const [msg, setMsg] = useState("");
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const send = async () => {
-    if (!emailOk || busy) { setMsg("Escribe tu correo completo (ej. nombre@gmail.com)."); return; }
+    if (!emailOk || busy) { setMsg(t("Escribe tu correo completo (ej. nombre@gmail.com).")); return; }
     setBusy(true); setMsg("");
     const { error } = await supabase.auth.signInWithOtp({ email: email.trim().toLowerCase(), options: { shouldCreateUser: true } });
     setBusy(false);
-    if (error) { setMsg(/rate|seconds|security purposes/i.test(error.message) ? "Ya te enviamos un código hace poco. Espera un minuto y vuelve a intentar." : "No pudimos enviar el código. Revisa el correo e intenta de nuevo."); return; }
+    if (error) { setMsg(/rate|seconds|security purposes/i.test(error.message) ? t("Ya te enviamos un código hace poco. Espera un minuto y vuelve a intentar.") : t("No pudimos enviar el código. Revisa el correo e intenta de nuevo.")); return; }
     setStep("code"); setMsg("");
   };
   const verify = async () => {
@@ -3153,7 +3174,7 @@ const EmailCodeLogin = () => {
     setBusy(true); setMsg("");
     const { error } = await supabase.auth.verifyOtp({ email: email.trim().toLowerCase(), token: code, type: "email" });
     setBusy(false);
-    if (error) { setMsg("Código incorrecto o vencido. Revisa el último correo o pide uno nuevo."); setCode(""); }
+    if (error) { setMsg(t("Código incorrecto o vencido. Revisa el último correo o pide uno nuevo.")); setCode(""); }
     // si salió bien, la tienda detecta la sesión sola y carga tu cuenta y tus puntos
   };
   const btn = { width: "100%", padding: "12px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" };
@@ -3161,15 +3182,15 @@ const EmailCodeLogin = () => {
     <div style={{ textAlign: "left" }}>
       {step === "email" ? (
         <>
-          <input value={email} onChange={(e) => { setEmail(e.target.value); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Tu correo *" type="email" autoComplete="email" style={{ ...inputStyle, marginBottom: 8 }} />
-          <button onClick={send} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>{busy ? "Enviando…" : "Recibir código en mi correo"}</button>
+          <input value={email} onChange={(e) => { setEmail(e.target.value); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && send()} placeholder={t("Tu correo *")} type="email" autoComplete="email" style={{ ...inputStyle, marginBottom: 8 }} />
+          <button onClick={send} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>{busy ? t("Enviando…") : t("Recibir código en mi correo")}</button>
         </>
       ) : (
         <>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>Te enviamos un código de 6 dígitos a <strong>{email.trim()}</strong>. Revisa también «Spam» o «Promociones».</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>{t("Te enviamos un código de 6 dígitos a")} <strong>{email.trim()}</strong>{t(". Revisa también «Spam» o «Promociones».")}</div>
           <input value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && verify()} inputMode="numeric" autoComplete="one-time-code" placeholder="000000" style={{ ...inputStyle, textAlign: "center", letterSpacing: "0.35em", fontSize: 20, marginBottom: 8 }} />
-          <button onClick={verify} disabled={busy || code.length !== 6} style={{ ...btn, opacity: busy || code.length !== 6 ? 0.5 : 1 }}>{busy ? "Verificando…" : "Entrar"}</button>
-          <button onClick={() => { setStep("email"); setCode(""); }} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer", marginTop: 8 }}>Cambiar correo o pedir otro código</button>
+          <button onClick={verify} disabled={busy || code.length !== 6} style={{ ...btn, opacity: busy || code.length !== 6 ? 0.5 : 1 }}>{busy ? t("Verificando…") : t("Entrar")}</button>
+          <button onClick={() => { setStep("email"); setCode(""); }} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer", marginTop: 8 }}>{t("Cambiar correo o pedir otro código")}</button>
         </>
       )}
       {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginTop: 8 }}>{msg}</div>}
@@ -3184,14 +3205,14 @@ const VerifyAccountBox = ({ onGoogleSignIn }) => {
   return (
     <div style={{ background: C.paperDeep, borderRadius: 12, padding: "12px 14px", marginBottom: 16 }}>
       <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, lineHeight: 1.5 }}>
-        <ShieldCheck size={13} style={{ verticalAlign: "-2px", marginRight: 6 }} />Confirma que esta cuenta es tuya para <strong>usar tus puntos en la web</strong> y <strong>ver tus pedidos</strong>.
-        {!open && <button onClick={() => setOpen(true)} style={{ background: "none", border: "none", padding: 0, marginLeft: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer", fontWeight: 600 }}>Confirmar</button>}
+        <ShieldCheck size={13} style={{ verticalAlign: "-2px", marginRight: 6 }} />{t("Confirma que esta cuenta es tuya para")} <strong>{t("usar tus puntos en la web")}</strong> {t("y")} <strong>{t("ver tus pedidos")}</strong>.
+        {!open && <button onClick={() => setOpen(true)} style={{ background: "none", border: "none", padding: 0, marginLeft: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer", fontWeight: 600 }}>{t("Confirmar")}</button>}
       </div>
       {open && (
         <div style={{ marginTop: 12 }}>
-          {onGoogleSignIn && <button onClick={onGoogleSignIn} style={{ width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>Con Google</button>}
+          {onGoogleSignIn && <button onClick={onGoogleSignIn} style={{ width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>{t("Con Google")}</button>}
           <EmailCodeLogin />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 8 }}>Usa el mismo correo que diste al registrarte.</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 8 }}>{t("Usa el mismo correo que diste al registrarte.")}</div>
         </div>
       )}
     </div>
@@ -3226,28 +3247,28 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
 
   return (
     <div style={{ padding: "22px 20px 24px", textAlign: "center" }}>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>{tab === "entrar" && !googlePrefill ? "Entra a tu cuenta" : "Únete al Club Fly"}</div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 16, maxWidth: 260, marginLeft: "auto", marginRight: "auto" }}>{tab === "entrar" && !googlePrefill ? "Mira tus puntos y tus pedidos desde cualquier celular o computadora." : "Regístrate gratis y empieza a ganar puntos en cada compra."}</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>{tab === "entrar" && !googlePrefill ? t("Entra a tu cuenta") : t("Únete al Club Fly")}</div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 16, maxWidth: 260, marginLeft: "auto", marginRight: "auto" }}>{tab === "entrar" && !googlePrefill ? t("Mira tus puntos y tus pedidos desde cualquier celular o computadora.") : t("Regístrate gratis y empieza a ganar puntos en cada compra.")}</div>
       {!googlePrefill && (
         <div role="tablist" style={{ display: "flex", maxWidth: 280, margin: "0 auto 18px", border: `1px solid ${C.ink}`, borderRadius: 999, padding: 3 }}>
-          {[["entrar", "Ya tengo cuenta"], ["crear", "Crear cuenta"]].map(([k, l]) => (
+          {[["entrar", t("Ya tengo cuenta")], ["crear", t("Crear cuenta")]].map(([k, l]) => (
             <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ flex: 1, padding: "9px 6px", borderRadius: 999, border: "none", background: tab === k ? C.ink : "transparent", color: tab === k ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
           ))}
         </div>
       )}
       {tab === "entrar" && !googlePrefill ? (
         <div style={{ maxWidth: 280, margin: "0 auto" }}>
-          {onGoogleSignIn && <button onClick={onGoogleSignIn} style={{ width: "100%", padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Entrar con Google</button>}
+          {onGoogleSignIn && <button onClick={onGoogleSignIn} style={{ width: "100%", padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{t("Entrar con Google")}</button>}
           <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
-            <div style={{ flex: 1, height: 1, background: C.line }} /><span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>o con tu correo</span><div style={{ flex: 1, height: 1, background: C.line }} />
+            <div style={{ flex: 1, height: 1, background: C.line }} /><span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>{t("o con tu correo")}</span><div style={{ flex: 1, height: 1, background: C.line }} />
           </div>
           <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 10 }}>
-            {[["codigo", "Con código"], ["clave", "Con contraseña"]].map(([k, l]) => (
+            {[["codigo", t("Con código")], ["clave", t("Con contraseña")]].map(([k, l]) => (
               <button key={k} onClick={() => setLoginWay(k)} style={{ background: "none", border: "none", borderBottom: `2px solid ${loginWay === k ? C.ink : "transparent"}`, padding: "4px 2px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: loginWay === k ? 700 : 400, color: loginWay === k ? C.ink : C.stone, cursor: "pointer" }}>{l}</button>
             ))}
           </div>
           {loginWay === "codigo" ? <EmailCodeLogin /> : <PasswordLogin onForgot={() => setLoginWay("codigo")} />}
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 14, lineHeight: 1.5 }}>Usa el mismo correo con el que te registraste. ¿Aún no tienes cuenta? <button onClick={() => setTab("crear")} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 11, color: C.ink, textDecoration: "underline", cursor: "pointer" }}>Créala aquí</button>.</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 14, lineHeight: 1.5 }}>{t("Usa el mismo correo con el que te registraste. ¿Aún no tienes cuenta?")} <button onClick={() => setTab("crear")} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 11, color: C.ink, textDecoration: "underline", cursor: "pointer" }}>{t("Créala aquí")}</button>.</div>
         </div>
       ) : (<>
 
@@ -3255,10 +3276,10 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
         <div style={{ maxWidth: 280, margin: "0 auto 18px" }}>
           <button onClick={onGoogleSignIn} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35 24 35c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.9 18.9 13 24 13c3.1 0 5.8 1.1 8 3l5.7-5.7C34.6 5.1 29.6 3 24 3c-7.4 0-13.8 4.1-17.1 10.1z"/><path fill="#4CAF50" d="M24 45c5.5 0 10.4-1.9 14.3-5.2l-6.6-5.6C29.5 35.9 26.9 37 24 37c-5.3 0-9.7-3.4-11.3-8.1l-6.6 5.1C9.9 40.6 16.4 45 24 45z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.3 4.1-4.2 5.4l6.6 5.6C40.5 36.9 44 31.3 44 24c0-1.4-.1-2.4-.4-3.5z"/></svg>
-            Continuar con Google
+            {t("Continuar con Google")}
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
-            <div style={{ flex: 1, height: 1, background: C.line }} /><span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>o con tus datos</span><div style={{ flex: 1, height: 1, background: C.line }} />
+            <div style={{ flex: 1, height: 1, background: C.line }} /><span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>{t("o con tus datos")}</span><div style={{ flex: 1, height: 1, background: C.line }} />
           </div>
         </div>
       )}
@@ -3269,33 +3290,33 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
       )}
 
       <div style={{ textAlign: "left", maxWidth: 280, margin: "0 auto" }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo *" style={{ ...inputStyle, marginBottom: 6 }} />
-        {fieldError(nameValid, "Escribe tu nombre completo (mínimo 3 letras).")}
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Nombre completo *")} style={{ ...inputStyle, marginBottom: 6 }} />
+        {fieldError(nameValid, t("Escribe tu nombre completo (mínimo 3 letras)."))}
 
-        <PhoneInput value={phone} onChange={setPhone} placeholder="Celular (WhatsApp) *" style={{ marginTop: 8, marginBottom: 6 }} />
-        {fieldError(phoneValid, "Ingresa un número de celular válido.")}
+        <PhoneInput value={phone} onChange={setPhone} placeholder={t("Celular (WhatsApp) *")} style={{ marginTop: 8, marginBottom: 6 }} />
+        {fieldError(phoneValid, t("Ingresa un número de celular válido."))}
 
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Correo *" type="email" autoComplete="email" style={{ ...inputStyle, marginTop: 8, marginBottom: 6 }} />
-        {fieldError(emailValid, "Ingresa tu correo (ej. nombre@gmail.com).")}
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("Correo *")} type="email" autoComplete="email" style={{ ...inputStyle, marginTop: 8, marginBottom: 6 }} />
+        {fieldError(emailValid, t("Ingresa tu correo (ej. nombre@gmail.com)."))}
 
         {turnstileSiteKey ? (
           <>
             <TurnstileBox key={captchaKey} siteKey={turnstileSiteKey} onToken={setCaptchaToken} />
-            {fieldError(humanValid, "Espera a que se complete la verificación de arriba.")}
+            {fieldError(humanValid, t("Espera a que se complete la verificación de arriba."))}
           </>
         ) : (
           <>
             <div style={{ background: C.paperDeep, borderRadius: 10, padding: "12px 14px", marginTop: 10, marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>Para confirmar que no eres un robot: {humanA} + {humanB} =</span>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, whiteSpace: "nowrap" }}>{t("Para confirmar que no eres un robot:")} {humanA} + {humanB} =</span>
               <input value={humanAnswer} onChange={(e) => setHumanAnswer(e.target.value)} style={{ ...inputStyle, width: 56, padding: "6px 8px", textAlign: "center" }} />
             </div>
-            {fieldError(humanValid, "La suma no es correcta, intenta de nuevo.")}
+            {fieldError(humanValid, t("La suma no es correcta, intenta de nuevo."))}
           </>
         )}
 
         <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.5, marginTop: 12 }}>
           <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} style={{ marginTop: 3 }} />
-          <span>Quiero recibir novedades y ofertas del Club Fly por WhatsApp o correo (opcional). Me puedo dar de baja cuando quiera.</span>
+          <span>{t("Quiero recibir novedades y ofertas del Club Fly por WhatsApp o correo (opcional). Me puedo dar de baja cuando quiera.")}</span>
         </label>
         <div style={{ marginTop: 16 }}>
           <PrimaryButton disabled={sending} onClick={async () => {
@@ -3306,12 +3327,12 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
             setSending(false);
             // El código del captcha sirve una sola vez: si algo falló, se pide uno nuevo
             if (!ok) { setCaptchaToken(""); setCaptchaKey((k) => k + 1); }
-          }}>{sending ? "Registrando…" : "Registrarme"}</PrimaryButton>
+          }}>{sending ? t("Registrando…") : t("Registrarme")}</PrimaryButton>
         </div>
       </div>
       </>)}
       <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 16, maxWidth: 260, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
-        Tus datos solo se usan para tu cuenta del Club Fly y tus pedidos. Nunca los compartimos.
+        {t("Tus datos solo se usan para tu cuenta del Club Fly y tus pedidos. Nunca los compartimos.")}
       </div>
     </div>
   );
@@ -3327,7 +3348,7 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
     supabase.rpc("my_orders", { p_phone: clubMember.phone || "" }).then(({ data }) => setFetched(data || [])).catch(() => setFetched([]));
   }, [clubMember?.phone, clubMember?.google]);
   const backBtn = (
-    <button onClick={() => setScreen("profile")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> Volver</button>
+    <button onClick={() => setScreen("profile")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> {t("Volver")}</button>
   );
   if (!clubMember) {
     return (
@@ -3335,7 +3356,7 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
         {backBtn}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 280, textAlign: "center" }}>
           <Package size={30} color={C.line} style={{ marginBottom: 14 }} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 240 }}>Regístrate en el Club Fly para ver tu historial de pedidos aquí.</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 240 }}>{t("Regístrate en el Club Fly para ver tu historial de pedidos aquí.")}</div>
         </div>
       </div>
     );
@@ -3346,8 +3367,8 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
         {backBtn}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 280, textAlign: "center", gap: 12 }}>
           <Package size={30} color={C.line} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 270, lineHeight: 1.6 }}>Para proteger tus datos, el historial de pedidos se ve confirmando tu cuenta en Club Fly (con Google o con un código a tu correo). También puedes seguir cualquier pedido con su número.</div>
-          <button onClick={() => setScreen("track")} style={{ padding: "11px 20px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Seguir mi pedido</button>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 270, lineHeight: 1.6 }}>{t("Para proteger tus datos, el historial de pedidos se ve confirmando tu cuenta en Club Fly (con Google o con un código a tu correo). También puedes seguir cualquier pedido con su número.")}</div>
+          <button onClick={() => setScreen("track")} style={{ padding: "11px 20px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Seguir mi pedido")}</button>
         </div>
       </div>
     );
@@ -3356,13 +3377,13 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
   return (
     <div style={{ padding: "18px 20px 24px" }}>
       {backBtn}
-      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>Mis Pedidos</h1>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>{t("Mis Pedidos")}</h1>
       {fetched === null ? (
-        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, padding: "30px 0", textAlign: "center" }}>Cargando tus pedidos…</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, padding: "30px 0", textAlign: "center" }}>{t("Cargando tus pedidos…")}</div>
       ) : orders.length === 0 ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 280, textAlign: "center" }}>
           <Package size={30} color={C.line} style={{ marginBottom: 14 }} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 240 }}>Aún no tienes pedidos. Cuando compres algo, lo vas a ver aquí.</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 240 }}>{t("Aún no tienes pedidos. Cuando compres algo, lo vas a ver aquí.")}</div>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -3376,15 +3397,15 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
                 </div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 10 }}>{new Date(o.createdAt).toLocaleDateString("es-PE", { day: "numeric", month: "long", year: "numeric" })}</div>
                 <div style={{ borderTop: `1px solid ${C.paperDeep}`, paddingTop: 10, marginBottom: 10 }}>
-                  {o.items.map((it, i) => <div key={i} style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, marginBottom: 3 }}>• {it.name} — {it.size}/{it.colorName} × {it.qty}</div>)}
+                  {o.items.map((it, i) => <div key={i} style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, marginBottom: 3 }}>• {it.name} — {it.size}/{t(it.colorName)} × {it.qty}</div>)}
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontFamily: FONT_BODY, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, fontWeight: 700, background: validated ? C.paperDeep : "transparent", color: C.ink, border: `1px solid ${validated ? C.paperDeep : C.ink}` }}>
-                    {validated ? "Pago confirmado" : "Validando pago"}
+                    {validated ? t("Pago confirmado") : t("Validando pago")}
                   </span>
                   {validated && (
                     <span style={{ fontFamily: FONT_BODY, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, fontWeight: 700, background: C.ink, color: C.paper }}>
-                      {ORDER_STATUS_LABELS[o.fulfillment] || "Pendiente"}
+                      {t(ORDER_STATUS_LABELS[o.fulfillment] || "Pendiente")}
                     </span>
                   )}
                 </div>
@@ -3399,8 +3420,8 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
 
 const SubHeader = ({ title, onBack, children }) => (
   <div style={{ padding: "18px 20px 6px" }}>
-    <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, padding: 0 }}><ArrowLeft size={15} /> Mi cuenta</button>
-    <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 23, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>{title}</h1>
+    <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, padding: 0 }}><ArrowLeft size={15} /> {t("Mi cuenta")}</button>
+    <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 23, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>{tt(title)}</h1>
     {children}
   </div>
 );
@@ -3409,14 +3430,14 @@ const FavoritesScreen = ({ catalog, favs, onOpen, onToggleFav, onQuickAdd, cartS
   const list = catalog.products.filter((p) => favs.has(p.id) && webVisible(p));
   return (
     <div className="page-narrow" style={{ paddingBottom: 20 }}>
-      <SubHeader title={`Mis favoritos (${list.length})`} onBack={() => setScreen("profile")}>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14 }}>Toca el corazón de cualquier prenda para guardarla aquí.</div>
+      <SubHeader title={`${t("Mis favoritos")} (${list.length})`} onBack={() => setScreen("profile")}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14 }}>{t("Toca el corazón de cualquier prenda para guardarla aquí.")}</div>
       </SubHeader>
       {list.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
           <Heart size={30} color={C.line} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, margin: "12px 0 18px" }}>Aún no guardas ninguna prenda.</div>
-          <button onClick={() => setScreen("category")} style={{ padding: "11px 18px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Ver el catálogo</button>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, margin: "12px 0 18px" }}>{t("Aún no guardas ninguna prenda.")}</div>
+          <button onClick={() => setScreen("category")} style={{ padding: "11px 18px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Ver el catálogo")}</button>
         </div>
       ) : (
         <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, padding: "0 20px" }}>
@@ -3473,29 +3494,29 @@ const MapPicker = ({ value, onClose, onPick }) => {
       map.on("click", (e) => put(e.latlng.lat, e.latlng.lng));
       mapRef.current = { map, put };
       setTimeout(() => map.invalidateSize(), 200);
-    }).catch(() => setErr("No se pudo cargar el mapa. Revisa tu conexión."));
+    }).catch(() => setErr(t("No se pudo cargar el mapa. Revisa tu conexión.")));
     return () => { alive = false; try { mapRef.current?.map.remove(); } catch (e) { /* nada */ } };
   }, []);
   const locateMe = () => {
-    if (!navigator.geolocation) { setErr("Tu navegador no permite compartir ubicación."); return; }
+    if (!navigator.geolocation) { setErr(t("Tu navegador no permite compartir ubicación.")); return; }
     setLocating(true);
     navigator.geolocation.getCurrentPosition((pos) => {
       setLocating(false);
       const { latitude: lat, longitude: lng } = pos.coords;
       mapRef.current?.put(lat, lng); mapRef.current?.map.setView([lat, lng], 17);
-    }, () => { setLocating(false); setErr("No pudimos obtener tu ubicación. Activa el permiso de ubicación o marca el punto en el mapa."); }, { enableHighAccuracy: true, timeout: 12000 });
+    }, () => { setLocating(false); setErr(t("No pudimos obtener tu ubicación. Activa el permiso de ubicación o marca el punto en el mapa.")); }, { enableHighAccuracy: true, timeout: 12000 });
   };
   return (
     <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}88` }} />
       <div className="sheet-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: "16px 16px 20px", maxHeight: "94vh", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink }}>¿Dónde entregamos?</div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Toca el mapa en la puerta de tu casa o arrastra el pin. El repartidor llegará a ese punto.</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink }}>{t("¿Dónde entregamos?")}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{t("Toca el mapa en la puerta de tu casa o arrastra el pin. El repartidor llegará a ese punto.")}</div>
         <div ref={boxRef} style={{ width: "100%", height: "min(56vh, 420px)", borderRadius: 12, overflow: "hidden", background: C.paperDeep }} />
         {err && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" onClick={locateMe} disabled={locating} style={{ flex: "1 1 160px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}><Navigation size={14} /> {locating ? "Buscando…" : "Estoy aquí (usar mi ubicación)"}</button>
-          <PrimaryButton disabled={!pt} style={{ flex: "1 1 160px", width: "auto" }} onClick={() => { onPick(pt); onClose(); }}>Confirmar ubicación</PrimaryButton>
+          <button type="button" onClick={locateMe} disabled={locating} style={{ flex: "1 1 160px", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}><Navigation size={14} /> {locating ? t("Buscando…") : t("Estoy aquí (usar mi ubicación)")}</button>
+          <PrimaryButton disabled={!pt} style={{ flex: "1 1 160px", width: "auto" }} onClick={() => { onPick(pt); onClose(); }}>{t("Confirmar ubicación")}</PrimaryButton>
         </div>
       </div>
     </div>
@@ -3510,21 +3531,21 @@ const PeruPlaceSelects = ({ v, set }) => {
   const dists = ubigeo && v.department && v.city ? (ubigeo[v.department]?.[v.city] || []) : [];
   const grid = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 };
   const sel = (val, onCh, label, opts, disabled) => (
-    <select value={val || ""} onChange={(e) => onCh(e.target.value)} disabled={disabled} style={{ ...inputStyle, opacity: disabled ? 0.6 : 1 }} aria-label={label}>
-      <option value="">{label}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}
+    <select value={val || ""} onChange={(e) => onCh(e.target.value)} disabled={disabled} style={{ ...inputStyle, opacity: disabled ? 0.6 : 1 }} aria-label={t(label)}>
+      <option value="">{t(label)}</option>{opts.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   );
   return (
     <>
       <div style={grid}>
-        {sel(v.department, (x) => set({ department: x, city: "", district: "" }), "Departamento *", PERU_DEPARTMENTS)}
-        {ubigeo && Object.keys(ubigeo).length ? sel(v.city, (x) => set({ city: x, district: "" }), "Provincia *", provs, !v.department)
-          : <input value={v.city || ""} onChange={(e) => set({ city: e.target.value })} placeholder="Provincia / ciudad *" style={inputStyle} />}
+        {sel(v.department, (x) => set({ department: x, city: "", district: "" }), t("Departamento *"), PERU_DEPARTMENTS)}
+        {ubigeo && Object.keys(ubigeo).length ? sel(v.city, (x) => set({ city: x, district: "" }), t("Provincia *"), provs, !v.department)
+          : <input value={v.city || ""} onChange={(e) => set({ city: e.target.value })} placeholder={t("Provincia / ciudad *")} style={inputStyle} />}
       </div>
       <div style={grid}>
-        {ubigeo && Object.keys(ubigeo).length ? sel(v.district, (x) => set({ district: x }), "Distrito *", dists, !v.city)
-          : <input value={v.district || ""} onChange={(e) => set({ district: e.target.value })} placeholder="Distrito *" style={inputStyle} />}
-        <input value={v.zip || ""} inputMode="numeric" onChange={(e) => set({ zip: e.target.value.replace(/\D/g, "").slice(0, 5) })} placeholder="Código postal (opcional)" style={inputStyle} />
+        {ubigeo && Object.keys(ubigeo).length ? sel(v.district, (x) => set({ district: x }), t("Distrito *"), dists, !v.city)
+          : <input value={v.district || ""} onChange={(e) => set({ district: e.target.value })} placeholder={t("Distrito *")} style={inputStyle} />}
+        <input value={v.zip || ""} inputMode="numeric" onChange={(e) => set({ zip: e.target.value.replace(/\D/g, "").slice(0, 5) })} placeholder={t("Código postal (opcional)")} style={inputStyle} />
       </div>
     </>
   );
@@ -3554,43 +3575,43 @@ const AddressFields = ({ value, onChange, type }) => {
       {type === "internacional" ? (
         <>
           <select value={v.country || ""} onChange={(e) => set("country", e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
-            <option value="">País de destino</option>
-            {INTL_COUNTRIES.map(([iso, name]) => <option key={iso} value={name}>{name}</option>)}
+            <option value="">{t("País de destino")}</option>
+            {INTL_COUNTRIES.map(([iso, name]) => <option key={iso} value={name}>{t(name)}</option>)}
           </select>
           <div style={grid}>
-            <input value={v.city || ""} onChange={(e) => set("city", e.target.value)} placeholder="Ciudad *" style={inputStyle} />
-            <input value={v.state || ""} onChange={(e) => set("state", e.target.value)} placeholder="Estado / provincia / región (opcional)" style={inputStyle} />
+            <input value={v.city || ""} onChange={(e) => set("city", e.target.value)} placeholder={t("Ciudad *")} style={inputStyle} />
+            <input value={v.state || ""} onChange={(e) => set("state", e.target.value)} placeholder={t("Estado / provincia / región (opcional)")} style={inputStyle} />
           </div>
-          <input value={v.zip || ""} onChange={(e) => set("zip", e.target.value.replace(/[^0-9A-Za-z -]/g, "").slice(0, 10))} placeholder="Código postal *" style={{ ...inputStyle, marginBottom: 8 }} />
+          <input value={v.zip || ""} onChange={(e) => set("zip", e.target.value.replace(/[^0-9A-Za-z -]/g, "").slice(0, 10))} placeholder={t("Código postal *")} style={{ ...inputStyle, marginBottom: 8 }} />
         </>
       ) : type === "provincia" ? (
         <PeruPlaceSelects v={v} set={setMany} />
       ) : (
         <select value={v.district || ""} onChange={(e) => set("district", e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
-          <option value="">Distrito en Trujillo</option>
+          <option value="">{t("Distrito en Trujillo")}</option>
           {TRUJILLO_DISTRICTS.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
       )}
-      <input value={v.address || ""} onChange={(e) => set("address", e.target.value)} placeholder="Dirección (calle, número, dpto.) *" style={{ ...inputStyle, marginBottom: 8 }} />
-      <input value={v.reference || ""} onChange={(e) => set("reference", e.target.value)} placeholder="Referencia (opcional: ej. frente al parque, portón negro)" style={{ ...inputStyle, marginBottom: 8 }} />
+      <input value={v.address || ""} onChange={(e) => set("address", e.target.value)} placeholder={t("Dirección (calle, número, dpto.) *")} style={{ ...inputStyle, marginBottom: 8 }} />
+      <input value={v.reference || ""} onChange={(e) => set("reference", e.target.value)} placeholder={t("Referencia (opcional: ej. frente al parque, portón negro)")} style={{ ...inputStyle, marginBottom: 8 }} />
       {type === "provincia" && (
         <select value={v.agency || ""} onChange={(e) => set("agency", e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
-          <option value="">Agencia de envío preferida</option>
-          {SHIPPING_AGENCIES.map((a) => <option key={a} value={a}>{a}</option>)}
+          <option value="">{t("Agencia de envío preferida")}</option>
+          {SHIPPING_AGENCIES.map((a) => <option key={a} value={a}>{t(a)}</option>)}
         </select>
       )}
       {(type === "local" || type === "provincia") && (
         <button type="button" onClick={() => setMapOpen(true)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "center", padding: "11px 12px", borderRadius: 8, border: `1px solid ${here ? C.ink : C.line}`, background: here ? C.paperDeep : C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", marginBottom: 8 }}>
-          <MapPin size={14} /> {here ? "Punto marcado en el mapa ✓ (tocar para cambiar)" : type === "local" ? "Marcar en el mapa dónde entregamos" : "Marcar en el mapa (opcional, para delivery a domicilio)"}
+          <MapPin size={14} /> {here ? t("Punto marcado en el mapa ✓ (tocar para cambiar)") : type === "local" ? t("Marcar en el mapa dónde entregamos") : t("Marcar en el mapa (opcional, para delivery a domicilio)")}
         </button>
       )}
       {mapOpen && <MapPicker value={here} onClose={() => setMapOpen(false)} onPick={pick} />}
       {type === "local" && !here && (
         <button type="button" onClick={locate} disabled={locating} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", justifyContent: "center", padding: "11px 12px", borderRadius: 8, border: `1px solid ${v.mapsUrl ? C.ink : C.line}`, background: v.mapsUrl ? C.paperDeep : "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
-          <Navigation size={14} /> {locating ? "Buscando tu ubicación…" : v.mapsUrl ? "Ubicación exacta agregada ✓ (tocar para actualizar)" : "Usar mi ubicación actual (para el repartidor)"}
+          <Navigation size={14} /> {locating ? t("Buscando tu ubicación…") : v.mapsUrl ? t("Ubicación exacta agregada ✓ (tocar para actualizar)") : t("Usar mi ubicación actual (para el repartidor)")}
         </button>
       )}
-      {here && <a href={mapsLink(here)} target="_blank" rel="noreferrer" style={{ display: "block", textAlign: "center", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 8 }}>Ver en Google Maps</a>}
+      {here && <a href={mapsLink(here)} target="_blank" rel="noreferrer" style={{ display: "block", textAlign: "center", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, marginBottom: 8 }}>{t("Ver en Google Maps")}</a>}
     </div>
   );
 };
@@ -3604,37 +3625,37 @@ const AddressesScreen = ({ setScreen }) => {
     const ok = addressComplete(editing, editing.type) && (editing.label || "").trim();
     return (
       <div className="page-narrow" style={{ paddingBottom: 24 }}>
-        <SubHeader title={editing.id ? "Editar dirección" : "Nueva dirección"} onBack={() => setEditing(null)} />
+        <SubHeader title={editing.id ? t("Editar dirección") : t("Nueva dirección")} onBack={() => setEditing(null)} />
         <div style={{ padding: "8px 20px" }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <Chip active={editing.type === "local"} onClick={() => setEditing({ ...editing, type: "local" })}>En Trujillo</Chip>
-            <Chip active={editing.type === "provincia"} onClick={() => setEditing({ ...editing, type: "provincia" })}>Otra provincia</Chip>
+            <Chip active={editing.type === "local"} onClick={() => setEditing({ ...editing, type: "local" })}>{t("En Trujillo")}</Chip>
+            <Chip active={editing.type === "provincia"} onClick={() => setEditing({ ...editing, type: "provincia" })}>{t("Otra provincia")}</Chip>
           </div>
-          <input value={editing.label || ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} placeholder="Nombre (ej. Casa, Trabajo)" style={{ ...inputStyle, marginBottom: 8 }} />
+          <input value={editing.label || ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} placeholder={t("Nombre (ej. Casa, Trabajo)")} style={{ ...inputStyle, marginBottom: 8 }} />
           <AddressFields value={editing} type={editing.type} onChange={(v) => setEditing({ ...editing, ...v })} />
-          <PrimaryButton disabled={!ok} onClick={() => { const rec = { ...editing, id: editing.id || genId("dir") }; persist(editing.id ? list.map((x) => (x.id === rec.id ? rec : x)) : [...list, rec]); setEditing(null); }}>Guardar dirección</PrimaryButton>
+          <PrimaryButton disabled={!ok} onClick={() => { const rec = { ...editing, id: editing.id || genId("dir") }; persist(editing.id ? list.map((x) => (x.id === rec.id ? rec : x)) : [...list, rec]); setEditing(null); }}>{t("Guardar dirección")}</PrimaryButton>
         </div>
       </div>
     );
   }
   return (
     <div className="page-narrow" style={{ paddingBottom: 24 }}>
-      <SubHeader title="Mis direcciones" onBack={() => setScreen("profile")}>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14 }}>Se guardan en este celular o computadora y las eliges al comprar.</div>
+      <SubHeader title={t("Mis direcciones")} onBack={() => setScreen("profile")}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14 }}>{t("Se guardan en este celular o computadora y las eliges al comprar.")}</div>
       </SubHeader>
       <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
         {list.map((a) => (
           <div key={a.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px" }}>
             <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink }}>{a.label}</div>
             <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, margin: "3px 0" }}>{formatAddress(a)}</div>
-            {a.reference && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>Ref.: {a.reference}</div>}
+            {a.reference && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>{t("Ref.:")} {a.reference}</div>}
             <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
-              <button onClick={() => setEditing(a)} style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, cursor: "pointer" }}>Editar</button>
-              <button onClick={() => persist(list.filter((x) => x.id !== a.id))} style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, cursor: "pointer" }}>Eliminar</button>
+              <button onClick={() => setEditing(a)} style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, cursor: "pointer" }}>{t("Editar")}</button>
+              <button onClick={() => persist(list.filter((x) => x.id !== a.id))} style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, cursor: "pointer" }}>{t("Eliminar")}</button>
             </div>
           </div>
         ))}
-        <button onClick={() => setEditing({ type: "local" })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px", borderRadius: 10, border: `1px dashed ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Agregar dirección</button>
+        <button onClick={() => setEditing({ type: "local" })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "13px", borderRadius: 10, border: `1px dashed ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> {t("Agregar dirección")}</button>
       </div>
     </div>
   );
@@ -3642,21 +3663,21 @@ const AddressesScreen = ({ setScreen }) => {
 
 const PaymentMethodsScreen = ({ setScreen }) => (
   <div className="page-narrow" style={{ paddingBottom: 24 }}>
-    <SubHeader title="Métodos de pago" onBack={() => setScreen("profile")} />
+    <SubHeader title={t("Métodos de pago")} onBack={() => setScreen("profile")} />
     <div style={{ padding: "6px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
       {[
-        ["Tarjeta de crédito o débito", "Visa, Mastercard y más. Se valida al instante con la pasarela de pago segura.", CreditCard],
-        ["Yape", "Paga al número de la tienda y escribe el número de operación al confirmar.", Receipt],
-        ["Plin", "Paga al número de la tienda y escribe el número de operación al confirmar.", Receipt],
-        ["Transferencia bancaria", "A la cuenta de la tienda. Escribe el número de operación al confirmar.", Receipt],
-      ].map(([t, d, Icon]) => (
-        <div key={t} style={{ display: "flex", gap: 12, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px" }}>
+        [t("Tarjeta de crédito o débito"), t("Visa, Mastercard y más. Se valida al instante con la pasarela de pago segura."), CreditCard],
+        ["Yape", t("Paga al número de la tienda y escribe el número de operación al confirmar."), Receipt],
+        ["Plin", t("Paga al número de la tienda y escribe el número de operación al confirmar."), Receipt],
+        [t("Transferencia bancaria"), t("A la cuenta de la tienda. Escribe el número de operación al confirmar."), Receipt],
+      ].map(([ttl, d, Icon]) => (
+        <div key={ttl} style={{ display: "flex", gap: 12, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px" }}>
           <Icon size={18} color={C.ink} style={{ flexShrink: 0, marginTop: 2 }} />
-          <div><div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink }}>{t}</div><div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 2, lineHeight: 1.5 }}>{d}</div></div>
+          <div><div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink }}>{t(ttl)}</div><div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 2, lineHeight: 1.5 }}>{t(d)}</div></div>
         </div>
       ))}
       <div style={{ display: "flex", gap: 10, background: C.paperDeep, borderRadius: 12, padding: "12px 14px", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, lineHeight: 1.6 }}>
-        <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: 2 }} /> Por tu seguridad, Fly nunca guarda los datos de tu tarjeta: los procesa directamente la pasarela de pago certificada.
+        <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: 2 }} /> {t("Por tu seguridad, Fly nunca guarda los datos de tu tarjeta: los procesa directamente la pasarela de pago certificada.")}
       </div>
     </div>
   </div>
@@ -3684,43 +3705,43 @@ const ProfileScreen = ({ points, favCount, onStaffClick, clubMember, onLogoutClu
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
         <div style={{ width: 62, height: 62, borderRadius: "50%", background: C.paperDeep, border: `1.5px solid ${C.ink}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800 }}>{initials}</div>
         <div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800 }}>{clubMember ? clubMember.name : "Hola"}</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800 }}>{clubMember ? clubMember.name : t("Hola")}</div>
           {clubMember ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}><Award size={12} color={C.brass} /><span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}>Club Fly</span></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 3 }}><Award size={12} color={C.brass} /><span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.brass }}>{t("Club Fly")}</span></div>
           ) : (
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 3 }}>Inicia sesión o únete al Club Fly</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 3 }}>{t("Inicia sesión o únete al Club Fly")}</div>
           )}
         </div>
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
         {[["Pedidos", clubMember ? String(orderCount) : "—", "orders"], ["Favoritos", String(favCount), "favorites"], ["Puntos", clubMember ? String(points) : "—", "loyalty"]].map(([label, val, target]) => (
-          <div key={label} onClick={() => setScreen(target)} role="button" style={{ cursor: "pointer", flex: 1, textAlign: "center", background: C.paperDeep, borderRadius: 10, padding: "14px 6px" }}><div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.ink, fontWeight: 800 }}>{val}</div><div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 2 }}>{label}</div></div>
+          <div key={label} onClick={() => setScreen(target)} role="button" style={{ cursor: "pointer", flex: 1, textAlign: "center", background: C.paperDeep, borderRadius: 10, padding: "14px 6px" }}><div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.ink, fontWeight: 800 }}>{val}</div><div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 2 }}>{t(label)}</div></div>
         ))}
       </div>
       {showInstall && (
         <button className="install-card" onClick={onInstall} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, background: C.paper, color: C.ink, border: `1px solid ${C.ink}`, borderRadius: 12, padding: "12px 14px", marginBottom: 12, cursor: "pointer", textAlign: "left" }}>
           <BadgeLogo size={34} />
           <span style={{ flex: 1 }}>
-            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600 }}>Instala Fly en tu celular</span>
-            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 2 }}>Ábrela como una app, desde tu pantalla de inicio</span>
+            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600 }}>{t("Instala Fly en tu celular")}</span>
+            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 2 }}>{t("Ábrela como una app, desde tu pantalla de inicio")}</span>
           </span>
           <ChevronRight size={15} color={C.ink} />
         </button>
       )}
       <button onClick={() => setScreen("loyalty")} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, background: C.ink, color: C.paper, border: "none", borderRadius: 12, padding: "14px 16px", marginBottom: 20, cursor: "pointer" }}>
         <Star size={16} fill={C.brass} color={C.brass} />
-        <span style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, flex: 1, textAlign: "left" }}>Club Fly {clubMember ? `— ${points} puntos` : "— únete gratis"}</span>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, flex: 1, textAlign: "left" }}>{t("Club Fly")} {clubMember ? `— ${t("{n} puntos", { n: points })}` : t("— únete gratis")}</span>
         <ChevronRight size={15} color={C.paper} />
       </button>
       <div style={{ borderRadius: 12, border: `1px solid ${C.line}`, overflow: "hidden", marginBottom: 20 }}>
         {menu.map(({ label, icon: Icon, action }, i) => (
           <div key={label} onClick={action} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 16px", borderBottom: i < menu.length - 1 ? `1px solid ${C.paperDeep}` : "none", cursor: "pointer" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}><Icon size={16} color={C.ink} strokeWidth={1.6} /><span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{label}</span></div><ChevronRight size={15} color={C.stone} />
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}><Icon size={16} color={C.ink} strokeWidth={1.6} /><span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{t(label)}</span></div><ChevronRight size={15} color={C.stone} />
           </div>
         ))}
       </div>
       {clubMember && (
-        <button onClick={onLogoutClub} style={{ width: "100%", padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", marginBottom: 22 }}><LogOut size={15} /> Cerrar sesión</button>
+        <button onClick={onLogoutClub} style={{ width: "100%", padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", marginBottom: 22 }}><LogOut size={15} /> {t("Cerrar sesión")}</button>
       )}
       {showPolicy && <PolicyModal onClose={() => setShowPolicy(false)} />}
     </div>
@@ -3747,29 +3768,29 @@ const CookieConsent = ({ current, onSave, onOpenPolicy }) => {
   );
   return (
     <div className="cookie-box" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90, background: C.ink, padding: "18px 20px calc(18px + env(safe-area-inset-bottom))", animation: "slideUp .3s cubic-bezier(.2,.8,.2,1)", maxHeight: "85vh", overflowY: "auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.paper, marginBottom: 8 }}><Cookie size={16} /> Tu privacidad en Fly</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.paper, marginBottom: 8 }}><Cookie size={16} /> {t("Tu privacidad en Fly")}</div>
       <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: `${C.paper}CC`, lineHeight: 1.6, marginBottom: 14 }}>
         Usamos cookies necesarias para que la tienda funcione (tu cesta y tu sesión). Con tu permiso, también usamos cookies de estadísticas para mejorar la tienda. Nunca vendemos tus datos.{" "}
-        <button onClick={onOpenPolicy} style={{ background: "none", border: "none", padding: 0, color: C.paper, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Política de privacidad</button>
+        <button onClick={onOpenPolicy} style={{ background: "none", border: "none", padding: 0, color: C.paper, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>{t("Política de privacidad")}</button>
       </div>
       {config && (
         <div style={{ marginBottom: 14 }}>
-          {row("Necesarias", "Cesta, sesión y seguridad. Siempre activas.", <Toggle on disabled />)}
-          {row("Estadísticas", "Cuántas personas visitan la tienda y cómo navegan (Google Analytics, Microsoft Clarity).", <Toggle on={stats} onClick={() => setStats((x) => !x)} />)}
-          {row("Marketing", "Anuncios relevantes en redes sociales.", <Toggle on={marketing} onClick={() => setMarketing((x) => !x)} />)}
+          {row(t("Necesarias"), t("Cesta, sesión y seguridad. Siempre activas."), <Toggle on disabled />)}
+          {row(t("Estadísticas"), t("Cuántas personas visitan la tienda y cómo navegan (Google Analytics, Microsoft Clarity)."), <Toggle on={stats} onClick={() => setStats((x) => !x)} />)}
+          {row(t("Marketing"), t("Anuncios relevantes en redes sociales."), <Toggle on={marketing} onClick={() => setMarketing((x) => !x)} />)}
         </div>
       )}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {config ? (
           <>
-            <button onClick={() => onSave("essential")} style={btn(false)}>Solo necesarias</button>
-            <button onClick={() => onSave(choice)} style={btn(true)}>Guardar mi elección</button>
+            <button onClick={() => onSave("essential")} style={btn(false)}>{t("Solo necesarias")}</button>
+            <button onClick={() => onSave(choice)} style={btn(true)}>{t("Guardar mi elección")}</button>
           </>
         ) : (
           <>
-            <button onClick={() => setConfig(true)} style={btn(false)}>Configurar</button>
-            <button onClick={() => onSave("essential")} style={btn(false)}>Solo necesarias</button>
-            <button onClick={() => onSave("all")} style={btn(true)}>Aceptar todo</button>
+            <button onClick={() => setConfig(true)} style={btn(false)}>{t("Configurar")}</button>
+            <button onClick={() => onSave("essential")} style={btn(false)}>{t("Solo necesarias")}</button>
+            <button onClick={() => onSave("all")} style={btn(true)}>{t("Aceptar todo")}</button>
           </>
         )}
       </div>
@@ -4633,7 +4654,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
 
 /* ---- Admin: Product editor (create/edit) ---- */
 const emptyProductForm = () => ({
-  id: null, name: "", category: CATEGORY_OPTIONS[0], description: "", price: "", compareAtPrice: "",
+  id: null, name: "", nameEn: "", category: CATEGORY_OPTIONS[0], description: "", descriptionEn: "", price: "", compareAtPrice: "",
   status: "active", tag: "", minStock: 3, showOnline: true, images: [], collectionIds: [], sizes: [], colors: [], stock: {}, skus: {},
 });
 
@@ -4678,7 +4699,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
       const colors = productColors(product);
       const stock = {}; const skus = {};
       product.variants.forEach((v) => { stock[`${v.size}|${v.colorName}`] = v.stock; skus[`${v.size}|${v.colorName}`] = v.sku || ""; });
-      setForm({ id: product.id, name: product.name, category: product.category, description: product.description || "",
+      setForm({ id: product.id, name: product.name, nameEn: product.nameEn || "", category: product.category, description: product.description || "", descriptionEn: product.descriptionEn || "",
         price: String(product.price), compareAtPrice: product.compareAtPrice ? String(product.compareAtPrice) : "",
         status: product.status, tag: product.tag || "", minStock: product.minStock ?? 3, showOnline: product.showOnline !== false, outlet: product.outlet === true, images: product.images, collectionIds: product.collectionIds || [],
         sizes, colors, stock, skus });
@@ -4742,6 +4763,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     }));
     const record = {
       id: form.id || genId("prod"), name: form.name.trim(), slug: slugify(form.name), category: form.category,
+      nameEn: (form.nameEn || "").trim() || undefined, descriptionEn: (form.descriptionEn || "").trim() || undefined,
       description: form.description, price: Number(form.price) || 0, compareAtPrice: form.compareAtPrice ? Number(form.compareAtPrice) : null,
       status: form.status, tag: form.tag || null, minStock: form.minStock ?? 3, showOnline: form.showOnline !== false, outlet: form.outlet === true, images: form.images, collectionIds: form.collectionIds, variants,
       createdAt: product?.createdAt || Date.now(), updatedAt: Date.now(),
@@ -4760,6 +4782,8 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
           <select style={inputStyle} value={form.category} onChange={(e) => set("category", e.target.value)}>{CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}</select>
         </Field>
         <Field label="Descripción"><textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Detalles, tela, cuidado…" /></Field>
+        <Field label="Nombre en inglés (opcional)"><input style={inputStyle} value={form.nameEn} onChange={(e) => set("nameEn", e.target.value)} placeholder="Ej. Coralina Midi Dress" /></Field>
+        <Field label="Descripción en inglés (opcional)"><textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.descriptionEn} onChange={(e) => set("descriptionEn", e.target.value)} placeholder="Se muestra cuando la tienda está en inglés. Si lo dejas vacío, se ve en español." /></Field>
       </AdminCard>
 
       <AdminCard style={{ marginBottom: 14 }}>
@@ -8704,6 +8728,11 @@ export default function FlyBoutiqueApp() {
     })();
   }, []);
   const [mode, setMode] = useState("store"); // store | staffLogin | staff
+  // Idioma: solo la tienda cambia; caja y panel siempre en español
+  const [lang, setLangState] = useState(getLang());
+  const changeLang = (l) => { setLang(l); setLangState(l); track("idioma", { idioma: l }); };
+  setStaffMode(mode !== "store");
+  useEffect(() => { try { document.documentElement.lang = mode === "store" ? lang : "es"; } catch (e) { /* nada */ } }, [lang, mode]);
   // En el panel del staff, «Agregar a pantalla de inicio» instala otra app: «Fly Staff» (abre directo en el acceso del staff)
   useEffect(() => {
     const staff = mode !== "store";
@@ -8856,7 +8885,7 @@ export default function FlyBoutiqueApp() {
   };
 
   const addToCart = (product, size, color, qty) => {
-    if (isOutlet(product) && !outletOn(catalog?.settings)) { showToast("El Outlet está cerrado por ahora"); return; }
+    if (isOutlet(product) && !outletOn(catalog?.settings)) { showToast(t("El Outlet está cerrado por ahora")); return; }
     track("add_to_cart", { currency: "PEN", value: product.price * qty, items: [gaItem(product, { item_variant: `${size} / ${color?.n || ""}`, quantity: qty })] });
     const variant = product.variants.find((v) => v.size === size && v.colorName === color?.n);
     setCart((prev) => {
@@ -8868,7 +8897,7 @@ export default function FlyBoutiqueApp() {
       return [...prev, { cartId: genId("cart"), heldUntil, outlet: isOutlet(product), productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: imgThumb(colorPhotos(product, color?.n)[0]) || mainImageUrl(product), size, color, qty }];
     });
     // la ficha queda abierta (es una página): solo se avisa con el mensaje
-    showToast(`Agregado a tu cesta — te lo apartamos ${cartHoldMinutes()} minutos`);
+    showToast(t("Agregado a tu cesta — te lo apartamos {n} minutos", { n: cartHoldMinutes() }));
   };
   const updateQty = (cartId, delta) => setCart((prev) => {
     const next = prev.map((i) => (i.cartId === cartId ? { ...i, qty: Math.max(1, i.qty + delta), heldUntil: Date.now() + cartHoldMinutes() * 60 * 1000 } : i)).filter((i) => i.qty > 0);
@@ -8890,9 +8919,9 @@ export default function FlyBoutiqueApp() {
   });
   const addReview = async (productId, review) => {
     const { data, error } = await supabase.rpc("add_review", { p_product: productId, p_review: review });
-    if (error) { alert(error.message?.includes("FOTO") ? "La foto es muy pesada. Prueba con otra." : "No se pudo publicar tu reseña. Intenta de nuevo."); return; }
+    if (error) { alert(error.message?.includes("FOTO") ? t("La foto es muy pesada. Prueba con otra.") : t("No se pudo publicar tu reseña. Intenta de nuevo.")); return; }
     setCatalog((c) => ({ ...c, reviews: { ...c.reviews, [productId]: [...(c.reviews[productId] || []), data] } }));
-    showToast("Gracias, tu reseña ya está publicada");
+    showToast(t("Gracias, tu reseña ya está publicada"));
   };
   const confirmOnlineOrder = async ({ cart: orderCart, subtotal, shipping, discount, promoCode, total, deliveryMethod, deliveryAddress, customerName, customerPhone, paymentMethod, paymentRef, deliveryDetails, pointsUsed = 0, pointsDiscount = 0, clientRequestId = null }) => {
     // Primera revisión rápida en el navegador; la definitiva la hace el servidor (stock y precios reales).
@@ -8901,7 +8930,7 @@ export default function FlyBoutiqueApp() {
       const variant = product?.variants.find((v) => v.id === item.variantId) || product?.variants.find((v) => v.size === item.size && v.colorName === item.color?.n);
       const realStock = variant ? variant.stock : 0;
       if (realStock < item.qty) {
-        alert(`Lo sentimos, "${item.name}" (${item.size}/${item.color?.n}) ya no tiene suficiente stock (quedan ${realStock}). Ajusta la cantidad en tu cesta antes de continuar.`);
+        alert(t("Lo sentimos, «{p}» ({s}/{c}) ya no tiene suficiente stock (quedan {n}). Ajusta la cantidad en tu cesta antes de continuar.", { p: item.name, s: item.size, c: t(item.color?.n), n: realStock }));
         return null;
       }
     }
@@ -8917,16 +8946,16 @@ export default function FlyBoutiqueApp() {
     const { data, error } = await supabase.rpc("place_order", { p_sale: payload, p_session: cartSessionId || "" });
     if (error) {
       const m = error.message || "";
-      if (m.includes("OUTLET_CERRADO")) alert(`"${m.split("OUTLET_CERRADO:")[1] || "Una prenda"}" es del Outlet, que está cerrado por ahora. Quítala de tu cesta para continuar.`);
-      else if (m.includes("SIN_STOCK")) alert(`Lo sentimos, "${m.split("SIN_STOCK:")[1] || "una prenda"}" ya no tiene stock suficiente. Ajusta tu cesta.`);
-      else if (m.includes("PRECIO_CAMBIO")) alert("El precio de una prenda cambió. Recarga la página para ver el precio actualizado.");
-      else if (m.includes("TOTAL_CAMBIO")) alert("El total de tu pedido cambió (precio, descuento o envío). Recarga la página e intenta de nuevo.");
-      else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para el Club Fly. Quítalo o regístrate en el Club Fly.");
-      else if (m.includes("PROMO_INVALIDA")) alert("Ese código promocional ya no está activo. Quítalo e intenta de nuevo.");
-      else if (m.includes("CLUB_DESACTIVADO")) alert("El Club Fly está en pausa: por ahora no se pueden usar puntos. Desactiva \"usar puntos\" para seguir.");
-      else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, confirma tu cuenta en Club Fly (Google o código al correo). Desactiva \"usar puntos\" para seguir sin ellos.");
-      else if (m.includes("PUNTOS")) alert("No pudimos aplicar tus puntos (no alcanzan o cambiaron). Desactiva \"usar puntos\" e intenta de nuevo.");
-      else alert("No se pudo registrar tu pedido. Revisa tu conexión e intenta de nuevo.");
+      if (m.includes("OUTLET_CERRADO")) alert(t("«{p}» es del Outlet, que está cerrado por ahora. Quítala de tu cesta para continuar.", { p: m.split("OUTLET_CERRADO:")[1] || t("Una prenda") }));
+      else if (m.includes("SIN_STOCK")) alert(t("Lo sentimos, «{p}» ya no tiene stock suficiente. Ajusta tu cesta.", { p: m.split("SIN_STOCK:")[1] || t("una prenda") }));
+      else if (m.includes("PRECIO_CAMBIO")) alert(t("El precio de una prenda cambió. Recarga la página para ver el precio actualizado."));
+      else if (m.includes("TOTAL_CAMBIO")) alert(t("El total de tu pedido cambió (precio, descuento o envío). Recarga la página e intenta de nuevo."));
+      else if (m.includes("PROMO_SOLO_CLUB")) alert(t("Ese código es solo para el Club Fly. Quítalo o regístrate en el Club Fly."));
+      else if (m.includes("PROMO_INVALIDA")) alert(t("Ese código promocional ya no está activo. Quítalo e intenta de nuevo."));
+      else if (m.includes("CLUB_DESACTIVADO")) alert(t("El Club Fly está en pausa: por ahora no se pueden usar puntos. Desactiva \"usar puntos\" para seguir."));
+      else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert(t("Para usar tus puntos en la web, confirma tu cuenta en Club Fly (Google o código al correo). Desactiva \"usar puntos\" para seguir sin ellos."));
+      else if (m.includes("PUNTOS")) alert(t("No pudimos aplicar tus puntos (no alcanzan o cambiaron). Desactiva \"usar puntos\" e intenta de nuevo."));
+      else alert(t("No se pudo registrar tu pedido. Revisa tu conexión e intenta de nuevo."));
       return null;
     }
     track("purchase", { transaction_id: `${data.serie}-${data.numero}`, currency: "PEN", value: total, shipping, coupon: promoCode || undefined, payment_type: paymentMethod,
@@ -8952,14 +8981,14 @@ export default function FlyBoutiqueApp() {
       const m = error?.message || "";
       // El servidor dice por qué falló la verificación (ej. invalid-input-secret): se muestra para poder corregirlo
       const why = m.includes("CAPTCHA_INVALIDO:") ? m.split("CAPTCHA_INVALIDO:")[1].trim() : "";
-      alert(m.includes("CAPTCHA") ? `No pudimos confirmar la verificación. Intenta de nuevo.${why ? `\n(Código para soporte: ${why})` : ""}` : m.includes("CORREO") ? "Revisa tu correo, no se ve válido." : "No se pudo completar el registro. Revisa tus datos e intenta de nuevo.");
+      alert(m.includes("CAPTCHA") ? `${t("No pudimos confirmar la verificación. Intenta de nuevo.")}${why ? `\n(${t("Código para soporte")}: ${why})` : ""}` : m.includes("CORREO") ? t("Revisa tu correo, no se ve válido.") : t("No se pudo completar el registro. Revisa tus datos e intenta de nuevo."));
       return false;
     }
     const member = { name: c.name, phone: c.phone, email: c.email || "" };
     setClubMember(member);
     setClubPoints(Number(c.points) || 0);
     try { window.storage.set(CLUB_KEY, JSON.stringify(member), false); } catch (e) { /* storage unavailable */ }
-    showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Te damos la bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
+    showToast(c.existing ? t("¡Hola de nuevo, {n}!", { n: member.name.split(" ")[0] }) : t("¡Te damos la bienvenida al Club Fly, {n}!", { n: member.name.split(" ")[0] }));
     if (!c.existing) track("sign_up", { method: "formulario" });
     return true;
   };
@@ -8971,8 +9000,8 @@ export default function FlyBoutiqueApp() {
   const signInWithGoogle = async () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
-      if (error) alert("No se pudo iniciar con Google: " + error.message + " — revisa que Google esté activado en Supabase (Authentication → Providers).");
-    } catch (e) { alert("No se pudo iniciar con Google: " + e.message); }
+      if (error) alert(t("No se pudo iniciar con Google: ") + error.message);
+    } catch (e) { alert(t("No se pudo iniciar con Google: ") + e.message); }
   };
   // Solo cuenta como "sesión de Google" si de verdad entró con Google. Una sesión del
   // staff (usuario@staff.flyboutique.pe) que quedó abierta en el navegador no se usa aquí.
@@ -9007,20 +9036,20 @@ export default function FlyBoutiqueApp() {
       setClubPoints(Number(c.points) || 0);
       try { window.storage.set(CLUB_KEY, JSON.stringify(member), false); } catch (e) { /* storage unavailable */ }
       if (isNew && !c.existing) track("sign_up", { method: "google" });
-      if (isNew) showToast(c.existing ? `¡Hola de nuevo, ${member.name.split(" ")[0]}!` : `¡Te damos la bienvenida al Club Fly, ${member.name.split(" ")[0]}!`);
+      if (isNew) showToast(c.existing ? t("¡Hola de nuevo, {n}!", { n: member.name.split(" ")[0] }) : t("¡Te damos la bienvenida al Club Fly, {n}!", { n: member.name.split(" ")[0] }));
     });
   }, [googleProfile?.email]);
 
   const redeemReward = async (reward) => {
     if (!clubMember || points < reward.cost) return;
     const { data, error } = await supabase.rpc("redeem_points", { p_phone: clubMember.phone, p_cost: reward.cost });
-    if (error) { showToast("No tienes puntos suficientes"); return; }
+    if (error) { showToast(t("No tienes puntos suficientes")); return; }
     setClubPoints(Number(data) || 0);
-    showToast(`Canjeaste: ${reward.n}`);
+    showToast(t("Canjeaste: {r}", { r: t(reward.n) }));
   };
   // Al cerrar sesión se borra todo lo de esa persona en este equipo (útil en una computadora compartida):
   // vistos, favoritos, cesta, direcciones, medidas y búsquedas.
-  const logoutClub = (message = "Cerraste sesión. Borramos tu actividad de este equipo.") => {
+  const logoutClub = (message = t("Cerraste sesión. Borramos tu actividad de este equipo.")) => {
     if (clubMember?.google || googleProfile) { try { supabase.auth.signOut(); } catch (e) { /* sin conexión */ } setGoogleProfile(null); }
     setClubMember(null);
     if (cart.length) { clearMyReservations(); setCart([]); }
@@ -9038,7 +9067,7 @@ export default function FlyBoutiqueApp() {
     if (mode !== "store") return undefined;
     let last = 0;
     const touch = () => { const t = Date.now(); if (t - last > 30000) { last = t; markActive(); } };
-    const check = () => { if (shopperIsIdle() && hasPersonalRef.current) logoutRef.current("Por tu privacidad cerramos tu sesión tras 1 hora sin actividad."); };
+    const check = () => { if (shopperIsIdle() && hasPersonalRef.current) logoutRef.current(t("Por tu privacidad cerramos tu sesión tras 1 hora sin actividad.")); };
     const onVisible = () => { if (document.visibilityState === "visible") check(); };
     ["pointerdown", "keydown", "scroll", "touchstart"].forEach((ev) => window.addEventListener(ev, touch, { passive: true, capture: true }));
     document.addEventListener("visibilitychange", onVisible);
@@ -9098,10 +9127,10 @@ export default function FlyBoutiqueApp() {
   useEffect(() => {
     if (mode !== "store") return;
     const p = selectedProduct;
-    document.title = p ? `${p.name} · Fly Boutique Perú` : screen === "home" ? "Fly Boutique Perú · Moda femenina" : screen === "category" && activeCategory !== "Todo" ? `${activeCategory} · Fly Boutique Perú` : `${SCREEN_TITLES[screen] || "Tienda"} · Fly Boutique Perú`;
+    document.title = p ? `${pName(p)} · Fly Boutique Perú` : screen === "home" ? t("Fly Boutique Perú · Moda femenina") : screen === "category" && activeCategory !== "Todo" ? `${t(activeCategory)} · Fly Boutique Perú` : `${t(SCREEN_TITLES[screen] || "Tienda")} · Fly Boutique Perú`;
     const m = document.querySelector('meta[name="description"]');
     if (m) m.setAttribute("content", p ? (p.description || `${p.name} · S/ ${Number(p.price).toFixed(2)}`).slice(0, 160) : "Fly Boutique Perú: moda femenina elegante. Compra online con envío a todo el Perú o recoge en tienda.");
-  }, [mode, screen, selectedProduct?.id, activeCategory]);
+  }, [mode, screen, selectedProduct?.id, activeCategory, lang]);
   const openInfo = (i) => { setInfoSectionIndex(i); setScreen("info"); };
   useEffect(() => {
     if (mode !== "store") return;
@@ -9117,15 +9146,15 @@ export default function FlyBoutiqueApp() {
   const isIOS = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent);
   useEffect(() => {
     const onPrompt = (e) => { e.preventDefault(); setInstallEvt(e); };
-    const onInstalled = () => { setInstallEvt(null); showToast("¡Listo! Fly ya está en tu pantalla de inicio"); track("app_instalada"); };
+    const onInstalled = () => { setInstallEvt(null); showToast(t("¡Listo! Fly ya está en tu pantalla de inicio")); track("app_instalada"); };
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
     return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); };
   }, []);
   const installApp = async () => {
     if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (e) { /* cancelado */ } setInstallEvt(null); return; }
-    if (isIOS) alert("Para instalar Fly en tu iPhone:\n\n1. Toca el botón Compartir (el cuadrado con flecha hacia arriba, abajo en Safari).\n2. Elige \"Agregar a pantalla de inicio\".\n3. Toca \"Agregar\".");
-    else alert("Para instalar Fly: abre el menú del navegador (los tres puntitos) y elige \"Instalar app\" o \"Agregar a pantalla de inicio\".");
+    if (isIOS) alert(t("Para instalar Fly en tu iPhone:\n\n1. Toca el botón Compartir (el cuadrado con flecha hacia arriba, abajo en Safari).\n2. Elige \"Agregar a pantalla de inicio\".\n3. Toca \"Agregar\"."));
+    else alert(t("Para instalar Fly: abre el menú del navegador (los tres puntitos) y elige \"Instalar app\" o \"Agregar a pantalla de inicio\"."));
   };
 
   // Sin "marco de teléfono": la app ocupa toda la pantalla desde el primer instante. Antes el marco negro (y el
@@ -9173,6 +9202,7 @@ export default function FlyBoutiqueApp() {
         .back-top { bottom: 92px !important; }
         .pdp-thumbs { display: none; }
         .app-nav .nav-only-desktop { display: none !important; }
+        .app-nav .nav-lang { display: none !important; }
         .page-narrow { width: 100%; }
         @media (max-width: 899px) {
           .pdp-crumb-name { display: none; }
@@ -9222,6 +9252,7 @@ export default function FlyBoutiqueApp() {
           .app-nav .nav-brand { display: flex !important; margin-right: 22px; transition: transform .2s ease; }
           .app-nav .nav-item.nav-only-mobile { display: none !important; }
           .app-nav .nav-item.nav-only-desktop { display: flex !important; }
+          .app-nav .nav-lang { display: flex !important; margin-left: 8px; }
           .app-nav .nav-brand:hover { transform: scale(1.04); }
           .app-nav .nav-brand-hint { opacity: 0; transition: opacity .2s ease; }
           .app-nav .nav-brand:hover .nav-brand-hint { opacity: 1; }
@@ -9306,8 +9337,8 @@ export default function FlyBoutiqueApp() {
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 52, fontWeight: 900, color: C.ink, letterSpacing: "0.04em" }}>FLY</div>
             {catalogError ? (
               <>
-                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, textAlign: "center", maxWidth: 260 }}>No pudimos cargar la tienda. Revisa tu conexión e intenta de nuevo.</div>
-                <button onClick={loadInitialCatalog} style={{ padding: "11px 22px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Reintentar</button>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, textAlign: "center", maxWidth: 260 }}>{t("No pudimos cargar la tienda. Revisa tu conexión e intenta de nuevo.")}</div>
+                <button onClick={loadInitialCatalog} style={{ padding: "11px 22px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Reintentar")}</button>
               </>
             ) : (
               <div className="spin" style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${C.line}`, borderTopColor: C.ink }} />
@@ -9321,11 +9352,11 @@ export default function FlyBoutiqueApp() {
         ) : (
           <>
             <div className="app-content" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
-              <Header onSearch={() => setSearchOpen(true)} onHome={() => { setSelectedProduct(null); setScreen("home"); scrollAllTop(true); }} />
+              <Header lang={lang} onLang={changeLang} onSearch={() => setSearchOpen(true)} onHome={() => { setSelectedProduct(null); setScreen("home"); scrollAllTop(true); }} />
               {selectedProduct && <ProductSheet product={selectedProduct} initialColor={selectedColorPref} onClose={() => { if (window.history.length > 1) window.history.back(); else setSelectedProduct(null); }} onAdd={addToCart} fav={favs.has(selectedProduct.id)} onToggleFav={toggleFav}
                 reviews={catalog.reviews} onAddReview={addReview} collections={catalog.collections} allProducts={catalog.products} onOpenProduct={openProduct} catalog={catalog} cartSessionId={cartSessionId} onNavigate={navigateFromProduct} favs={favs} />}
               {!selectedProduct && <>
-              {screen === "home" && <HomeScreen catalog={catalog} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} setScreen={setScreen} setActiveCategory={setActiveCategory} points={points} notifyMe={() => showToast("Te avisaremos primero ✓")} viewedIds={viewedIds} onQuickAdd={addToCart} cartSessionId={cartSessionId} onOpenInfo={(i) => { setInfoSectionIndex(i); setScreen("info"); }} />}
+              {screen === "home" && <HomeScreen catalog={catalog} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} setScreen={setScreen} setActiveCategory={setActiveCategory} points={points} notifyMe={() => showToast(t("Te avisaremos primero ✓"))} viewedIds={viewedIds} onQuickAdd={addToCart} cartSessionId={cartSessionId} onOpenInfo={(i) => { setInfoSectionIndex(i); setScreen("info"); }} />}
               {screen === "info" && <InfoScreen sectionIndex={infoSectionIndex} setScreen={setScreen} />}
               {screen === "outlet" && <CategoryScreen key="outlet" outlet catalog={catalog} activeCategory={outletCat} setActiveCategory={setOutletCat} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={outletQ} setSearchQuery={setOutletQ} group={null} setGroup={() => {}} />}
               {screen === "category" && <CategoryScreen catalog={catalog} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={searchQuery} setSearchQuery={setSearchQuery} group={catalogGroup} setGroup={setCatalogGroup} />}
@@ -9344,13 +9375,13 @@ export default function FlyBoutiqueApp() {
               {screen === "home" && !selectedProduct && <InfoFooter socials={catalog.settings?.socials} onOpenInfo={openInfo} onCookiePrefs={() => setShowCookieConsent(true)} onComplaints={() => setScreen("complaints")} onTrack={() => setScreen("track")} />}
             </div>
             <div className="app-ticker" style={{ display: "none" }}><Marquee /></div>
-            <BottomNav favCount={favs.size} screen={selectedProduct ? "" : screen} setScreen={(sc) => { setSelectedProduct(null); if (sc === "category") goCatalog(); else setScreen(sc); }} cartCount={cartCount} onSearch={() => setSearchOpen(true)} cart={cart} clubMember={clubMember} points={points} onLogoutClub={() => logoutClub()}
+            <BottomNav lang={lang} onLang={changeLang} favCount={favs.size} screen={selectedProduct ? "" : screen} setScreen={(sc) => { setSelectedProduct(null); if (sc === "category") goCatalog(); else setScreen(sc); }} cartCount={cartCount} onSearch={() => setSearchOpen(true)} cart={cart} clubMember={clubMember} points={points} onLogoutClub={() => logoutClub()}
               hasOutlet={outletOn(catalog.settings) && catalog.products.some((p) => p.showOnline !== false && isOutlet(p))} products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onOpenProduct={openProduct} onSearchQuery={(q) => goCatalog("Todo", null, q)} onCategory={(cat, group) => goCatalog(cat, group)} />
             {searchOpen && <SearchOverlay products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onClose={() => setSearchOpen(false)} onOpenProduct={(p) => { openProduct(p); setSearchOpen(false); }} onSearchAll={(term) => goCatalog(CATEGORY_OPTIONS.includes(term) ? term : "Todo", null, CATEGORY_OPTIONS.includes(term) ? "" : term)} />}
             {toast && <Toast message={toast} />}
             {showCookieConsent && <CookieConsent current={cookieChoice} onSave={resolveCookieConsent} onOpenPolicy={() => { setShowCookieConsent(false); openInfo(FOOTER_SECTIONS.findIndex((x) => x.title.startsWith("Seguridad"))); }} />}
             {showBackToTop && (
-              <button className="back-top" onClick={scrollToTop} aria-label="Volver arriba" style={{ position: "fixed", bottom: 28, right: 28, zIndex: 55, width: 44, height: 44, borderRadius: "50%", background: C.ink, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 18px rgba(0,0,0,0.25)" }}>
+              <button className="back-top" onClick={scrollToTop} aria-label={t("Volver arriba")} style={{ position: "fixed", bottom: 28, right: 28, zIndex: 55, width: 44, height: 44, borderRadius: "50%", background: C.ink, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 18px rgba(0,0,0,0.25)" }}>
                 <ChevronUp size={20} color={C.white} />
               </button>
             )}
