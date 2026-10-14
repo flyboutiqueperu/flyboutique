@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Home, LayoutGrid, ShoppingBag, Star, User, Search, Heart, X, Plus, Minus, Eye, ChevronUp,
-  ChevronRight, ChevronDown, Sparkles, MapPin, Bell, Award, Gift, Ticket, Trash2, Check,
+  ChevronRight, ChevronDown, Sparkles, MapPin, Bell, Award, Gift, Ticket, Trash2, Clock, Check,
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
@@ -212,7 +212,8 @@ const normalizeCatalog = (c) => ({
   reservations: c.reservations || [],
 });
 
-const RESERVATION_MINUTES = 15;
+// Minutos que una prenda queda apartada en la cesta (se cambia en Staff → Pedidos Online; entre 5 y 60).
+const cartHoldMinutes = (settings = SHOP_SETTINGS) => Math.min(60, Math.max(5, Math.round(Number(settings?.cartHoldMinutes) || 20)));
 // Stock "reservado" por otras clientas que lo tienen en su carrito ahora mismo (no cuenta el propio carrito).
 const reservedByOthers = (catalog, variantId, mySessionId) => {
   const now = Date.now();
@@ -2023,7 +2024,29 @@ function loadCulqiScript() {
   });
 }
 
-const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, payAccounts, promoCodes, clubMember, onConfirmOrder, points = 0 }) => {
+// Aviso del tiempo que las prendas siguen apartadas (como en las tiendas grandes: claro, sin presionar).
+const CartHoldNotice = ({ cart, onRenew }) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(t); }, []);
+  const until = Math.min(...cart.map((i) => i.heldUntil || 0).filter(Boolean));
+  if (!Number.isFinite(until)) return null;
+  const left = Math.ceil((until - now) / 60000);
+  const box = { display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, background: C.paperDeep, fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.45, marginBottom: 14 };
+  if (left <= 0) return (
+    <div style={box}>
+      <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>Pasó el tiempo de reserva: tus prendas siguen en la cesta, pero otra clienta podría llevárselas.</span>
+      {onRenew && <button onClick={onRenew} style={{ padding: "7px 10px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>Apartar de nuevo</button>}
+    </div>
+  );
+  return (
+    <div style={box}>
+      <Clock size={16} color={C.ink} style={{ flexShrink: 0 }} />
+      <span>Te apartamos estas prendas <strong style={{ color: C.ink }}>{left} min más</strong> (hasta las {new Date(until).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}). Después quedan libres para otras clientas.</span>
+    </div>
+  );
+};
+const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqiPublicKey, payAccounts, promoCodes, clubMember, onConfirmOrder, points = 0 }) => {
   const [promoInput, setPromoInput] = useState("");
   const [appliedPromo, setAppliedPromo] = useState(null);
   const [promoMsg, setPromoMsg] = useState(null);
@@ -2176,6 +2199,7 @@ const CartScreen = ({ cart, updateQty, removeItem, setScreen, culqiPublicKey, pa
     <div style={{ padding: "18px 20px 20px" }}>
       <Eyebrow>{cart.reduce((a, i) => a + i.qty, 0)} artículos</Eyebrow>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>Mi Cesta</h1>
+      <CartHoldNotice cart={cart} onRenew={onRenewHold} />
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
         {cart.map((item) => (
           <div key={item.cartId} style={{ display: "flex", gap: 12, paddingBottom: 14, borderBottom: `1px solid ${C.paperDeep}` }}>
@@ -3277,7 +3301,7 @@ const idleMinutesFor = (role) => (role === "cajero" || role === "vendedora_tiend
 
 const LOGIN_LOCK_KEY = "flyboutique:loginlock:v1";
 const MAX_ATTEMPTS = 5;
-const LOCK_MINUTES = 5;
+const LOCK_MINUTES = 15;
 
 // Mira la sesión guardada y decide qué falta: nada, pedir el código, o configurar la app autenticadora.
 async function resolveStaffSession() {
@@ -3362,7 +3386,10 @@ const StaffAccess = ({ onDone, onCancel }) => {
   };
 
   const login = async () => {
-    if (isLocked || busy || !username.trim() || !password) return;
+    if (isLocked || busy) return;
+    if (!username.trim() && !password) { setErr("Escribe tu usuario y tu contraseña."); return; }
+    if (!username.trim()) { setErr("Falta el usuario."); return; }
+    if (!password) { setErr("Falta la contraseña."); return; }
     setBusy(true); setErr("");
     setStaffSessionMode(remember); // sin marcar: la sesión se cierra al cerrar la página
     const { error } = await supabase.auth.signInWithPassword({ email: staffEmail(username), password });
@@ -4449,10 +4476,12 @@ const TrackingEditor = ({ order, onSave }) => {
 };
 
 const unpaidHoursOf = (settings) => numOr(settings?.unpaidOrderHours, 24);
-const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, canValidate, settings, onCancelUnpaid, onSaveUnpaidHours }) => {
+const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, canValidate, settings, onCancelUnpaid, onSaveUnpaidHours, onSaveCartHold }) => {
   const [labelOrder, setLabelOrder] = useState(null);
   const unpaidHours = unpaidHoursOf(settings);
   const [hoursInput, setHoursInput] = useState(String(unpaidHours));
+  const holdMin = cartHoldMinutes(settings);
+  const [holdInput, setHoldInput] = useState(String(holdMin));
   const [batch, setBatch] = useState(null);
   const orders = sales.filter((s) => s.channel === "online" && s.source === "web" && s.status !== "anulado").sort((a, b) => b.createdAt - a.createdAt);
   return (
@@ -4468,6 +4497,14 @@ const OnlineOrdersScreen = ({ sales, onUpdateFulfillment, onValidatePayment, can
                 <input inputMode="numeric" value={hoursInput} onChange={(e) => setHoursInput(e.target.value.replace(/\D/g, "").slice(0, 3))} style={{ ...inputStyle, width: 58, padding: "6px 8px", textAlign: "center" }} />
                 horas
                 {hoursInput !== String(unpaidHours) && <button onClick={() => onSaveUnpaidHours(Number(hoursInput) || 0)} style={{ padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Guardar</button>}
+              </div>
+            )}
+            {canValidate && onSaveCartHold && (
+              <div title="Mientras una clienta tiene la prenda en su cesta, nadie más puede llevarse esa unidad. Pasado este tiempo queda libre. Entre 5 y 60 minutos." style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, flexBasis: "100%", order: 4, flexWrap: "wrap" }}>
+                Apartar las prendas en la cesta durante
+                <input inputMode="numeric" value={holdInput} onChange={(e) => setHoldInput(e.target.value.replace(/\D/g, "").slice(0, 2))} style={{ ...inputStyle, width: 58, padding: "6px 8px", textAlign: "center" }} />
+                minutos
+                {holdInput !== String(holdMin) && <button onClick={() => { const m = cartHoldMinutes({ cartHoldMinutes: Number(holdInput) }); setHoldInput(String(m)); onSaveCartHold(m); }} style={{ padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Guardar</button>}
               </div>
             )}
             {ready.length > 0 && <button onClick={() => setBatch(ready)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}><Package size={14} /> Imprimir etiquetas por enviar ({ready.length})</button>}
@@ -6742,6 +6779,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     refreshData && refreshData();
   };
   const saveUnpaidHours = (h) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, unpaidOrderHours: h } }));
+  const saveCartHold = (m) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, cartHoldMinutes: m } }));
   const savePromo = (record) => updateCatalog((c) => { const exists = c.promoCodes.some((p) => p.id === record.id); return { ...c, promoCodes: exists ? c.promoCodes.map((p) => (p.id === record.id ? record : p)) : [...c.promoCodes, record] }; });
   const deletePromo = (id) => { if (confirm("¿Eliminar este código?")) updateCatalog((c) => ({ ...c, promoCodes: c.promoCodes.filter((p) => p.id !== id) })); };
   const updateFulfillment = async (saleId, fulfillment, tracking = null, agency = null) => {
@@ -6832,7 +6870,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {role === "superadmin" && screen === "users" && <AdminUsersScreen currentUserId={currentUserId} />}
         {(role === "administrador" || role === "superadmin") && screen === "complaints" && <AdminComplaintsScreen staffName={staffName} />}
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
-        {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} onCancelUnpaid={role !== "almacen" ? cancelUnpaid : null} onSaveUnpaidHours={isAdminRole ? saveUnpaidHours : null} />}
+        {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} onCancelUnpaid={role !== "almacen" ? cancelUnpaid : null} onSaveUnpaidHours={isAdminRole ? saveUnpaidHours : null} onSaveCartHold={isAdminRole ? saveCartHold : null} />}
       </div>
       {screen !== "manual" && <StaffHelp screen={screen} onOpenManual={() => setScreen("manual")} />}
       <AdminNav screen={screen} setScreen={setScreen} role={role} />
@@ -6840,10 +6878,24 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   );
 };
 
+// ---- Privacidad en equipos compartidos ----
+// Lo personal de la clienta (favoritos, vistos, Club, direcciones, medidas, búsquedas y la cesta) se borra
+// solo tras 1 hora sin usar la tienda, o al cerrar sesión. Así, en un celular prestado o una PC pública,
+// la siguiente persona no ve nada de la anterior.
+const SHOPPER_IDLE_MINUTES = 60;
+const LAST_ACTIVE_KEY = "flyboutique:actividad:v1";
+const PERSONAL_KEYS = [WISHLIST_KEY, VIEWED_KEY, CLUB_KEY, SESSION_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY];
+const readLastActive = () => { try { return Number(localStorage.getItem(LAST_ACTIVE_KEY)) || 0; } catch (e) { return 0; } };
+const markActive = () => { try { localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now())); } catch (e) { /* sin guardado */ } };
+const shopperIsIdle = () => Date.now() - readLastActive() > SHOPPER_IDLE_MINUTES * 60 * 1000;
+const wipePersonalData = () => { PERSONAL_KEYS.forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* nada */ } }); markActive(); };
+
 /* ==================================================================== */
 /*  ============================  APP ROOT  ============================*/
 /* ==================================================================== */
 export default function FlyBoutiqueApp() {
+  // Al abrir: si pasó más de 1 hora sin actividad (o es la primera vez con esta versión), se empieza limpio.
+  const [startedStale] = useState(() => { const stale = shopperIsIdle(); if (stale) wipePersonalData(); else markActive(); return stale; });
   const [catalog, setCatalog] = useState(null);
   const [catalogError, setCatalogError] = useState(false);
   SHOP_SETTINGS = catalog?.settings || {};
@@ -7028,7 +7080,7 @@ export default function FlyBoutiqueApp() {
     setCatalog((c) => {
       const others = (c.reservations || []).filter((r) => !(r.sessionId === cartSessionId && r.variantId === variantId));
       if (qty <= 0) return { ...c, reservations: others };
-      return { ...c, reservations: [...others, { sessionId: cartSessionId, variantId, qty, expiresAt: Date.now() + RESERVATION_MINUTES * 60 * 1000 }] };
+      return { ...c, reservations: [...others, { sessionId: cartSessionId, variantId, qty, expiresAt: Date.now() + cartHoldMinutes() * 60 * 1000 }] };
     });
   };
   const clearMyReservations = () => {
@@ -7043,18 +7095,21 @@ export default function FlyBoutiqueApp() {
       const existing = prev.find((i) => i.productId === product.id && i.size === size && i.color?.n === color?.n);
       const newQty = existing ? existing.qty + qty : qty;
       syncReservation(variant?.id, newQty);
-      if (existing) return prev.map((i) => (i.cartId === existing.cartId ? { ...i, qty: newQty } : i));
-      return [...prev, { cartId: genId("cart"), productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: colorPhotos(product, color?.n)[0]?.url || mainImageUrl(product), size, color, qty }];
+      const heldUntil = Date.now() + cartHoldMinutes() * 60 * 1000;
+      if (existing) return prev.map((i) => (i.cartId === existing.cartId ? { ...i, qty: newQty, heldUntil } : i));
+      return [...prev, { cartId: genId("cart"), heldUntil, productId: product.id, variantId: variant?.id, name: product.name, price: product.price, image: colorPhotos(product, color?.n)[0]?.url || mainImageUrl(product), size, color, qty }];
     });
     // la ficha queda abierta (es una página): solo se avisa con el mensaje
-    showToast("Agregado a tu cesta — reservado por 15 minutos");
+    showToast(`Agregado a tu cesta — te lo apartamos ${cartHoldMinutes()} minutos`);
   };
   const updateQty = (cartId, delta) => setCart((prev) => {
-    const next = prev.map((i) => (i.cartId === cartId ? { ...i, qty: Math.max(1, i.qty + delta) } : i)).filter((i) => i.qty > 0);
+    const next = prev.map((i) => (i.cartId === cartId ? { ...i, qty: Math.max(1, i.qty + delta), heldUntil: Date.now() + cartHoldMinutes() * 60 * 1000 } : i)).filter((i) => i.qty > 0);
     const item = next.find((i) => i.cartId === cartId);
     syncReservation(item?.variantId, item?.qty || 0);
     return next;
   });
+  // Volver a apartar (si venció el tiempo): el servidor solo aparta lo que siga libre.
+  const renewHold = () => setCart((prev) => prev.map((i) => { syncReservation(i.variantId, i.qty); return { ...i, heldUntil: Date.now() + cartHoldMinutes() * 60 * 1000 }; }));
   const removeItem = (cartId) => setCart((prev) => {
     const item = prev.find((i) => i.cartId === cartId);
     if (item) syncReservation(item.variantId, 0);
@@ -7157,6 +7212,7 @@ export default function FlyBoutiqueApp() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       const g = googleUser(data?.session?.user);
+      if (g && startedStale) { supabase.auth.signOut({ scope: "local" }).catch(() => {}); return; } // sesión vieja de otra persona
       if (g && !clubMember) setGoogleProfile(g);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -7191,15 +7247,34 @@ export default function FlyBoutiqueApp() {
   };
   // Al cerrar sesión se borra todo lo de esa persona en este equipo (útil en una computadora compartida):
   // vistos, favoritos, cesta, direcciones, medidas y búsquedas.
-  const logoutClub = () => {
-    if (clubMember?.google) { try { supabase.auth.signOut(); } catch (e) { /* sin conexión */ } setGoogleProfile(null); }
+  const logoutClub = (message = "Cerraste sesión. Borramos tu actividad de este equipo.") => {
+    if (clubMember?.google || googleProfile) { try { supabase.auth.signOut(); } catch (e) { /* sin conexión */ } setGoogleProfile(null); }
     setClubMember(null);
-    try { window.storage.delete(CLUB_KEY, false); } catch (e) { /* storage unavailable */ }
-    [WISHLIST_KEY, VIEWED_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY].forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* nada */ } });
-    setFavs(new Set()); setViewedIds([]);
     if (cart.length) { clearMyReservations(); setCart([]); }
-    showToast("Cerraste sesión. Borramos tu actividad de este equipo.");
+    wipePersonalData();
+    const fresh = genId("sess");
+    try { localStorage.setItem(SESSION_KEY, fresh); } catch (e) { /* sin guardado */ }
+    setCartSessionId(fresh);
+    setFavs(new Set()); setViewedIds([]);
+    showToast(message);
   };
+  // 1 hora sin tocar la tienda → se cierra la sesión de la clienta y se borra su actividad de este equipo.
+  const logoutRef = useRef(logoutClub); logoutRef.current = logoutClub;
+  const hasPersonalRef = useRef(false); hasPersonalRef.current = !!(clubMember || googleProfile || favs.size || viewedIds.length || cart.length);
+  useEffect(() => {
+    if (mode !== "store") return undefined;
+    let last = 0;
+    const touch = () => { const t = Date.now(); if (t - last > 30000) { last = t; markActive(); } };
+    const check = () => { if (shopperIsIdle() && hasPersonalRef.current) logoutRef.current("Por tu privacidad cerramos tu sesión tras 1 hora sin actividad."); };
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    ["pointerdown", "keydown", "scroll", "touchstart"].forEach((ev) => window.addEventListener(ev, touch, { passive: true, capture: true }));
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = setInterval(check, 60000);
+    return () => {
+      ["pointerdown", "keydown", "scroll", "touchstart"].forEach((ev) => window.removeEventListener(ev, touch, { capture: true }));
+      document.removeEventListener("visibilitychange", onVisible); clearInterval(timer);
+    };
+  }, [mode]);
 
   const cartCount = useMemo(() => cart.reduce((a, i) => a + i.qty, 0), [cart]);
 
@@ -7458,10 +7533,10 @@ export default function FlyBoutiqueApp() {
               {screen === "info" && <InfoScreen sectionIndex={infoSectionIndex} setScreen={setScreen} />}
               {screen === "category" && <CategoryScreen catalog={catalog} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={searchQuery} setSearchQuery={setSearchQuery} group={catalogGroup} setGroup={setCatalogGroup} />}
               {screen === "viewed" && <ViewedScreen catalog={catalog} viewedIds={viewedIds} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} onRemoveViewed={removeFromViewed} setScreen={setScreen} />}
-              {screen === "cart" && <CartScreen cart={cart} updateQty={updateQty} removeItem={removeItem} setScreen={setScreen} culqiPublicKey={catalog.settings?.culqiPublicKey} payAccounts={catalog.settings}
+              {screen === "cart" && <CartScreen cart={cart} onRenewHold={renewHold} updateQty={updateQty} removeItem={removeItem} setScreen={setScreen} culqiPublicKey={catalog.settings?.culqiPublicKey} payAccounts={catalog.settings}
                 promoCodes={catalog.promoCodes} clubMember={clubMember} onConfirmOrder={confirmOnlineOrder} points={points} />}
-              {screen === "loyalty" && <LoyaltyScreen points={points} onRedeem={redeemReward} clubMember={clubMember} onRegister={registerClub} onLogoutClub={logoutClub} onGoogleSignIn={signInWithGoogle} googlePrefill={googleProfile} turnstileSiteKey={(catalog.settings?.turnstileSiteKey || "").trim() || TURNSTILE_SITE_KEY} settings={catalog.settings} />}
-              {screen === "profile" && <ProfileScreen points={points} favCount={favs.size} clubMember={clubMember} onLogoutClub={logoutClub} setScreen={setScreen} catalog={catalog} showInstall={!isStandalone} onInstall={installApp} onCookiePrefs={() => setShowCookieConsent(true)} />}
+              {screen === "loyalty" && <LoyaltyScreen points={points} onRedeem={redeemReward} clubMember={clubMember} onRegister={registerClub} onLogoutClub={() => logoutClub()} onGoogleSignIn={signInWithGoogle} googlePrefill={googleProfile} turnstileSiteKey={(catalog.settings?.turnstileSiteKey || "").trim() || TURNSTILE_SITE_KEY} settings={catalog.settings} />}
+              {screen === "profile" && <ProfileScreen points={points} favCount={favs.size} clubMember={clubMember} onLogoutClub={() => logoutClub()} setScreen={setScreen} catalog={catalog} showInstall={!isStandalone} onInstall={installApp} onCookiePrefs={() => setShowCookieConsent(true)} />}
               {screen === "orders" && <OrdersScreen catalog={catalog} clubMember={clubMember} setScreen={setScreen} />}
               {screen === "favorites" && <FavoritesScreen catalog={catalog} favs={favs} onOpen={openProduct} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} setScreen={setScreen} />}
               {screen === "addresses" && <AddressesScreen setScreen={setScreen} />}
@@ -7472,7 +7547,7 @@ export default function FlyBoutiqueApp() {
               {screen === "home" && !selectedProduct && <InfoFooter socials={catalog.settings?.socials} onOpenInfo={openInfo} onCookiePrefs={() => setShowCookieConsent(true)} onComplaints={() => setScreen("complaints")} onTrack={() => setScreen("track")} />}
             </div>
             <div className="app-ticker" style={{ display: "none" }}><Marquee /></div>
-            <BottomNav favCount={favs.size} screen={selectedProduct ? "" : screen} setScreen={(sc) => { setSelectedProduct(null); if (sc === "category") goCatalog(); else setScreen(sc); }} cartCount={cartCount} onSearch={() => setSearchOpen(true)} cart={cart} clubMember={clubMember} points={points} onLogoutClub={logoutClub}
+            <BottomNav favCount={favs.size} screen={selectedProduct ? "" : screen} setScreen={(sc) => { setSelectedProduct(null); if (sc === "category") goCatalog(); else setScreen(sc); }} cartCount={cartCount} onSearch={() => setSearchOpen(true)} cart={cart} clubMember={clubMember} points={points} onLogoutClub={() => logoutClub()}
               products={catalog.products.filter((p) => p.showOnline !== false)} onOpenProduct={openProduct} onSearchQuery={(q) => goCatalog("Todo", null, q)} onCategory={(cat, group) => goCatalog(cat, group)} />
             {searchOpen && <SearchOverlay products={catalog.products.filter((p) => p.showOnline !== false)} onClose={() => setSearchOpen(false)} onOpenProduct={(p) => { openProduct(p); setSearchOpen(false); }} onSearchAll={(term) => goCatalog(CATEGORY_OPTIONS.includes(term) ? term : "Todo", null, CATEGORY_OPTIONS.includes(term) ? "" : term)} />}
             {toast && <Toast message={toast} />}

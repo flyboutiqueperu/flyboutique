@@ -649,3 +649,29 @@ grant execute on function public.cash_move(uuid, text, numeric, text, text), pub
 --    select count(*) from public.stock_movements;   -- historial copiado
 --    select proname from pg_proc where proname in ('move_stock','track_stock_changes');
 -- =====================================================================
+
+
+-- ---------- Cesta: la prenda se aparta los minutos que elijas (por defecto 20) y nunca más de lo que hay ----------
+-- Antes: 15 minutos fijos y se podía "apartar" aunque no quedara stock (alguien podía bloquear prendas).
+create or replace function public.set_reservation(p_session text, p_variant text, p_qty integer) returns void
+language plpgsql security definer set search_path = public as $$
+declare mins int; st int; others int; q int;
+begin
+  delete from public.reservations where expires_at < now();
+  if coalesce(p_qty, 0) <= 0 then
+    delete from public.reservations where session_id = p_session and variant_id = p_variant;
+    return;
+  end if;
+  select least(60, greatest(5, coalesce(public.fly_num(data->'settings'->>'cartHoldMinutes'), 20)))::int,
+         (select coalesce(public.fly_num(v->>'stock'), 0)::int from jsonb_array_elements(data->'products') p, jsonb_array_elements(p->'variants') v where v->>'id' = p_variant limit 1)
+    into mins, st from public.store_data where id = 'main';
+  select coalesce(sum(qty), 0) into others from public.reservations where variant_id = p_variant and session_id <> p_session and expires_at > now();
+  q := least(p_qty, 20, greatest(coalesce(st, 0) - others, 0));
+  if q <= 0 then
+    delete from public.reservations where session_id = p_session and variant_id = p_variant;
+    return;
+  end if;
+  insert into public.reservations (session_id, variant_id, qty, expires_at)
+  values (left(p_session, 60), left(p_variant, 60), q, now() + make_interval(mins => coalesce(mins, 20)))
+  on conflict (session_id, variant_id) do update set qty = excluded.qty, expires_at = excluded.expires_at;
+end $$;

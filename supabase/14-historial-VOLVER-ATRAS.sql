@@ -496,3 +496,17 @@ end $$;
 grant execute on function public.save_catalog(jsonb, jsonb) to authenticated;
 revoke execute on function public.save_catalog(jsonb, jsonb) from public, anon;
 grant execute on function public.cash_move(uuid, text, numeric, text, text), public.close_cash(uuid, numeric, text, text) to authenticated;
+
+-- Cesta: vuelve a 15 minutos fijos (como antes)
+create or replace function public.set_reservation(p_session text, p_variant text, p_qty integer) returns void
+language plpgsql security definer set search_path to 'public' as $function$
+begin
+  delete from public.reservations where expires_at < now();
+  if coalesce(p_qty, 0) <= 0 then
+    delete from public.reservations where session_id = p_session and variant_id = p_variant;
+  else
+    insert into public.reservations (session_id, variant_id, qty, expires_at)
+    values (left(p_session, 60), left(p_variant, 60), least(p_qty, 20), now() + interval '15 minutes')
+    on conflict (session_id, variant_id) do update set qty = excluded.qty, expires_at = excluded.expires_at;
+  end if;
+end $function$;
