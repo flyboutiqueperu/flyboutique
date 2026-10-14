@@ -4237,6 +4237,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
   const [form, setForm] = useState(emptyProductForm());
   // Costo de compra y proveedor: privados (tabla product_costs), nunca en el catálogo público
   const [cost, setCost] = useState({ value: "", supplier: "", loaded: false, original: null, unavailable: false });
+  const [pct, setPct] = useState("");
   useEffect(() => {
     if (!product?.id) { setCost({ value: "", supplier: "", loaded: true, original: null, unavailable: false }); return; }
     supabase.from("product_costs").select("cost,supplier").eq("product_id", product.id).maybeSingle().then(({ data, error }) => {
@@ -4354,6 +4355,16 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}><Field label="Precio (S/)"><input type="number" style={inputStyle} value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="189" /></Field></div>
           <div style={{ flex: 1 }}><Field label="Precio anterior (opcional)"><input type="number" style={inputStyle} value={form.compareAtPrice} onChange={(e) => set("compareAtPrice", e.target.value)} placeholder="—" /></Field></div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 10 }}>
+          Poner en oferta:
+          <input inputMode="numeric" value={pct} onChange={(e) => setPct(e.target.value.replace(/\D/g, "").slice(0, 2))} placeholder="%" aria-label="Porcentaje de descuento" style={{ ...inputStyle, width: 64, padding: "7px 8px", textAlign: "center" }} />
+          <button type="button" disabled={!(Number(pct) > 0)} onClick={() => {
+            const base = Number(form.compareAtPrice) > Number(form.price) ? Number(form.compareAtPrice) : Number(form.price);
+            if (!(base > 0)) return;
+            setForm((x) => ({ ...x, compareAtPrice: String(base), price: String(Math.round(base * (1 - Number(pct) / 100))) })); setPct("");
+          }} style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", opacity: Number(pct) > 0 ? 1 : 0.4 }}>Aplicar % de descuento</button>
+          {Number(form.compareAtPrice) > Number(form.price) && <button type="button" onClick={() => setForm((x) => ({ ...x, price: String(x.compareAtPrice), compareAtPrice: "" }))} style={{ background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Quitar oferta</button>}
         </div>
         {!cost.unavailable && (
           <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginTop: 4 }}>
@@ -7803,7 +7814,7 @@ export default function FlyBoutiqueApp() {
   const deepLinkDone = useRef(false);
   const routeHash = () => (selectedProduct ? `#/p/${selectedProduct.id}` : screen === "home" ? "#/" : screen === "category" ? `#/catalogo${activeCategory !== "Todo" ? "/" + encodeURIComponent(activeCategory) : ""}${searchQuery ? "?q=" + encodeURIComponent(searchQuery) : ""}` : `#/${screen}`);
   useEffect(() => {
-    if (mode !== "store" || !catalog) return;
+    if (mode !== "store" || !catalog || !deepLinkDone.current) return; // primero se respeta el enlace con el que entró
     const h = routeHash();
     if (restoringRef.current) { restoringRef.current = false; return; }
     if (window.location.hash === h) return;
@@ -7823,7 +7834,7 @@ export default function FlyBoutiqueApp() {
     };
     window.addEventListener("popstate", apply);
     // enlace directo a una prenda (por ejemplo, compartido por WhatsApp): se abre una sola vez al cargar
-    if (catalog && !deepLinkDone.current) { deepLinkDone.current = true; if ((window.location.hash || "").startsWith("#/p/")) apply(); }
+    if (catalog && !deepLinkDone.current) { deepLinkDone.current = true; const h0 = window.location.hash || ""; if (h0.startsWith("#/") && h0 !== "#/") apply(); } // enlaces directos: #/outlet, #/catalogo, #/p/…
     return () => window.removeEventListener("popstate", apply);
   }, [!!catalog, mode]);
   const openInfo = (i) => { setInfoSectionIndex(i); setScreen("info"); };
