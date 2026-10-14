@@ -2300,7 +2300,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
       {promoMsg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: promoMsg.ok ? C.ink : C.accent, marginBottom: 16 }}>{promoMsg.text}</div>}
       {pointsNeedGoogle && (
         <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 12px", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.5 }}>
-          <Star size={13} color={C.ink} style={{ verticalAlign: "-2px", marginRight: 6 }} />Tienes {points} puntos. Para usarlos en la web, entra al Club Fly con Google (con el mismo correo de tu cuenta), o úsalos en la tienda.
+          <Star size={13} color={C.ink} style={{ verticalAlign: "-2px", marginRight: 6 }} />Tienes {points} puntos. Para usarlos en la web, confirma tu cuenta en Club Fly (con Google o con un código a tu correo), o úsalos en la tienda.
         </div>
       )}
       {blocksAllowed > 0 && (
@@ -2397,6 +2397,7 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         <button onClick={onLogoutClub} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, textDecoration: "underline" }}>¿No eres {clubMember.name.split(" ")[0]}? Cerrar sesión</button>
       </div>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 25, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>Club Fly</h1>
+      {!clubMember.google && <VerifyAccountBox onGoogleSignIn={onGoogleSignIn} />}
       <div style={{ borderRadius: 14, padding: "24px 22px", background: C.ink, position: "relative", overflow: "hidden", marginBottom: 22, color: C.paper }}>
         <div style={{ position: "absolute", right: 18, top: 18, opacity: 0.5 }}><BadgeLogo size={28} dark /></div>
         <Eyebrow color={C.brassSoft}>Nivel {TIERS[tierIdx].n}</Eyebrow>
@@ -2408,7 +2409,7 @@ const LoyaltyScreen = ({ points, onRedeem, clubMember, onRegister, onLogoutClub,
         {[
           [`Ganas ${loyalty.pointsPerStep} punto${loyalty.pointsPerStep === 1 ? "" : "s"} por cada S/ ${loyalty.solesPerStep} en compras (web y tienda)`, Sparkles],
           [`Cada ${loyalty.blockPoints} puntos valen ${money(loyalty.blockValue)} de descuento`, Gift],
-          ["En la web los usas en la cesta al pagar (entrando al Club Fly con Google)", ShoppingBag],
+          ["En la web los usas en la cesta al pagar (con tu cuenta confirmada: Google o código al correo)", ShoppingBag],
           ["En la tienda física, da tu DNI o celular al pagar para sumar y usar tus puntos", Store],
         ].map(([text, Icon], i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, background: C.paperDeep, borderRadius: 10, padding: "12px 14px" }}>
@@ -2841,7 +2842,74 @@ const TurnstileBox = ({ siteKey, onToken }) => {
   return <div ref={boxRef} style={{ display: "flex", justifyContent: "center", marginTop: 12, minHeight: 66 }} />;
 };
 
+// Entrar con un código de 6 dígitos que llega al correo (sin contraseñas que olvidar).
+const EmailCodeLogin = () => {
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState("email");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const send = async () => {
+    if (!emailOk || busy) { setMsg("Escribe tu correo completo (ej. nombre@gmail.com)."); return; }
+    setBusy(true); setMsg("");
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim().toLowerCase(), options: { shouldCreateUser: true } });
+    setBusy(false);
+    if (error) { setMsg(/rate|seconds|security purposes/i.test(error.message) ? "Ya te enviamos un código hace poco. Espera un minuto y vuelve a intentar." : "No pudimos enviar el código. Revisa el correo e intenta de nuevo."); return; }
+    setStep("code"); setMsg("");
+  };
+  const verify = async () => {
+    if (code.length !== 6 || busy) return;
+    setBusy(true); setMsg("");
+    const { error } = await supabase.auth.verifyOtp({ email: email.trim().toLowerCase(), token: code, type: "email" });
+    setBusy(false);
+    if (error) { setMsg("Código incorrecto o vencido. Revisa el último correo o pide uno nuevo."); setCode(""); }
+    // si salió bien, la tienda detecta la sesión sola y carga tu cuenta y tus puntos
+  };
+  const btn = { width: "100%", padding: "12px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" };
+  return (
+    <div style={{ textAlign: "left" }}>
+      {step === "email" ? (
+        <>
+          <input value={email} onChange={(e) => { setEmail(e.target.value); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Tu correo *" type="email" autoComplete="email" style={{ ...inputStyle, marginBottom: 8 }} />
+          <button onClick={send} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>{busy ? "Enviando…" : "Recibir código en mi correo"}</button>
+        </>
+      ) : (
+        <>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8, lineHeight: 1.45 }}>Te enviamos un código de 6 dígitos a <strong>{email.trim()}</strong>. Revisa también «Spam» o «Promociones».</div>
+          <input value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setMsg(""); }} onKeyDown={(e) => e.key === "Enter" && verify()} inputMode="numeric" autoComplete="one-time-code" placeholder="000000" style={{ ...inputStyle, textAlign: "center", letterSpacing: "0.35em", fontSize: 20, marginBottom: 8 }} />
+          <button onClick={verify} disabled={busy || code.length !== 6} style={{ ...btn, opacity: busy || code.length !== 6 ? 0.5 : 1 }}>{busy ? "Verificando…" : "Entrar"}</button>
+          <button onClick={() => { setStep("email"); setCode(""); }} style={{ background: "none", border: "none", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "underline", cursor: "pointer", marginTop: 8 }}>Cambiar correo o pedir otro código</button>
+        </>
+      )}
+      {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginTop: 8 }}>{msg}</div>}
+    </div>
+  );
+};
+
+// Para una cuenta creada solo con datos: confirmar que es suya (Google o código al correo)
+// y así poder usar los puntos en la web y ver sus pedidos.
+const VerifyAccountBox = ({ onGoogleSignIn }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ background: C.paperDeep, borderRadius: 12, padding: "12px 14px", marginBottom: 16 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, lineHeight: 1.5 }}>
+        <ShieldCheck size={13} style={{ verticalAlign: "-2px", marginRight: 6 }} />Confirma que esta cuenta es tuya para <strong>usar tus puntos en la web</strong> y <strong>ver tus pedidos</strong>.
+        {!open && <button onClick={() => setOpen(true)} style={{ background: "none", border: "none", padding: 0, marginLeft: 6, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", cursor: "pointer", fontWeight: 600 }}>Confirmar</button>}
+      </div>
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {onGoogleSignIn && <button onClick={onGoogleSignIn} style={{ width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>Con Google</button>}
+          <EmailCodeLogin />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 8 }}>Usa el mismo correo que diste al registrarte.</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSiteKey }) => {
+  const [tab, setTab] = useState("crear");
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaKey, setCaptchaKey] = useState(0);
   const [sending, setSending] = useState(false);
@@ -2866,8 +2934,25 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
 
   return (
     <div style={{ padding: "22px 20px 24px", textAlign: "center" }}>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>Únete al Club Fly</div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 20, maxWidth: 260, marginLeft: "auto", marginRight: "auto" }}>Regístrate gratis y empieza a ganar puntos en cada compra.</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: C.ink, margin: "0 0 6px" }}>{tab === "entrar" && !googlePrefill ? "Entra a tu cuenta" : "Únete al Club Fly"}</div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 16, maxWidth: 260, marginLeft: "auto", marginRight: "auto" }}>{tab === "entrar" && !googlePrefill ? "Mira tus puntos y tus pedidos desde cualquier celular o computadora." : "Regístrate gratis y empieza a ganar puntos en cada compra."}</div>
+      {!googlePrefill && (
+        <div role="tablist" style={{ display: "flex", maxWidth: 280, margin: "0 auto 18px", border: `1px solid ${C.ink}`, borderRadius: 999, padding: 3 }}>
+          {[["entrar", "Ya tengo cuenta"], ["crear", "Crear cuenta"]].map(([k, l]) => (
+            <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ flex: 1, padding: "9px 6px", borderRadius: 999, border: "none", background: tab === k ? C.ink : "transparent", color: tab === k ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+          ))}
+        </div>
+      )}
+      {tab === "entrar" && !googlePrefill ? (
+        <div style={{ maxWidth: 280, margin: "0 auto" }}>
+          {onGoogleSignIn && <button onClick={onGoogleSignIn} style={{ width: "100%", padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.white, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Entrar con Google</button>}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0" }}>
+            <div style={{ flex: 1, height: 1, background: C.line }} /><span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>o con tu correo</span><div style={{ flex: 1, height: 1, background: C.line }} />
+          </div>
+          <EmailCodeLogin />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 14, lineHeight: 1.5 }}>Usa el mismo correo con el que te registraste. ¿Aún no tienes cuenta? <button onClick={() => setTab("crear")} style={{ background: "none", border: "none", padding: 0, fontFamily: FONT_BODY, fontSize: 11, color: C.ink, textDecoration: "underline", cursor: "pointer" }}>Créala aquí</button>.</div>
+        </div>
+      ) : (<>
 
       {onGoogleSignIn && !googlePrefill && (
         <div style={{ maxWidth: 280, margin: "0 auto 18px" }}>
@@ -2882,7 +2967,7 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
       )}
       {googlePrefill && (
         <div style={{ maxWidth: 280, margin: "0 auto 18px", background: C.paperDeep, borderRadius: 10, padding: "12px 14px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink }}>
-          ✓ Sesión de Google conectada — solo falta tu celular para terminar.
+          ✓ Sesión conectada — solo falta tu celular para terminar.
         </div>
       )}
 
@@ -2923,6 +3008,7 @@ const ClubFlySignup = ({ onRegister, onGoogleSignIn, googlePrefill, turnstileSit
           }}>{sending ? "Registrando…" : "Registrarme"}</PrimaryButton>
         </div>
       </div>
+      </>)}
       <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone, marginTop: 16, maxWidth: 260, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
         Tus datos solo se usan para tu cuenta del Club Fly y tus pedidos. Nunca los compartimos.
       </div>
@@ -2959,7 +3045,7 @@ const OrdersScreen = ({ catalog, clubMember, setScreen }) => {
         {backBtn}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 280, textAlign: "center", gap: 12 }}>
           <Package size={30} color={C.line} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 270, lineHeight: 1.6 }}>Para proteger tus datos, el historial de pedidos se ve entrando al Club Fly con Google. También puedes seguir cualquier pedido con su número.</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, maxWidth: 270, lineHeight: 1.6 }}>Para proteger tus datos, el historial de pedidos se ve confirmando tu cuenta en Club Fly (con Google o con un código a tu correo). También puedes seguir cualquier pedido con su número.</div>
           <button onClick={() => setScreen("track")} style={{ padding: "11px 20px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Seguir mi pedido</button>
         </div>
       </div>
@@ -7283,7 +7369,7 @@ export default function FlyBoutiqueApp() {
       else if (m.includes("PROMO_SOLO_CLUB")) alert("Ese código es solo para miembras del Club Fly. Quítalo o regístrate en el Club Fly.");
       else if (m.includes("PROMO_INVALIDA")) alert("Ese código promocional ya no está activo. Quítalo e intenta de nuevo.");
       else if (m.includes("CLUB_DESACTIVADO")) alert("El Club Fly está en pausa: por ahora no se pueden usar puntos. Desactiva \"usar puntos\" para seguir.");
-      else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, entra al Club Fly con Google. Desactiva \"usar puntos\" para seguir sin ellos.");
+      else if (m.includes("PUNTOS_SOLO_GOOGLE")) alert("Para usar tus puntos en la web, confirma tu cuenta en Club Fly (Google o código al correo). Desactiva \"usar puntos\" para seguir sin ellos.");
       else if (m.includes("PUNTOS")) alert("No pudimos aplicar tus puntos (no alcanzan o cambiaron). Desactiva \"usar puntos\" e intenta de nuevo.");
       else alert("No se pudo registrar tu pedido. Revisa tu conexión e intenta de nuevo.");
       return null;
@@ -7335,7 +7421,8 @@ export default function FlyBoutiqueApp() {
   const googleUser = (u) => {
     if (!u || String(u.email || "").endsWith("@" + STAFF_EMAIL_DOMAIN)) return null;
     const viaGoogle = u.app_metadata?.provider === "google" || (u.app_metadata?.providers || []).includes("google") || (u.identities || []).some((i) => i.provider === "google");
-    return viaGoogle ? { name: u.user_metadata?.full_name || u.user_metadata?.name || "", email: u.email || "" } : null;
+    const viaCode = u.app_metadata?.provider === "email"; // entró con el código que le llegó al correo (el servidor lo confirma)
+    return viaGoogle || viaCode ? { name: u.user_metadata?.full_name || u.user_metadata?.name || "", email: u.email || "", via: viaGoogle ? "google" : "correo" } : null;
   };
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -7352,7 +7439,7 @@ export default function FlyBoutiqueApp() {
   // Google ya confirmó que es una persona real). El celular se pide recién al comprar.
   useEffect(() => {
     if (!googleProfile?.email) return;
-    if (clubMember && !clubMember.google) return; // ya tiene cuenta manual en este navegador
+    // Si tenía una cuenta solo con datos y ahora confirmó con Google o código, se pasa a la cuenta confirmada.
     if (clubMember?.google && clubMember.email === googleProfile.email && clubMember.phone) return;
     supabase.rpc("register_google_customer").then(({ data: c, error }) => {
       if (error || !c) return; // si falla, queda el formulario normal

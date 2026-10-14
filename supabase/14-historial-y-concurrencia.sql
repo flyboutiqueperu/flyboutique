@@ -301,8 +301,7 @@ begin
   end if;
 
   em := lower(coalesce(auth.jwt()->>'email', ''));
-  is_google := auth.uid() is not null and em <> '' and (coalesce(auth.jwt()->'app_metadata'->>'provider', '') = 'google'
-               or coalesce(auth.jwt()->'app_metadata'->'providers', '[]'::jsonb) ? 'google');
+  is_google := public.google_email() <> '';   -- cuenta confirmada (Google; desde el SQL 15 también código al correo)
   ph := regexp_replace(coalesce(p_sale->>'customerPhone', ''), '\D', '', 'g');
 
   -- Stock y precios reales (bloqueando el catálogo para que nadie compre la misma unidad a la vez)
