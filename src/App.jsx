@@ -3784,6 +3784,90 @@ const AdminNav = ({ screen, setScreen, role }) => {
 
 const quickLinkStyle = { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink };
 
+// ---- Resumen del negocio (inicio del panel): todo sale de los registros reales ----
+const ACTION_LABELS = { venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
+const BusinessSummary = ({ catalog, go }) => {
+  const [extra, setExtra] = useState({ transfers: null, cash: null, activity: null });
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      supabase.from("stock_transfers").select("id").eq("status", "en_camino").limit(500),
+      supabase.from("cash_sessions").select("store_id,closed_at,closed_by_name,difference,notes").eq("status", "cerrada").order("closed_at", { ascending: false }).limit(10),
+      supabase.from("audit_log").select("at,user_name,action,details").order("at", { ascending: false }).limit(8),
+    ]).then(([t, c, a]) => { if (alive) setExtra({ transfers: t.error ? null : (t.data || []).length, cash: c.error ? null : c.data || [], activity: a.error ? null : a.data || [] }); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const valid = (catalog.sales || []).filter((x) => x.status !== "anulado");
+  const day = 86400000;
+  const start = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
+  const today = start(Date.now());
+  const weekStart = today - ((new Date(today).getDay() + 6) % 7) * day; // lunes
+  const n = new Date(); const monthStart = new Date(n.getFullYear(), n.getMonth(), 1).getTime(); const prevMonthStart = new Date(n.getFullYear(), n.getMonth() - 1, 1).getTime();
+  const sumIn = (a, b) => valid.filter((x) => x.createdAt >= a && x.createdAt < b);
+  const tot = (l) => l.reduce((t, x) => t + (x.total || 0), 0);
+  const elapsed = Date.now() - monthStart;
+  const periods = [
+    ["Hoy", sumIn(today, Date.now() + 1), sumIn(today - day, Date.now() - day), "vs. ayer a esta hora"],
+    ["Esta semana", sumIn(weekStart, Date.now() + 1), sumIn(weekStart - 7 * day, Date.now() - 7 * day), "vs. semana pasada"],
+    ["Este mes", sumIn(monthStart, Date.now() + 1), sumIn(prevMonthStart, prevMonthStart + elapsed), "vs. mismos días del mes pasado"],
+  ];
+  const month = periods[2][1];
+  const web = month.filter((x) => x.channel === "online"), shop = month.filter((x) => x.channel !== "online");
+  const orders = (catalog.sales || []).filter((x) => x.channel === "online" && x.source === "web" && x.status !== "anulado");
+  const toValidate = orders.filter((x) => x.paymentStatus !== "confirmado").length;
+  const toShip = orders.filter((x) => x.paymentStatus === "confirmado" && x.fulfillment !== "entregado").length;
+  const low = catalog.products.reduce((a, p) => a + p.variants.filter((v) => v.stock > 0 && v.stock <= (p.minStock ?? 3)).length, 0);
+  const out = catalog.products.filter(productSoldOut).length;
+  const diffs = (extra.cash || []).filter((c) => Math.abs(Number(c.difference) || 0) >= 0.5);
+  const pct = (a, b) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
+  const tile = (label, value, sub, onClick, alert, small) => (
+    <button key={label} onClick={onClick} style={{ textAlign: "left", background: C.paperDeep, border: `1px solid ${alert ? C.accent : C.line}`, borderRadius: 12, padding: "14px 16px", cursor: onClick ? "pointer" : "default", minWidth: 0 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: C.stone }}>{label}</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: small ? 17 : 22, fontWeight: 800, color: alert ? C.accent : C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{value}</div>
+      {sub && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 1 }}>{sub}</div>}
+    </button>
+  );
+  return (
+    <>
+      <span style={labelStyle}>Ventas</span>
+      <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
+        {periods.map(([label, cur, prev, vsText]) => { const p = pct(tot(cur), tot(prev)); return tile(label, money(tot(cur)), `${cur.length} ventas${p !== null ? ` · ${p >= 0 ? "+" : ""}${p}% ${vsText}` : ""}`, () => go("reports")); })}
+        {tile("Mes: tienda / web", <>{money(tot(shop))}<br />{money(tot(web))}</>, `${shop.length} en tienda · ${web.length} por la web`, () => go("reports"), false, true)}
+      </div>
+      <span style={labelStyle}>Pendientes</span>
+      <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
+        {tile("Pagos por validar", toValidate, "Pedidos web", () => go("onlineorders"), toValidate > 0)}
+        {tile("Por preparar o enviar", toShip, "Pedidos web pagados", () => go("onlineorders"))}
+        {tile("Guías en camino", extra.transfers ?? "—", "Traslados por recibir", () => go("transfers"), (extra.transfers || 0) > 0)}
+        {tile("Stock bajo", low, `${out} productos agotados`, () => go("stock"), out > 0)}
+      </div>
+      {extra.cash && (
+        <AdminCard style={{ marginBottom: 14 }}>
+          <span style={labelStyle}>Diferencias de caja (últimos cierres)</span>
+          {diffs.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>{extra.cash.length ? "Los últimos cierres cuadraron." : "Aún no hay cierres de caja."}</div> : diffs.slice(0, 5).map((c, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+              <span style={{ minWidth: 0 }}>{fmtDT(c.closed_at)} · {c.closed_by_name || "—"}<span style={{ display: "block", fontSize: 11, color: C.stone }}>{c.notes || "Sin motivo"}</span></span>
+              <strong style={{ color: Number(c.difference) < 0 ? C.accent : C.ink, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{Number(c.difference) > 0 ? "+" : "−"}{money2(Math.abs(Number(c.difference)))}</strong>
+            </div>
+          ))}
+        </AdminCard>
+      )}
+      {extra.activity && extra.activity.length > 0 && (
+        <AdminCard style={{ marginBottom: 24 }}>
+          <span style={labelStyle}>Actividad reciente</span>
+          {extra.activity.map((a, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>
+              <span style={{ minWidth: 0 }}>{ACTION_LABELS[a.action] || a.action.replace(/_/g, " ")}{a.details?.guia ? ` · ${a.details.guia}` : a.details?.motivo ? ` · ${a.details.motivo}` : ""}</span>
+              <span style={{ color: C.stone, whiteSpace: "nowrap" }}>{a.user_name || ""} · {fmtDT(a.at)}</span>
+            </div>
+          ))}
+        </AdminCard>
+      )}
+      <span style={labelStyle}>Configuración de la tienda</span>
+    </>
+  );
+};
+
 const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
   const { products, banners, collections } = catalog;
   const agotados = products.filter(productSoldOut).length;
@@ -3853,26 +3937,13 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
     yapeNumber: catalog.settings?.yapeNumber || "", plinNumber: catalog.settings?.plinNumber || "",
     bankName: catalog.settings?.bankName || "", bankAccount: catalog.settings?.bankAccount || "", bankCCI: catalog.settings?.bankCCI || "",
   });
-  const stats = [
-    ["Productos", products.length, () => setAdminScreen("products")],
-    ["Agotados", agotados, () => setAdminScreen("products")],
-    ["Banners activos", banners.filter((b) => b.active).length, () => setAdminScreen("banners")],
-    ["Colecciones", collections.length, () => setAdminScreen("collections")],
-  ];
   const saveCulqiKey = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, culqiPublicKey: culqiKey.trim() } })); alert("Llave pública de Culqi guardada."); };
   const savePayAccounts = () => { updateCatalog((c) => ({ ...c, settings: { ...c.settings, ...payAccounts } })); alert("Datos de pago guardados."); };
   return (
     <div style={{ padding: "20px 18px 90px" }}>
       <Eyebrow>Fly</Eyebrow>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 24, color: C.ink, fontWeight: 800, margin: "0 0 20px" }}>Panel de control</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
-        {stats.map(([label, val, onClick]) => (
-          <button key={label} onClick={onClick} style={{ textAlign: "left", background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px", cursor: "pointer" }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 800, color: C.ink }}>{val}</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 2 }}>{label}</div>
-          </button>
-        ))}
-      </div>
+      <BusinessSummary catalog={catalog} go={setAdminScreen} />
       <AdminCard style={{ marginBottom: 14 }}>
         <span style={labelStyle}>Yape, Plin y transferencia bancaria</span>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
