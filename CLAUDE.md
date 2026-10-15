@@ -46,7 +46,7 @@ Este archivo se lee al inicio de cada sesión de Claude Code. Contiene: (1) regl
 
 ## 2b. ESTADO ACTUAL Y PENDIENTES (actualizar al terminar cada tarea)
 
-**Última actualización:** 15-oct-2026.
+**Última actualización:** 15-oct-2026 (tarde).
 
 **Cómo se trabaja con Alberto:**
 - Cada tarea: rama → PR → Alberto toca **Merge** desde el celular. Claude **nunca** hace Merge, nunca corre SQL en Supabase y nunca toca Vercel.
@@ -66,12 +66,13 @@ Este archivo se lee al inicio de cada sesión de Claude Code. Contiene: (1) regl
 - **Copia de las fotos** (Más → Copia de las fotos, solo Super Admin): descarga todas las fotos/videos del catálogo, banners y colecciones en ZIP (partes de ~300 MB) con `indice.csv` (producto, color, archivo, URL original, errores). Módulo `src/fotos-copia.js` (fflate, se carga solo al usarlo). La copia de datos JSON ahora trae **todas** las ventas y clientas (antes se cortaba en 1000 filas): `fetchAllRows`. Pruebas: `node pruebas/fotos-copia.test.mjs`, `pruebas/ui/fotos.cjs`.
 - **Consulta DNI/RUC** (SQL 24, PR #21 y #22): en el cobro, al escribir DNI (8) o RUC (11 y dígito verificador) se llenan nombre/razón social y dirección fiscal; avisa si el RUC no está activo/habido. Apagada hasta que Super Admin guarde el token en Más → Consulta DNI / RUC (`app_secrets.docs_api_token`, nunca vuelve al navegador). Proveedor por defecto Decolecta (URLs configurables con `{n}`), memoria `doc_lookups` (DNI 1 año, RUC 30 días), límite 60/h por usuario. Pruebas: `pruebas/sql/t24.sql`, `pruebas/ui/dni.cjs` (MODO=activa|sin-token|sin-sql), `pruebas/ui/docapi.cjs`.
 - **Outlet visible en el celular:** tarjeta negra «OUTLET» justo debajo de la portada (`.outlet-card`) y chip «OUTLET» en la barra de filtros del catálogo; solo aparecen si el Outlet está abierto y hay prendas Outlet con stock. Prueba: `pruebas/ui/apps.cjs` (también revisa las 3 apps).
+- **Registro de actividad** (Más → Equipo y reportes, `ActivityScreen`, solo superadmin/administrador): lee `audit_log` (sin SQL nuevo), filtros por periodo/persona/tipo, buscador, CSV, «Cargar más»; etiquetas en `ACTION_LABELS` + `ACTIVITY_EXTRA` (al crear un `audit('nueva_accion')` en SQL, agregar su etiqueta). En el panel, «Actividad reciente» → «Ver todo». Prueba: `pruebas/ui/actividad.cjs` (y con rol `cajero`).
 - Pantalla **«Compras»** (Más → Compras a proveedores): proveedores, registrar compra (suma stock en la sede + costo promedio, reintento sin duplicar) y anular. Prueba: `pruebas/ui/compras.cjs`.
 
-**SQL:** del 08 al 22, Alberto dijo haberlos corrido (para confirmarlo, usar consultas de solo lectura). El 23 (compras/proveedores) y el 24 (consulta DNI/RUC) están en la página «Copiar SQL» (PR #21). Si no se corrieron, las pantallas lo avisan y la caja funciona igual.
+**SQL:** del 08 al 26 **todos aplicados** (Alberto lo confirmó el 15-oct con la consulta «Revisar qué SQL ya están aplicados» de la página «Copiar SQL», que da SI/FALTA por número; para un SQL nuevo, agregarle su línea). PR #27 (Fly Caja + Outlet) en `main`.
 
 **Pendiente (en orden):**
-1. Confirmar con Alberto que corrió los SQL 23 y 24 y probó «Compras». Para activar DNI/RUC necesita crear cuenta en un proveedor (p. ej. Decolecta) y pegar el token en Más → Consulta DNI / RUC; al tenerlo, confirmar que el formato de respuesta coincide (probar con «Consultar»).
+1. SQL 23–26 ya corridos. Para activar DNI/RUC necesita crear cuenta en un proveedor (p. ej. Decolecta) y pegar el token en Más → Consulta DNI / RUC; al tenerlo, confirmar que el formato de respuesta coincide (probar con «Consultar»).
 2. **Fotos que a veces no cargan:** Supabase está bien (egress 0,01 GB de 5 GB el 14-oct). Se sospecha de la señal del celular. Se pidió a Alberto: ¿pasa en todos los productos y también en la PC? y una captura de la foto abierta en una pestaña nueva.
 3. Traducción: cuando se agregue texto a la tienda, también hay que agregarlo en `src/i18n-en.js`. Para ver qué falta: en modo dev, `window.__flyMissingEN`.
 4. **Nubefact:** Alberto tiene cuenta de prueba. Falta: correr SQL 25, pegar RUTA y TOKEN, hacer una venta de prueba y revisar la respuesta real (formato del cliente «varios», cabecera Authorization). Notas de crédito listas (SQL 26). Pagos online con **Culqi**: pendiente.
