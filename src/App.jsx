@@ -7,6 +7,7 @@ import {
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
   FileText, Truck, ArrowLeftRight, UserCog, Images, FolderArchive, ClipboardList, History, Share, SquarePlus, Contact, BadgePercent, Wallet, BookOpenCheck, HardDriveDownload,
   MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
+  Snowflake, Leaf, Sun, Flower2, Ghost, Flag, Wind, Tag as TagIcon,
 } from "lucide-react";
 // Excel y códigos de barras solo se descargan cuando el staff los usa (la tienda abre más rápido en celular)
 const loadXLSX = () => import("xlsx");
@@ -960,8 +961,78 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
 /* ------------------------------------------------------------------ */
 // Ajustes de la tienda a mano para textos fijos (la cinta de arriba); se actualiza al cargar el catálogo
 let SHOP_SETTINGS = {};
+// ---- Temporadas: detalles de la web según la fecha (Navidad, Día de la Madre, Fiestas Patrias, Halloween…) ----
+// Se configura en Panel → «Temporadas». Siempre en blanco y negro: un mensaje en la franja negra, una nota bajo la portada
+// y figuritas que caen unos segundos en el inicio (una vez por visita; nada si el equipo pide menos movimiento).
+const nthSunday = (y, m, n) => { const wd = new Date(y, m - 1, 1).getDay(); return ((7 - wd) % 7) + 1 + (n - 1) * 7; };
+const lastFriday = (y, m) => { const d = new Date(y, m, 0); while (d.getDay() !== 5) d.setDate(d.getDate() - 1); return d.getDate(); };
+const SEASONS = [
+  { id: "navidad", name: "Navidad", icon: Snowflake, msg: "Navidad en FLY: encuentra el regalo perfecto", range: () => [[12, 1], [12, 25]] },
+  { id: "anionuevo", name: "Año Nuevo", icon: Sparkles, msg: "Cierra el año con brillo", range: () => [[12, 26], [12, 31]] },
+  { id: "sanvalentin", name: "San Valentín", icon: Heart, msg: "San Valentín: regala algo que se use y se recuerde", range: () => [[2, 1], [2, 14]] },
+  { id: "madre", name: "Día de la Madre", icon: Flower2, msg: "Día de la Madre: un detalle para mamá", range: (y) => [[4, 25], [5, nthSunday(y, 5, 2)]] },
+  { id: "padre", name: "Día del Padre", icon: Gift, msg: "Día del Padre: regalos para papá", range: (y) => [[6, 1], [6, nthSunday(y, 6, 3)]] },
+  { id: "fiestaspatrias", name: "Fiestas Patrias", icon: Flag, msg: "¡Felices Fiestas Patrias!", range: () => [[7, 15], [7, 29]] },
+  { id: "halloween", name: "Halloween", icon: Ghost, msg: "Halloween en FLY", range: () => [[10, 24], [10, 31]] },
+  { id: "blackfriday", name: "Black Friday", icon: TagIcon, msg: "Black Friday: revisa las ofertas", range: (y) => { const f = lastFriday(y, 11); return [[11, f - 3], [11, Math.min(30, f + 3)]]; } },
+  { id: "verano", name: "Verano", icon: Sun, msg: "Temporada de verano: lo nuevo para el sol", range: () => [[1, 1], [3, 20]] },
+  { id: "otono", name: "Otoño", icon: Leaf, msg: "Llega el otoño: capas y tonos cálidos", range: () => [[3, 21], [6, 20]] },
+  { id: "invierno", name: "Invierno", icon: Wind, msg: "Invierno: abrigos y tejidos para el frío", range: () => [[6, 21], [9, 22]] },
+  { id: "primavera", name: "Primavera", icon: Flower2, msg: "Primavera: colores y telas ligeras", range: () => [[9, 23], [12, 31]] },
+];
+const seasonRange = (s, y = new Date().getFullYear()) => s.range(y);
+// La primera de la lista que cae en la fecha gana (las fechas especiales van antes que las estaciones)
+const seasonFor = (date = new Date(), skip = []) => {
+  const md = (date.getMonth() + 1) * 100 + date.getDate();
+  return SEASONS.find((s) => { if (skip.includes(s.id)) return false; const [[m1, d1], [m2, d2]] = seasonRange(s, date.getFullYear()); return md >= m1 * 100 + d1 && md <= m2 * 100 + d2; }) || null;
+};
+const seasonCfg = (settings) => ({ mode: "auto", fx: true, skip: [], msgs: {}, ...(settings?.season || {}) });
+const activeSeason = (settings, date = new Date()) => {
+  const cfg = seasonCfg(settings);
+  if (cfg.mode === "off") return null;
+  const s = cfg.mode === "auto" ? seasonFor(date, cfg.skip || []) : SEASONS.find((x) => x.id === cfg.mode);
+  if (!s) return null;
+  const own = (cfg.msgs || {})[s.id] || {};
+  const msg = getLang() === "en" ? (own.en || t(own.es || s.msg)) : (own.es || s.msg);
+  return { ...s, label: t(s.name), msg, fx: cfg.fx !== false };
+};
+const SeasonNote = ({ season }) => {
+  const Icon = season.icon;
+  return (
+    <div className="season-note" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "0 20px 26px", padding: "12px 16px", border: `1px solid ${C.line}`, borderRadius: 12, textAlign: "center" }}>
+      <Icon size={17} color={C.ink} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+      <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.4 }}><strong style={{ fontFamily: FONT_DISPLAY, letterSpacing: "0.12em", fontSize: 11, textTransform: "uppercase", marginRight: 8 }}>{season.label}</strong>{season.msg}</span>
+    </div>
+  );
+};
+const SEASON_FX_KEY = "fly:temporada-fx";
+const SeasonFx = ({ season }) => {
+  const [on, setOn] = useState(() => {
+    try { if (sessionStorage.getItem(SEASON_FX_KEY) === season.id) return false; } catch (e) { /* sin sessionStorage */ }
+    try { if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false; } catch (e) { /* nada */ }
+    return true;
+  });
+  useEffect(() => {
+    if (!on) return undefined;
+    try { sessionStorage.setItem(SEASON_FX_KEY, season.id); } catch (e) { /* nada */ }
+    const tm = setTimeout(() => setOn(false), 9500);
+    return () => clearTimeout(tm);
+  }, [on, season.id]);
+  if (!on) return null;
+  const Icon = season.icon;
+  return (
+    <div className="season-fx" aria-hidden="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 40, overflow: "hidden" }}>
+      {Array.from({ length: 14 }, (_, i) => (
+        <span key={i} style={{ position: "absolute", top: -30, left: `${(i * 37 + 5) % 100}%`, opacity: 0.18 + (i % 4) * 0.08, animation: `season-fall ${5 + (i % 4)}s linear ${(i * 0.45) % 3.5}s 1 both` }}>
+          <Icon size={12 + (i % 3) * 5} color={C.ink} strokeWidth={1.4} />
+        </span>
+      ))}
+    </div>
+  );
+};
 const Marquee = () => {
-  const text = `${t("ENVÍO GRATIS EN TRUJILLO DESDE S/ {n}", { n: localShippingOf(SHOP_SETTINGS).freeFrom })}  ·  ${clubOn(SHOP_SETTINGS) ? `${t("CLUB FLY: GANA PUNTOS EN CADA COMPRA")}  ·  ` : ""}${t("NUEVA COLECCIÓN DISPONIBLE")}  ·  `;
+  const season = activeSeason(SHOP_SETTINGS);
+  const text = `${season ? `${season.msg.toUpperCase()}  ·  ` : ""}${t("ENVÍO GRATIS EN TRUJILLO DESDE S/ {n}", { n: localShippingOf(SHOP_SETTINGS).freeFrom })}  ·  ${clubOn(SHOP_SETTINGS) ? `${t("CLUB FLY: GANA PUNTOS EN CADA COMPRA")}  ·  ` : ""}${t("NUEVA COLECCIÓN DISPONIBLE")}  ·  `;
   return (
     <div style={{ background: C.ink, overflow: "hidden", height: 28, display: "flex", alignItems: "center" }}>
       <div style={{ display: "flex", animation: "marquee 22s linear infinite" }}>
@@ -1271,6 +1342,7 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
   const activeBanners = banners.filter((b) => b.active).sort((a, b) => a.order - b.order);
   const hero = activeBanners[0];
   const featuredCollections = collections.filter((c) => c.featured).sort((a, b) => a.order - b.order);
+  const season = activeSeason(catalog.settings);
 
   const heroTarget = (b = hero) => {
     if (!b) return setScreen("category");
@@ -1288,6 +1360,8 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
         </div>
       )}
 
+      {season && <SeasonNote season={season} />}
+      {season && season.fx && <SeasonFx season={season} />}
       {outletCount > 0 && (
         <button className="outlet-card" onClick={() => setScreen("outlet")} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "calc(100% - 40px)", margin: "0 20px 30px", padding: "18px 20px", borderRadius: 12, border: "none", background: C.ink, cursor: "pointer", textAlign: "left" }}>
           <span>
@@ -4310,23 +4384,155 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
+  // En PC ancha se listan también las opciones de «Más» que este rol puede abrir (sin repetir las de arriba)
+  const topIds = new Set(items.map((x) => x[0]));
+  const side = STAFF_ADMIN.includes(role) ? MORE_ITEMS.filter((it) => !topIds.has(it.id) && (it.id === "backup" ? role === "superadmin" : canOpenScreen(role, it.id)) && (!it.only || it.only === role)) : [];
+  const sideIds = new Set(side.map((it) => it.id));
   const moreScreens = ["transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
+      <div className="side-brand">FLY<span>Panel del staff</span></div>
       {items.map(([key, label, Icon]) => {
-        const active = screen === key || (key === "products" && screen === "productEditor") || (key === "more" && moreScreens.includes(screen));
+        const active = screen === key || (key === "products" && screen === "productEditor") || (key === "more" && moreScreens.includes(screen) && !sideIds.has(screen));
         return (
-          <button key={key} className={`nav-item${active ? " is-active" : ""}`} onClick={() => setScreen(key)} title={NAV_HINTS[key] || label} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
+          <button key={key} className={`nav-item${active ? " is-active" : ""}${key === "more" && side.length ? " side-hide" : ""}`} onClick={() => setScreen(key)} title={NAV_HINTS[key] || label} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
             <Icon size={19} strokeWidth={active ? 2.1 : 1.5} color={active ? C.ink : C.stone} />
             <span className="nav-label" style={{ fontFamily: FONT_BODY, fontSize: 9.5, color: active ? C.ink : C.stone, fontWeight: active ? 600 : 400 }}>{label}</span>
           </button>
         );
       })}
+      {/* Solo en PC ancha: el resto de opciones de «Más», por tema, siempre a la vista (como el menú de TumiSoft) */}
+      {side.length > 0 && (
+        <div className="side-more">
+          {MORE_GROUPS.map(([g, gl]) => {
+            const list = side.filter((it) => it.g === g);
+            if (!list.length) return null;
+            return (
+              <div key={g} className="side-group">
+                <div className="side-group-title">{gl}</div>
+                {list.map((it) => { const Icon = it.icon; const on = screen === it.id || (it.id === "banners" && screen === "bannerEditor") || (it.id === "collections" && screen === "collectionEditor");
+                  return <button key={it.id} className={`side-link${on ? " is-active" : ""}`} title={it.d} onClick={() => (it.id === "backup" ? downloadBackup() : setScreen(it.id))}><Icon size={15} strokeWidth={on ? 2.1 : 1.6} />{it.t}</button>; })}
+              </div>
+            );
+          })}
+          <button className="side-link" onClick={() => setScreen("more")}><Menu size={15} strokeWidth={1.6} />Buscar en «Más»</button>
+        </div>
+      )}
     </div>
   );
 };
 
 const quickLinkStyle = { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink };
+
+// ---- Tablero de ventas (como el de TumiSoft): por hora, por día, formas de pago y promedios. Todo sale de las ventas reales ----
+// Barras de un solo color (negro), sin colores inventados; al tocar o pasar el mouse por una barra se lee su detalle arriba.
+const BoardBars = ({ data, height = 130, label }) => {
+  const max = Math.max(...data.map((d) => d.value), 0);
+  const peak = data.reduce((b, d, i) => (d.value > (data[b]?.value ?? -1) ? i : b), 0);
+  const [sel, setSel] = useState(null);
+  const cur = data[sel ?? peak];
+  if (!max) return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, padding: "18px 0" }}>Sin ventas en este periodo.</div>;
+  return (
+    <div>
+      <div aria-live="polite" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, minHeight: 18, marginBottom: 8 }}>
+        <strong>{cur.full || cur.label}</strong> · {money(cur.value)}{cur.sub ? <span style={{ color: C.stone }}> · {cur.sub}</span> : null}{sel === null && <span style={{ color: C.stone }}> (lo más alto)</span>}
+      </div>
+      <div role="img" aria-label={label} style={{ display: "flex", alignItems: "flex-end", gap: 2, height, borderBottom: `1px solid ${C.line}` }} onMouseLeave={() => setSel(null)}>
+        {data.map((d, i) => (
+          <button key={i} className="board-bar" onMouseEnter={() => setSel(i)} onFocus={() => setSel(i)} onClick={() => setSel(i)} title={`${d.full || d.label}: ${money(d.value)}${d.sub ? ` · ${d.sub}` : ""}`}
+            style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "flex-end", background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+            <span style={{ display: "block", width: "100%", height: d.value ? `${Math.max(3, (d.value / max) * 100)}%` : 0, background: C.ink, opacity: (sel ?? peak) === i ? 1 : 0.55, borderRadius: "4px 4px 0 0", transition: "opacity .15s" }} />
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 2, marginTop: 4 }}>
+        {data.map((d, i) => <span key={i} style={{ flex: 1, minWidth: 0, textAlign: "center", fontFamily: FONT_BODY, fontSize: 9.5, color: C.stone, overflow: "hidden", whiteSpace: "nowrap" }}>{d.tick ?? ""}</span>)}
+      </div>
+    </div>
+  );
+};
+// Lista con barras horizontales (formas de pago, vendedoras, prendas): nombre, barra proporcional, monto y porcentaje
+const BoardRank = ({ rows, total, empty = "Sin datos en este periodo." }) => {
+  if (!rows.length) return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{empty}</div>;
+  const max = Math.max(...rows.map((r) => r.value), 0) || 1;
+  return rows.map((r) => (
+    <div key={r.name} style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 4 }}>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}{r.sub && <span style={{ color: C.stone }}> · {r.sub}</span>}</span>
+        <span style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}><strong>{r.money === false ? r.value : money(r.value)}</strong>{total > 0 && <span style={{ color: C.stone }}> · {Math.round((r.value / total) * 100)}%</span>}</span>
+      </div>
+      <div style={{ height: 8, background: C.paperDeep, borderRadius: 4 }}><div style={{ height: "100%", width: `${(r.value / max) * 100}%`, background: C.ink, borderRadius: 4 }} /></div>
+    </div>
+  ));
+};
+const SalesBoard = ({ catalog }) => {
+  const [f, setF] = useState(() => ({ ...defaultSalesFilter(), period: "hoy" }));
+  const stores = storesOf(catalog.settings);
+  const sellers = [...new Set((catalog.sales || []).map((s) => s.staffName || "Sin asignar"))].sort();
+  const list = filterSales(catalog.sales || [], { ...f, estado: "emitido" });
+  const valid = list.map(netSale);
+  const voided = filterSales(catalog.sales || [], { ...f, estado: "anulado" }).length;
+  const total = valid.reduce((a, s) => a + (s.total || 0), 0);
+  const units = valid.reduce((a, s) => a + (s.items || []).reduce((x, i) => x + (i.qty || 0), 0), 0);
+  const discount = valid.reduce((a, s) => a + (Number(s.discount) || 0), 0);
+  const refunded = valid.reduce((a, s) => a + (Number(s.refundedTotal) || 0), 0);
+  const facturas = valid.filter((s) => s.tipo === "factura").length;
+  const [ra, rb] = periodRange(f);
+  const days = Math.max(1, Math.round((Math.min(rb.getTime(), Date.now()) - ra.getTime()) / 86400000));
+  // Por hora del día (solo el tramo con ventas, mínimo de 9 a 21)
+  const hours = Array.from({ length: 24 }, () => ({ v: 0, n: 0 }));
+  valid.forEach((s) => { const h = new Date(s.createdAt).getHours(); hours[h].v += s.total || 0; hours[h].n++; });
+  const withSales = hours.map((h, i) => (h.n ? i : null)).filter((x) => x !== null);
+  const h0 = Math.min(9, ...withSales), h1 = Math.max(21, ...withSales);
+  const hourData = []; for (let h = h0; h <= h1; h++) hourData.push({ label: `${h}:00`, full: `${h}:00 – ${h + 1}:00`, value: hours[h].v, sub: `${hours[h].n} ${hours[h].n === 1 ? "venta" : "ventas"}`, tick: h % 3 === 0 ? `${h}h` : "" });
+  // Por día (si el periodo tiene más de un día; hasta 62 días)
+  let dayData = null;
+  if (days > 1 && days <= 62) {
+    const map = new Map();
+    for (let t = new Date(ra); t < rb && t.getTime() <= Date.now(); t.setDate(t.getDate() + 1)) map.set(ymd(t), { d: new Date(t), v: 0, n: 0 });
+    valid.forEach((s) => { const k = ymd(s.createdAt); const x = map.get(k); if (x) { x.v += s.total || 0; x.n++; } });
+    const arr = [...map.values()];
+    dayData = arr.map((x, i) => ({ label: x.d.toLocaleDateString("es-PE", { day: "numeric", month: "short" }), full: x.d.toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long" }), value: x.v, sub: `${x.n} ${x.n === 1 ? "venta" : "ventas"}`, tick: arr.length <= 8 || i % Math.ceil(arr.length / 7) === 0 ? String(x.d.getDate()) : "" }));
+  }
+  // Por día de la semana (promedio), útil para saber qué día reforzar personal
+  const WD = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+  const wd = WD.map(() => 0); valid.forEach((s) => { wd[new Date(s.createdAt).getDay()] += s.total || 0; });
+  const pays = {}; valid.forEach((s) => (s.payments && s.payments.length ? s.payments : [{ method: s.paymentMethod || "—", amount: s.total }]).forEach((p) => { pays[p.method] = (pays[p.method] || 0) + Number(p.amount || 0); }));
+  const payRows = Object.entries(pays).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+  const payTotal = payRows.reduce((a, r) => a + r.value, 0);
+  const bySeller = {}; valid.forEach((s) => { const k = s.staffName || "Sin asignar"; bySeller[k] = bySeller[k] || { v: 0, n: 0 }; bySeller[k].v += s.total || 0; bySeller[k].n++; });
+  const sellerRows = Object.entries(bySeller).sort((a, b) => b[1].v - a[1].v).slice(0, 6).map(([name, x]) => ({ name, value: x.v, sub: `${x.n} ${x.n === 1 ? "venta" : "ventas"}` }));
+  const byProd = {}; valid.forEach((s) => (s.items || []).forEach((i) => { const k = i.name || "—"; byProd[k] = (byProd[k] || 0) + (i.qty || 0); }));
+  const prodRows = Object.entries(byProd).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name, value, money: false }));
+  const kpi = (label, value, sub) => (
+    <div style={{ background: C.paperDeep, borderRadius: 12, padding: "12px 14px", minWidth: 0 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: C.stone }}>{label}</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {sub && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+  return (
+    <div className="sales-board" style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+      <span style={labelStyle}>Tablero de ventas</span>
+      <SalesFilterBar f={f} setF={setF} stores={stores} sellers={sellers} />
+      <div className="board-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8, marginBottom: 16 }}>
+        {kpi("Vendido", money(total), `${valid.length} ${valid.length === 1 ? "venta" : "ventas"}${voided ? ` · ${voided} anuladas` : ""}`)}
+        {kpi("Ticket promedio", money(valid.length ? total / valid.length : 0), "Por venta")}
+        {kpi("Prendas por venta", valid.length ? (units / valid.length).toFixed(1) : "0", `${units} prendas en total`)}
+        {kpi(days > 1 ? "Promedio por día" : "Descuentos", days > 1 ? money(total / days) : money(discount), days > 1 ? `${days} días · desc. ${money(discount)}` : refunded ? `Devuelto ${money(refunded)}` : "Promociones y rebajas")}
+        {kpi("Comprobantes", `${valid.length - facturas} / ${facturas}`, "Boletas / facturas")}
+      </div>
+      <div className="board-grid">
+        <div className="board-box"><div className="board-title">Ventas por hora</div><BoardBars data={hourData} label="Ventas por hora del día" /></div>
+        {dayData && <div className="board-box"><div className="board-title">Ventas por día</div><BoardBars data={dayData} label="Ventas por día" /></div>}
+        {days >= 7 && <div className="board-box"><div className="board-title">Por día de la semana</div><BoardBars data={WD.map((d, i) => ({ label: d, value: wd[i], tick: d }))} label="Ventas por día de la semana" height={100} /></div>}
+        <div className="board-box"><div className="board-title">Formas de pago</div><BoardRank rows={payRows} total={payTotal} /></div>
+        <div className="board-box"><div className="board-title">Por vendedora</div><BoardRank rows={sellerRows} total={total} /></div>
+        <div className="board-box"><div className="board-title">Prendas más vendidas (unidades)</div><BoardRank rows={prodRows} total={0} /></div>
+      </div>
+    </div>
+  );
+};
 
 // ---- Resumen del negocio (inicio del panel): todo sale de los registros reales ----
 const ACTION_LABELS = { compra_registrada: "Compra registrada", compra_anulada: "Compra anulada", venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
@@ -4412,6 +4618,7 @@ const BusinessSummary = ({ catalog, go }) => {
         {periods.map(([label, cur, prev, vsText]) => { const p = pct(tot(cur), tot(prev)); return tile(label, money(tot(cur)), `${cur.length} ventas${p !== null ? ` · ${p >= 0 ? "+" : ""}${p}% ${vsText}` : ""}`, () => go("reports")); })}
         {tile("Mes: tienda / web", <>{money(tot(shop))}<br />{money(tot(web))}</>, `${shop.length} en tienda · ${web.length} por la web`, () => go("reports"), false, true)}
       </div>
+      <SalesBoard catalog={catalog} />
       {extra.cash && (
         <AdminCard style={{ marginBottom: 14 }}>
           <span style={labelStyle}>Diferencias de caja (últimos cierres)</span>
@@ -4436,6 +4643,61 @@ const BusinessSummary = ({ catalog, go }) => {
       )}
       <span style={labelStyle}>Configuración de la tienda</span>
     </>
+  );
+};
+
+// Panel → «Temporadas»: automático por fecha, una fija o apagado; mensaje propio por temporada (y en inglés si se quiere)
+const SeasonSettings = ({ catalog, updateCatalog }) => {
+  const [cfg, setCfg] = useState(() => seasonCfg(catalog.settings));
+  const y = new Date().getFullYear();
+  const now = activeSeason({ season: cfg });
+  const fmt = ([m, d]) => `${d} ${MONTHS[m - 1].slice(0, 3).toLowerCase()}`;
+  const setMsg = (id, k, v) => setCfg((c) => ({ ...c, msgs: { ...(c.msgs || {}), [id]: { ...((c.msgs || {})[id] || {}), [k]: v } } }));
+  const toggleSkip = (id) => setCfg((c) => ({ ...c, skip: (c.skip || []).includes(id) ? c.skip.filter((x) => x !== id) : [...(c.skip || []), id] }));
+  const save = () => {
+    const msgs = Object.fromEntries(Object.entries(cfg.msgs || {}).map(([k, v]) => [k, { es: (v.es || "").trim(), en: (v.en || "").trim() }]).filter(([, v]) => v.es || v.en));
+    updateCatalog((c) => ({ ...c, settings: { ...c.settings, season: { mode: cfg.mode, fx: cfg.fx !== false, skip: cfg.skip || [], msgs } } }));
+    try { sessionStorage.removeItem(SEASON_FX_KEY); } catch (e) { /* nada */ }
+    alert(cfg.mode === "off" ? "Temporadas apagadas: la tienda se ve como siempre." : `Guardado. Ahora en la tienda: ${now ? `${now.name} — «${now.msg}»` : "nada (ninguna temporada cae en la fecha de hoy)"}.`);
+  };
+  return (
+    <FoldCard title="Temporadas (Navidad, Día de la Madre, Fiestas Patrias…)" summary={cfg.mode === "off" ? "Apagado" : now ? `Ahora: ${now.name}` : "Automático"}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
+        Detalles que cambian solos según la fecha, sin tocar los banners: un mensaje en la franja negra de arriba, una nota debajo de la portada y figuritas que caen unos segundos en el inicio (una vez por visita). Todo en blanco y negro, como la marca.
+      </div>
+      <Field label="¿Qué temporada se muestra?">
+        <select value={cfg.mode} onChange={(e) => setCfg((c) => ({ ...c, mode: e.target.value }))} style={inputStyle} aria-label="Temporada">
+          <option value="auto">Automático según la fecha (recomendado)</option>
+          <option value="off">Apagado</option>
+          {SEASONS.map((s) => <option key={s.id} value={s.id}>Siempre: {s.name}</option>)}
+        </select>
+      </Field>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 12, cursor: "pointer" }}>
+        <input type="checkbox" checked={cfg.fx !== false} onChange={(e) => setCfg((c) => ({ ...c, fx: e.target.checked }))} /> Figuritas que caen en el inicio (unos segundos)
+      </label>
+      <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 12 }}>
+        {cfg.mode === "off" ? "No se muestra ninguna temporada." : now ? <>Hoy se ve: <strong>{now.name}</strong> — «{now.msg}»</> : "Hoy no cae ninguna temporada."}
+      </div>
+      {cfg.mode !== "off" && SEASONS.map((s) => {
+        const Icon = s.icon; const r = seasonRange(s, y); const off = cfg.mode === "auto" && (cfg.skip || []).includes(s.id);
+        if (cfg.mode !== "auto" && cfg.mode !== s.id) return null;
+        return (
+          <div key={s.id} style={{ borderTop: `1px solid ${C.line}`, padding: "10px 0", opacity: off ? 0.5 : 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>
+              <Icon size={15} /> <strong>{s.name}</strong> <span style={{ color: C.stone, fontSize: 11.5 }}>{fmt(r[0])} – {fmt(r[1])}</span>
+              {cfg.mode === "auto" && <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, cursor: "pointer" }}><input type="checkbox" checked={!off} onChange={() => toggleSkip(s.id)} aria-label={`Usar ${s.name}`} /> Usar</label>}
+            </div>
+            {!off && (
+              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                <input value={(cfg.msgs || {})[s.id]?.es || ""} onChange={(e) => setMsg(s.id, "es", e.target.value)} placeholder={s.msg} aria-label={`Mensaje de ${s.name}`} style={{ ...inputStyle, flex: "2 1 220px", fontSize: 12.5 }} />
+                <input value={(cfg.msgs || {})[s.id]?.en || ""} onChange={(e) => setMsg(s.id, "en", e.target.value)} placeholder="En inglés (opcional)" aria-label={`Mensaje en inglés de ${s.name}`} style={{ ...inputStyle, flex: "1 1 160px", fontSize: 12.5 }} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <button onClick={save} style={{ marginTop: 10, padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar temporadas</button>
+    </FoldCard>
   );
 };
 
@@ -4517,7 +4779,7 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
       <BusinessSummary catalog={catalog} go={setAdminScreen} />
       <FoldCard title="Yape, Plin y transferencia bancaria">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
-          Esto se muestra a el cliente cuando elige pagar por Yape, Plin o transferencia, para que sepa a dónde enviar el dinero.
+          Esto se muestra al cliente cuando elige pagar por Yape, Plin o transferencia, para que sepa a dónde enviar el dinero.
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
           <input value={payAccounts.yapeNumber} onChange={(e) => setPayAccounts((f) => ({ ...f, yapeNumber: e.target.value }))} placeholder="Número Yape" style={inputStyle} />
@@ -4565,8 +4827,9 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           }} />
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 4 }}>{catalog.products.filter(isOutlet).length} prendas marcadas como Outlet. Se marcan una por una en Productos → editar → «Outlet».</div>
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6 }}>Ideal para liquidar a precio de costo sin mezclarlo con la colección: precio final, sin cupones ni puntos, envío a cargo de el cliente y sin cambios (salvo falla de fábrica).</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6 }}>Ideal para liquidar a precio de costo sin mezclarlo con la colección: precio final, sin cupones ni puntos, envío a cargo del cliente y sin cambios (salvo falla de fábrica).</div>
       </FoldCard>
+      <SeasonSettings catalog={catalog} updateCatalog={updateCatalog} />
       <FoldCard title="Programa de puntos (Club Fly)">
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
           <Switch on={clubOn(catalog.settings)} label={clubOn(catalog.settings) ? "Club Fly activo" : "Club Fly en pausa"} onClick={() => {
@@ -9530,10 +9793,10 @@ const CustomersScreen = ({ catalog, refreshData }) => {
   return (
     <div style={{ padding: "18px 18px 100px", maxWidth: 760, margin: "0 auto" }}>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Fly Lovers (Club Fly)</h1>
-      <div style={{ ...txt, marginBottom: 14 }}>{all.length} registradas · <strong>{yes}</strong> aceptan recibir publicidad. Solo a ellas se les envían ofertas; los avisos de pedidos se envían a todas.</div>
+      <div style={{ ...txt, marginBottom: 14 }}>{all.length} {all.length === 1 ? "persona registrada" : "personas registradas"} · <strong>{yes}</strong> aceptan recibir publicidad. Solo a quienes aceptan se les envían ofertas; los avisos de pedidos se envían a todos.</div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, celular, correo o DNI" style={{ ...inputStyle, marginBottom: 10 }} />
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-        {chip("todas", "Todas")}{chip("si", "Con permiso")}{chip("no", "Sin permiso")}
+        {chip("todas", "Todos")}{chip("si", "Con permiso")}{chip("no", "Sin permiso")}
         <button onClick={exportConsent} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 999, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}><FileSpreadsheet size={13} /> Descargar las que tienen permiso</button>
       </div>
       {msg && <div style={{ ...txt, color: C.ink, background: C.paperDeep, borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>{msg}</div>}
@@ -9557,6 +9820,21 @@ const CustomersScreen = ({ catalog, refreshData }) => {
                 <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 10 }}>
                   <div style={txt}>Puntos: <strong>{Number(c.points) || 0}</strong> · Compras: <strong>{c.st.n}</strong>{c.st.last ? ` · Última: ${new Date(c.st.last).toLocaleDateString("es-PE")}` : ""}{c.doc ? ` · Doc.: ${c.doc}` : ""}</div>
                   <div style={{ ...txt, marginTop: 4 }}>Registro: {c.createdAt ? new Date(c.createdAt).toLocaleDateString("es-PE") : "—"}{c.via ? ` (${c.via})` : ""}</div>
+                  {(() => {
+                    const buys = (catalog.sales || []).filter((s) => s.customerPhone === c.phone && s.status !== "anulado").sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 8);
+                    return buys.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ ...txt, fontWeight: 600, color: C.ink, marginBottom: 2 }}>Últimas compras</div>
+                        {buys.map((s) => (
+                          <div key={s.id} style={{ ...txt, display: "flex", justifyContent: "space-between", gap: 8, padding: "3px 0", borderBottom: `1px solid ${C.paperDeep}` }}>
+                            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{new Date(s.createdAt).toLocaleDateString("es-PE")} · {s.channel === "online" ? "Web" : "Tienda"} · {(s.items || []).map((i) => `${i.qty > 1 ? `${i.qty}× ` : ""}${i.name}`).join(", ")}</span>
+                            <strong style={{ color: C.ink, whiteSpace: "nowrap" }}>{moneyExact(netSale(s).total)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  {!String(c.phone || "").startsWith("g:") && <a href={`https://wa.me/${String(c.phone).replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink }}><MessageCircle size={14} /> Escribir por WhatsApp{consentOf(c)?.optIn ? "" : " (solo para su pedido, no publicidad)"}</a>}
                   <div style={{ ...txt, marginTop: 4 }}>Publicidad: {cs ? `${cs.optIn ? "acepta" : "no acepta"} desde ${new Date(cs.at).toLocaleString("es-PE")} (${cs.via || "—"}${cs.by ? `, anotó ${cs.by}` : ""}${cs.note ? `: «${cs.note}»` : ""})` : "nunca respondió → no se le envía publicidad"}</div>
                   <div style={{ marginTop: 10 }}>
                     <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="¿Cómo lo pidió? (obligatorio)" style={{ ...inputStyle, marginBottom: 8 }} />
@@ -9703,7 +9981,7 @@ const STAFF_GUIDES = {
     ["Layers", "Agrega tallas (botones XS a XXL) y colores: cada combinación tiene su propio stock y su propio código de barras. El sistema no deja repetir códigos."],
     ["ImageIcon", "Sube fotos verticales (ideal 1080×1440) y asigna cada foto a su color. Puedes subir un video."],
     ["Eye", "Usa «Activo / Borrador» y «Mostrar en la web» para publicar u ocultar sin borrar."],
-    ["Gift", "Para liquidar: en la lista toca «Pasar al Outlet» y escribe el precio final (luego puedes cambiarlo o «Sacar del Outlet»). También desde editar → «Outlet». Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo de el cliente, sin cambios)."],
+    ["Gift", "Para liquidar: en la lista toca «Pasar al Outlet» y escribe el precio final (luego puedes cambiarlo o «Sacar del Outlet»). También desde editar → «Outlet». Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo del cliente, sin cambios)."],
   ] },
   productEditor: { title: "Editar un producto", steps: [
     ["Pencil", "Cambia lo que necesites y toca «Guardar». El stock real no se pisa: las ventas hechas mientras editas se respetan."],
@@ -9758,11 +10036,54 @@ const GuideImage = ({ src, alt }) => {
   return <img src={src} alt={alt || ""} onError={() => setOk(false)} loading="lazy" style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.line}`, display: "block", background: C.paperDeep }} />;
 };
 
-const StaffHelp = ({ screen, onOpenManual }) => {
-  const guide = STAFF_GUIDES[screen];
+// ---- Asistente de ayuda (gratis, sin internet ni IA de pago): busca la respuesta en el manual, las guías y las opciones del panel ----
+const HELP_STOP = new Set("como cómo que qué para por con una uno unos unas los las del una de la el en se me mi mis lo le y o a al es esta este hago hacer puedo quiero donde dónde cuando cuál cual hay sale".split(" ").map((w) => normTxt(w)));
+const HELP_SYN = { anular: "anular anulo anula cancelar borrar eliminar", devolver: "devolver devolucion devuelve cambio cambiar reembolso", imprimir: "imprimir reimprimir ticket boleta comprobante", foto: "foto fotos imagen imagenes subir", precio: "precio precios oferta rebaja descuento", caja: "caja abrir cerrar arqueo turno fondo efectivo dinero", stock: "stock inventario cantidad agotado agotada", cliente: "cliente clientes fly lovers club puntos", vendedora: "vendedora vendedor codigo ma01", promo: "promo promocion promociones cupon cupones combo" };
+const helpWords = (q) => {
+  const ws = normTxt(q).replace(/[^a-z0-9ñ ]/g, " ").split(/\s+/).filter((w) => w.length >= 3 && !HELP_STOP.has(w));
+  const more = []; ws.forEach((w) => Object.values(HELP_SYN).forEach((g) => { if (g.split(" ").some((s) => s.startsWith(w.slice(0, 5)))) more.push(...g.split(" ")); }));
+  return [...new Set([...ws, ...more])];
+};
+const helpAnswer = (q, role) => {
+  const ws = helpWords(q); if (!ws.length) return [];
+  const docs = [];
+  MORE_ITEMS.filter((it) => it.id !== "backup" && canOpenScreen(role, it.id)).forEach((it) => docs.push({ title: it.t, steps: [it.d], screen: it.id, head: `${it.t} ${it.k}`, body: it.d }));
+  Object.entries(STAFF_GUIDES).filter(([sc]) => canOpenScreen(role, sc) || sc === "manual").forEach(([sc, g]) => docs.push({ title: g.title, steps: g.steps.map((s) => s[1]), screen: sc, head: g.title, body: g.steps.map((s) => s[1]).join(" ") }));
+  MANUAL_SECTIONS.filter((x) => !x.roles || x.roles.includes(role)).forEach((sec) => (sec.items || []).forEach((it) => docs.push({ title: it.title, steps: it.steps || [], screen: null, head: `${it.title} ${sec.title}`, body: (it.steps || []).join(" ") })));
+  const score = (d) => { const H = normTxt(d.head), B = normTxt(d.body); return ws.reduce((a, w) => { const st = w.slice(0, Math.max(4, w.length - 2)); return a + (H.includes(st) ? 3 : 0) + (B.includes(st) ? 1 : 0); }, 0); };
+  return docs.map((d) => ({ ...d, s: score(d) })).filter((d) => d.s > 0).sort((a, b) => b.s - a.s).slice(0, 3);
+};
+const HelpAsk = ({ role, onGo }) => {
+  const [q, setQ] = useState("");
+  const [asked, setAsked] = useState("");
+  const res = useMemo(() => (asked ? helpAnswer(asked, role) : []), [asked, role]);
+  const ask = (e) => { e && e.preventDefault(); setAsked(q.trim()); };
+  return (
+    <div style={{ marginBottom: 12, flexShrink: 0 }}>
+      <form onSubmit={ask} style={{ display: "flex", gap: 8 }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pregunta lo que necesites (ej. ¿cómo anulo una venta?)" aria-label="Pregunta de ayuda" style={{ ...inputStyle, flex: 1 }} />
+        <button type="submit" disabled={!q.trim()} style={{ padding: "0 16px", borderRadius: 8, border: "none", background: q.trim() ? C.ink : C.line, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: q.trim() ? "pointer" : "default" }}>Preguntar</button>
+      </form>
+      {asked && (
+        <div className="help-answer" style={{ marginTop: 10, maxHeight: "40vh", overflowY: "auto" }}>
+          {res.length === 0 ? (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, background: C.paperDeep, borderRadius: 12, padding: "10px 12px" }}>No encontré eso en el manual. Prueba con otras palabras (ej. «devolución», «abrir caja», «subir fotos») o abre el manual completo.</div>
+          ) : res.map((r, i) => (
+            <div key={i} style={{ background: C.paperDeep, borderRadius: 12, padding: "10px 12px", marginBottom: 8 }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{i === 0 ? "Esto te puede servir: " : ""}{r.title}</div>
+              <ol style={{ margin: 0, paddingLeft: 18, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.5 }}>{r.steps.slice(0, 6).map((s, j) => <li key={j}>{s}</li>)}</ol>
+              {r.screen && onGo && <button onClick={() => onGo(r.screen)} style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 999, border: `1px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Ir a esa pantalla <ChevronRight size={13} /></button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+const StaffHelp = ({ screen, onOpenManual, role, onGo }) => {
+  const guide = STAFF_GUIDES[screen] || { title: "Ayuda", steps: [] };
   const [open, setOpen] = useState(false);
   useEffect(() => { setOpen(false); }, [screen]); // la guía solo se abre al tocar el botón de Ayuda
-  if (!guide) return null;
   return (
     <>
       <button onClick={() => setOpen(true)} title="¿Cómo se hace? Ver los pasos de esta pantalla" className="staff-help-btn"
@@ -9777,6 +10098,7 @@ const StaffHelp = ({ screen, onOpenManual }) => {
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>{guide.title}</div>
               <button onClick={() => setOpen(false)} aria-label="Cerrar ayuda" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
             </div>
+            {role && <HelpAsk role={role} onGo={onGo ? (sc) => { setOpen(false); onGo(sc); } : null} />}
             <div className="help-steps" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, overflowY: "auto", minHeight: 0, flex: 1 }}>
               {guide.img && <div style={{ gridColumn: "1 / -1" }}><GuideImage src={guide.img} alt={guide.title} /></div>}
               {guide.steps.map(([icon, text], i) => {
@@ -9823,7 +10145,7 @@ const MANUAL_SECTIONS = [
     { title: "8. Cerrar la caja (al final del día)", img: "/guia/cierre.png", steps: ["Caja → «Cerrar caja» → toca quién cierra.", "Cuenta todo el efectivo (incluido el fondo) y escríbelo.", "Si sobra o falta, escribe el motivo.", "«Cerrar caja» → imprime el informe y guárdalo con el dinero.", "Cierra la sesión."] },
   ] },
   { id: "online", roles: ["vendedora_online", "administrador", "superadmin"], icon: "Smartphone", title: "Vendedora online", items: [
-    { title: "Venta por WhatsApp o redes", steps: ["Venta Online → agrega las prendas.", "Datos de el cliente y forma de pago.", "Registrar: el stock se descuenta al instante.", "Pedidos Web: sigue el estado hasta entregado."] },
+    { title: "Venta por WhatsApp o redes", steps: ["Venta Online → agrega las prendas.", "Datos del cliente y forma de pago.", "Registrar: el stock se descuenta al instante.", "Pedidos Web: sigue el estado hasta entregado."] },
   ] },
   { id: "almacen", roles: ["almacen", "administrador", "superadmin"], icon: "Package", title: "Almacén", items: [
     { title: "Stock", steps: ["Stock → busca la prenda.", "Para un ingreso de mercadería, merma o corrección: cambia la cantidad y escribe el motivo.", "Queda registrado quién lo hizo y cuándo."] },
@@ -10112,7 +10434,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const deleteCollection = (id) => { if (confirm("¿Eliminar esta colección?")) updateCatalog((c) => ({ ...c, collections: c.collections.filter((col) => col.id !== id) })); };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", background: C.paper, minHeight: 0 }}>
+    <div className="staff-shell" style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", background: C.paper, minHeight: 0 }}>
       <div className="app-content staff-main" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
         {screen !== "productEditor" && screen !== "bannerEditor" && screen !== "collectionEditor" && <AdminTopBar title={`Fly · ${ROLE_LABELS[role] || role}`} onExit={onExit} onBack={screen !== homeScreen ? () => window.history.back() : null} onHome={screen !== homeScreen ? () => setScreen(homeScreen) : null} />}
         {screen === "productEditor" && <AdminTopBar title={editingProductId ? "Editar producto" : "Nuevo producto"} onBack={() => setScreen("products")} onExit={onExit} />}
@@ -10153,7 +10475,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
         {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} onCancelUnpaid={role !== "almacen" ? cancelUnpaid : null} onSaveUnpaidHours={isAdminRole ? saveUnpaidHours : null} onSaveCartHold={isAdminRole ? saveCartHold : null} />}
       </div>
-      {screen !== "manual" && <StaffHelp screen={screen} onOpenManual={() => setScreen("manual")} />}
+      {screen !== "manual" && <StaffHelp screen={screen} role={role} onGo={setScreen} onOpenManual={() => setScreen("manual")} />}
       <AdminNav screen={screen} setScreen={setScreen} role={role} />
     </div>
   );
@@ -10861,6 +11183,7 @@ export default function FlyBoutiqueApp() {
         @keyframes slideUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes toastIn { from { transform: translate(-50%, -10px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
         @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        @keyframes season-fall { from { transform: translateY(0) rotate(0deg); } to { transform: translateY(110vh) rotate(220deg); } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 0.9s linear infinite; }
         button { font-family: inherit; }
@@ -11044,9 +11367,41 @@ export default function FlyBoutiqueApp() {
           .install-card { display: none !important; }
           .page-narrow { max-width: 760px; margin: 0 auto; }
         }
+        /* Tablero de ventas */
+        .board-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+        .board-box { border: 1px solid ${C.line}; border-radius: 12px; padding: 12px 14px; min-width: 0; }
+        .board-title { font-family: ${FONT_BODY}; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: ${C.stone}; margin-bottom: 8px; }
+        .board-bar:focus-visible { outline: 2px solid ${C.ink}; outline-offset: 1px; }
+        @media (min-width: 900px) { .board-grid { grid-template-columns: 1fr 1fr; } }
+        /* Menú lateral del staff: solo en PC ancha */
+        .side-brand, .side-more { display: none; }
+        @media (min-width: 1100px) {
+          .app-frame.is-staff { max-width: none !important; }
+          .staff-shell { flex-direction: row !important; align-items: flex-start; }
+          .staff-shell > .staff-main { flex: 1 1 auto; min-width: 0; }
+          .staff-nav {
+            order: -1; position: sticky !important; top: 0 !important; align-self: flex-start;
+            width: 236px !important; flex: 0 0 236px; height: 100vh; height: 100dvh; overflow-y: auto;
+            flex-direction: column !important; justify-content: flex-start !important; gap: 2px !important;
+            padding: 18px 12px 24px !important; border-bottom: none !important; border-right: 1px solid ${C.line} !important;
+            box-shadow: none !important; clip-path: none !important; background: ${C.paper} !important;
+          }
+          .staff-nav .nav-item { width: 100%; justify-content: flex-start !important; border-radius: 10px !important; padding: 9px 12px !important; }
+          .staff-nav .nav-item.side-hide { display: none !important; }
+          .side-brand { display: block; font-family: ${FONT_DISPLAY}; font-size: 26px; font-weight: 900; color: ${C.ink}; letter-spacing: .04em; padding: 0 12px 14px; }
+          .side-brand span { display: block; font-family: ${FONT_BODY}; font-size: 11px; font-weight: 400; letter-spacing: 0; color: ${C.stone}; }
+          .side-more { display: block; margin-top: 10px; border-top: 1px solid ${C.line}; padding-top: 6px; }
+          .side-group-title { font-family: ${FONT_BODY}; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: ${C.stone}; padding: 12px 12px 4px; }
+          .side-link { display: flex; align-items: center; gap: 9px; width: 100%; background: none; border: none; cursor: pointer; text-align: left; font-family: ${FONT_BODY}; font-size: 12.5px; color: ${C.inkSoft}; padding: 6px 12px; border-radius: 9px; }
+          .side-link:hover, .side-link.is-active { background: ${C.paperDeep}; color: ${C.ink}; }
+          .side-link.is-active { font-weight: 600; }
+          .admin-topbar { margin: 16px 24px 0 !important; }
+          .staff-main > div:not(.admin-topbar):not(.overlay-sheet):not([style*="position: fixed"]) { max-width: 1180px; }
+          .pos-right { top: 16px !important; max-height: calc(100vh - 32px) !important; }
+        }
       `}</style>
 
-      <div className={`app-frame${mode === "store" && selectedProduct ? " pdp-open" : ""}`} style={frameStyle}>
+      <div className={`app-frame${mode === "store" && selectedProduct ? " pdp-open" : ""}${mode === "staff" ? " is-staff" : ""}`} style={frameStyle}>
         {!catalog ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, background: C.paper }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 52, fontWeight: 900, color: C.ink, letterSpacing: "0.04em" }}>FLY</div>
