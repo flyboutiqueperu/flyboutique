@@ -1,5 +1,13 @@
 // Traducciones de la tienda al inglés (español → inglés). Si falta una, se muestra en español.
 const EN = {
+ "Piezas con carácter, hechas para volar": "Pieces with character, made to fly",
+ "Colección primavera": "Spring collection",
+ "Nueva temporada": "New season",
+ "Ofertas de temporada": "Seasonal sale",
+ "Ver ofertas": "See deals",
+ "Comprar ahora": "Shop now",
+ "Ver novedades": "See what's new",
+ "Descubre la colección": "Discover the collection",
  "Usamos cookies necesarias para que la tienda funcione (tu cesta y tu sesión). Con tu permiso, también usamos cookies de estadísticas para mejorar la tienda. Nunca vendemos tus datos.": "We use necessary cookies so the store works (your bag and your session). With your permission, we also use analytics cookies to improve the store. We never sell your data.",
  "No se pudo cargar la verificación. Revisa tu conexión.": "The verification couldn't load. Check your connection.",
  "La verificación está tardando (señal débil).": "The verification is taking a while (weak signal).",

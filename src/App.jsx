@@ -404,6 +404,8 @@ const THUMB_ORIGINAL = new Map();
 // Nombre y descripción de la prenda en el idioma elegido (si se escribió en inglés en el editor)
 const pName = (p) => (getLang() === "en" && p?.nameEn) || p?.name || "";
 const pDesc = (p) => (getLang() === "en" && p?.descriptionEn) || p?.description || "";
+// Textos que escribe el panel (banners): en inglés usa su versión «En»; si está vacía, el diccionario; si tampoco, el español.
+const bText = (b, f) => (getLang() === "en" ? (b?.[`${f}En`] || t(b?.[f] || "")) : b?.[f] || "");
 const imgThumb = (m) => { if (!m) return null; if (m.thumb && m.url) THUMB_ORIGINAL.set(m.thumb, m.url); return m.thumb || m.url; };
 // Para mover fotos viejas guardadas dentro de la base de datos (data:image/...) a Storage
 async function uploadDataUrl(dataUrl, folder) {
@@ -1187,14 +1189,14 @@ const HeroCarousel = ({ banners, onCta }) => {
           <div className={i === idx ? "hero-zoom" : ""} style={{ position: "absolute", inset: 0 }}>
             {b.videoUrl
               ? <SmartVideo src={b.videoUrl} poster={b.image} active={i === idx && visible} />
-              : <ProductImg src={b.image} alt={b.title} priority={i === 0} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+              : <ProductImg src={b.image} alt={bText(b, "title")} priority={i === 0} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
           </div>
         </div>
       ))}
       <div style={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none", background: `linear-gradient(0deg, ${C.scrim}CC 0%, ${C.scrim}10 42%, transparent 68%)` }} />
       <div key={cur.id} style={{ position: "absolute", left: 20, right: 20, bottom: 28, zIndex: 3, animation: "slideUp .6s ease" }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, color: C.white, fontWeight: 800, lineHeight: 1.02, letterSpacing: "-0.01em", marginBottom: 14 }}>{cur.title}</div>
-        <button className="cta-glow" onClick={() => onCta(cur)} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: C.white, border: `1px solid ${C.white}`, padding: "12px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>{cur.ctaLabel ? (getLang() === "en" && cur.ctaLabelEn) || cur.ctaLabel : t("Ver colección")} <ChevronRight size={14} /></button>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, color: C.white, fontWeight: 800, lineHeight: 1.02, letterSpacing: "-0.01em", marginBottom: 14 }}>{bText(cur, "title")}</div>
+        <button className="cta-glow" onClick={() => onCta(cur)} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: C.white, border: `1px solid ${C.white}`, padding: "12px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>{cur.ctaLabel ? bText(cur, "ctaLabel") : t("Ver colección")} <ChevronRight size={14} /></button>
       </div>
       {n > 1 && (
         <div style={{ position: "absolute", bottom: 6, right: 12, display: "flex", gap: 2, zIndex: 3 }}>
@@ -5242,8 +5244,13 @@ const AdminBannerEditor = ({ banner, onSave, onCancel }) => {
       <AdminCard style={{ marginBottom: 14 }}>
         <Field label="Eyebrow (texto pequeño superior)"><input style={inputStyle} value={form.eyebrow} onChange={(e) => set("eyebrow", e.target.value)} placeholder="Colección primavera" /></Field>
         <Field label="Título"><input style={inputStyle} value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Piezas con carácter, hechas para volar" /></Field>
+        <Field label="Título en inglés (opcional)"><input style={inputStyle} value={form.titleEn || ""} onChange={(e) => set("titleEn", e.target.value)} placeholder="Pieces with character, made to fly" /></Field>
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}><Field label="Texto del botón"><input style={inputStyle} value={form.ctaLabel} onChange={(e) => set("ctaLabel", e.target.value)} /></Field></div>
+          <div style={{ flex: 1 }}><Field label="Botón en inglés (opcional)"><input style={inputStyle} value={form.ctaLabelEn || ""} onChange={(e) => set("ctaLabelEn", e.target.value)} placeholder="Shop the collection" /></Field></div>
+        </div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, margin: "-4px 0 10px", lineHeight: 1.5 }}>Si dejas vacío el inglés, la tienda en inglés usa una traducción conocida o, si no la hay, el texto en español.</div>
+        <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}><Field label="Categoría destino"><select style={inputStyle} value={form.ctaValue} onChange={(e) => set("ctaValue", e.target.value)}><option value="Todo">Todo el catálogo</option>{CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field></div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
@@ -10320,7 +10327,7 @@ export default function FlyBoutiqueApp() {
   const isAppleTouch = isIOS || isIPad;
   const isIOSSafari = isAppleTouch && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA|Instagram|FBAN|FBAV|TikTok|Line\//i.test(ua);
   const [installSheet, setInstallSheet] = useState(null); // null | "store" | "staff" | "caja"
-  const sheetApp = mode === "staffLogin" ? (staffAppName() === "Fly Caja" ? "caja" : "staff") : mode === "store" ? "store" : null;
+  const sheetApp = mode === "staffLogin" || mode === "staff" ? (staffAppName() === "Fly Caja" ? "caja" : "staff") : mode === "store" ? "store" : null;
   useEffect(() => {
     if (isStandalone || !catalog || !sheetApp) { setInstallSheet(null); return; }
     const key = `fly:installAsk:${sheetApp}`;
@@ -10679,8 +10686,11 @@ export default function FlyBoutiqueApp() {
             {installSheet && installSheet !== "store" && <InstallSheet app={installSheet} canPrompt={!!installEvt} ios={isAppleTouch} iosSafari={isIOSSafari} ipad={isIPad} onInstall={() => { closeInstallSheet(); installStaffApp(); }} onClose={closeInstallSheet} />}
           </>
         ) : mode === "staff" && session ? (
+          <>
           <StaffApp catalog={catalog} updateCatalog={updateCatalog} patchCatalog={setCatalog} refreshData={refreshPrivate} role={session.staffMember.role} staffName={session.staffMember.name} staffUsername={session.staffMember.username}
             currentUserId={session.staffMember.user_id} reserveNumber={reserveNumber} onExit={() => exitStaff("Sesión cerrada")} initialScreen={staffScreenFromHash()} />
+          {installSheet && installSheet !== "store" && <InstallSheet app={installSheet} canPrompt={!!installEvt} ios={isAppleTouch} iosSafari={isIOSSafari} ipad={isIPad} onInstall={() => { closeInstallSheet(); installStaffApp(); }} onClose={closeInstallSheet} />}
+          </>
         ) : (
           <>
             <div className="app-content" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
