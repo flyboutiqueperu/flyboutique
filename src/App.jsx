@@ -4283,6 +4283,25 @@ const quickLinkStyle = { display: "flex", alignItems: "center", gap: 10, padding
 
 // ---- Resumen del negocio (inicio del panel): todo sale de los registros reales ----
 const ACTION_LABELS = { compra_registrada: "Compra registrada", compra_anulada: "Compra anulada", venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
+// Tarjeta desplegable: título siempre visible; el contenido se abre al tocar. Recuerda si la dejaste abierta.
+const FoldCard = ({ id, title, summary, defaultOpen = false, children, style }) => {
+  const key = `flyboutique:plegado:${id || title}`;
+  const [open, setOpen] = useState(() => { try { const v = localStorage.getItem(key); return v === null ? defaultOpen : v === "1"; } catch (e) { return defaultOpen; } });
+  const toggle = () => setOpen((o) => { try { localStorage.setItem(key, o ? "0" : "1"); } catch (e) { /* sin guardado */ } return !o; });
+  return (
+    <div className={`fold-card${open ? " is-open" : ""}`} style={{ background: C.paperDeep, border: `1px solid ${open ? C.ink : C.line}`, borderRadius: 12, marginBottom: 10, ...style }}>
+      <button type="button" className="fold-btn" aria-expanded={open} onClick={toggle} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "14px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left", minHeight: 52 }}>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 700, color: C.ink }}>{title}</span>
+          {!open && summary && <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{summary}</span>}
+        </span>
+        <ChevronDown className="fold-chev" size={18} color={C.ink} />
+      </button>
+      {open && <div className="fold-body" style={{ padding: "0 16px 16px" }}>{children}</div>}
+    </div>
+  );
+};
+
 const BusinessSummary = ({ catalog, go }) => {
   const [extra, setExtra] = useState({ transfers: null, cash: null, activity: null });
   useEffect(() => {
@@ -4450,8 +4469,7 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
       <Eyebrow>Fly</Eyebrow>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 24, color: C.ink, fontWeight: 800, margin: "0 0 20px" }}>Panel de control</h1>
       <BusinessSummary catalog={catalog} go={setAdminScreen} />
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Yape, Plin y transferencia bancaria</span>
+      <FoldCard title="Yape, Plin y transferencia bancaria">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
           Esto se muestra a la clienta cuando elige pagar por Yape, Plin o transferencia, para que sepa a dónde enviar el dinero.
         </div>
@@ -4465,9 +4483,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           <input value={payAccounts.bankCCI} onChange={(e) => setPayAccounts((f) => ({ ...f, bankCCI: e.target.value }))} placeholder="CCI" style={inputStyle} />
         </div>
         <button onClick={savePayAccounts} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar datos de pago</button>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Configuración de pagos — Culqi (tarjeta)</span>
+      </FoldCard>
+      <FoldCard title="Configuración de pagos — Culqi (tarjeta)">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
           Pega aquí solo tu <strong>llave pública</strong> (empieza con <code>pk_</code>). Nunca pegues la llave secreta (<code>sk_</code>) en la app — esa va únicamente en tu servidor.
         </div>
@@ -4475,9 +4492,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           <input value={culqiKey} onChange={(e) => setCulqiKey(e.target.value)} placeholder="pk_test_xxxxxxxxxxxx" style={inputStyle} />
           <button onClick={saveCulqiKey} style={{ padding: "0 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
         </div>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Verificación anti-robots — Cloudflare Turnstile</span>
+      </FoldCard>
+      <FoldCard title="Verificación anti-robots — Cloudflare Turnstile">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
           Pega aquí la <strong>Site Key</strong> (empieza con <code>0x</code>). La <strong>Secret Key</strong> nunca va aquí: se guarda en Supabase.
         </div>
@@ -4485,18 +4501,16 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           <input value={turnstileKey} onChange={(e) => setTurnstileKey(e.target.value)} placeholder="0x4AAAAAAA…" style={inputStyle} />
           <button onClick={saveTurnstileKey} style={{ padding: "0 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
         </div>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Estadísticas de visitas</span>
+      </FoldCard>
+      <FoldCard title="Estadísticas de visitas">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
           <strong>Google Analytics</strong> (empieza con <code>G-</code>): visitas, de dónde llegan y en qué paso abandonan la compra. <strong>Microsoft Clarity</strong> (código corto de letras y números): mapas de calor y grabaciones anónimas de cómo navegan. Solo se activan con clientas que aceptan las cookies.
         </div>
         <Field label="Google Analytics — ID de medición"><input value={gaId} onChange={(e) => setGaId(e.target.value)} placeholder="G-XXXXXXXXXX" style={inputStyle} /></Field>
         <Field label="Microsoft Clarity — ID del proyecto"><input value={clarityId} onChange={(e) => setClarityId(e.target.value)} placeholder="abcd1234ef" style={inputStyle} /></Field>
         <button onClick={saveStatsIds} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Outlet (liquidación)</span>
+      </FoldCard>
+      <FoldCard title="Outlet (liquidación)">
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
           <Switch on={outletOn(catalog.settings)} label={outletOn(catalog.settings) ? "Outlet abierto en la web" : "Outlet cerrado (pausado)"} onClick={() => {
             const turnOff = outletOn(catalog.settings);
@@ -4506,9 +4520,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 4 }}>{catalog.products.filter(isOutlet).length} prendas marcadas como Outlet. Se marcan una por una en Productos → editar → «Outlet».</div>
         </div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6 }}>Ideal para liquidar a precio de costo sin mezclarlo con la colección: precio final, sin cupones ni puntos, envío a cargo de la clienta y sin cambios (salvo falla de fábrica).</div>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Programa de puntos (Club Fly)</span>
+      </FoldCard>
+      <FoldCard title="Programa de puntos (Club Fly)">
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
           <Switch on={clubOn(catalog.settings)} label={clubOn(catalog.settings) ? "Club Fly activo" : "Club Fly en pausa"} onClick={() => {
             const turnOff = clubOn(catalog.settings);
@@ -4544,9 +4557,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           );
         })()}
         <button onClick={saveLoyalty} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Descuento manual en caja</span>
+      </FoldCard>
+      <FoldCard title="Descuento manual en caja">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Máximo que una vendedora puede descontar a mano en una venta (los códigos promocionales y los puntos no cuentan). Administración no tiene tope. El servidor también lo revisa.</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>
           Hasta
@@ -4554,9 +4566,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           % del subtotal
           <button onClick={saveDiscountCap} style={{ marginLeft: "auto", padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
         </div>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Redes sociales (pie de la tienda)</span>
+      </FoldCard>
+      <FoldCard title="Redes sociales (pie de la tienda)">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 10 }}>Pega el enlace completo. Si dejas uno vacío, ese ícono no aparece.</div>
         {[["instagram", "Instagram"], ["facebook", "Facebook"], ["tiktok", "TikTok"], ["youtube", "YouTube"], ["whatsapp", "WhatsApp (https://wa.me/51…)"]].map(([k, l]) => (
           <Field key={k} label={l}><input style={inputStyle} value={socials[k] || ""} onChange={(e) => setSocials({ ...socials, [k]: e.target.value.trim() })} placeholder="https://…" /></Field>
@@ -4567,9 +4578,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           <Field key={ag} label={ag}><input style={inputStyle} value={trackingUrls[ag] || ""} onChange={(e) => setTrackingUrls({ ...trackingUrls, [ag]: e.target.value.trim() })} placeholder="https://…" /></Field>
         ))}
         <button onClick={saveSocials} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Datos de la empresa</span>
+      </FoldCard>
+      <FoldCard title="Datos de la empresa">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Aparecen en el Libro de Reclamaciones y en los comprobantes.</div>
         <Field label="Razón social"><input style={inputStyle} value={company.legalName} onChange={(e) => setCompany({ ...company, legalName: e.target.value })} /></Field>
         <Field label="RUC"><input style={inputStyle} inputMode="numeric" value={company.ruc} onChange={(e) => setCompany({ ...company, ruc: e.target.value.replace(/\D/g, "").slice(0, 11) })} placeholder="20xxxxxxxxx" /></Field>
@@ -4582,9 +4592,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           </select>
         </Field>
         <button onClick={saveCompany} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Sedes</span>
+      </FoldCard>
+      <FoldCard title="Sedes">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Cada venta de la caja queda registrada con su sede. Si agregas una segunda sede, la caja te pedirá elegir en cuál estás vendiendo.</div>
         {stores.map((st, i) => (
           <div key={st.id || i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -4597,9 +4606,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           <button onClick={() => setStores([...stores, { id: "", name: "", address: "" }])} style={{ padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>+ Agregar sede</button>
           <button onClick={saveStores} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
         </div>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Tarifas de envío en Perú (S/ por pedido)</span>
+      </FoldCard>
+      <FoldCard title="Tarifas de envío en Perú (S/ por pedido)">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Delivery en Trujillo y envío a cada departamento. Si dejas un departamento vacío se usa la tarifa por defecto (la que aparece en gris).</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 12 }}>
           Delivery en Trujillo S/
@@ -4619,9 +4627,8 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           </div>
         </details>
         <button onClick={savePeruShipping} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
-      </AdminCard>
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Tarifas de envío internacional (S/ por pedido)</span>
+      </FoldCard>
+      <FoldCard title="Tarifas de envío internacional (S/ por pedido)">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 10 }}>Pon el precio que cobras por zona después de cotizar con cada agencia. Si lo dejas vacío, la cesta dirá "Por cotizar" y coordinas el costo por WhatsApp.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "center", fontFamily: FONT_BODY, fontSize: 12 }}>
           <div /><strong>Serpost</strong><strong>DHL Express</strong>
@@ -4645,29 +4652,17 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           </div>
         </details>
         <button onClick={saveIntl} style={{ marginTop: 10, padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar</button>
-      </AdminCard>
+      </FoldCard>
       {pendingMedia > 0 && (
-        <AdminCard style={{ marginBottom: 14 }}>
-          <span style={labelStyle}>Fotos guardadas a la antigua</span>
+        <FoldCard title="Fotos guardadas a la antigua">
           <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
             Hay <strong>{pendingMedia}</strong> fotos guardadas dentro de la base de datos del catálogo. Muévelas al almacenamiento rápido para que la tienda cargue más ligero. Se hace una sola vez.
           </div>
           <button onClick={moveMediaToStorage} disabled={!!moving} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: moving ? "wait" : "pointer", opacity: moving ? 0.7 : 1 }}>
             {moving ? `Moviendo… ${moving.done} de ${moving.total}` : "Mover fotos al almacenamiento"}
           </button>
-        </AdminCard>
+        </FoldCard>
       )}
-      <AdminCard style={{ marginBottom: 14 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-          <ShieldCheck size={18} color={C.brass} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 4 }}>Listo para una base de datos real</div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.6 }}>
-              Todo lo que edites aquí se guarda con almacenamiento persistente de la app. El modelo de datos (productos, variantes con talla/color/stock, banners y colecciones) ya está estructurado como tablas — cuando conectes Postgres, Firebase u otra base de datos, solo reemplazas las funciones de guardado por llamadas a tu API.
-            </div>
-          </div>
-        </div>
-      </AdminCard>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
         <button onClick={() => setAdminScreen("products")} style={quickLinkStyle}><Package size={16} color={C.ink} /> Gestionar productos y stock <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
         <button onClick={() => setAdminScreen("banners")} style={quickLinkStyle}><ImageIcon size={16} color={C.ink} /> Editar banners de inicio <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -8319,15 +8314,14 @@ const AdminReportsScreen = ({ catalog }) => {
       {sub && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 2 }}>{sub}</div>}
     </AdminCard>
   );
-  const table = (title, rows, cols) => (
-    <AdminCard style={{ marginBottom: 14 }}>
-      <span style={labelStyle}>{title}</span>
+  const table = (title, rows, cols, open = false) => (
+    <FoldCard id={`rep-${title}`} title={title} defaultOpen={open} summary={rows.length ? `${rows.length} ${rows.length === 1 ? "fila" : "filas"} · primero: ${rows[0][0]} (${rows[0][rows[0].length - 1]})` : "Sin datos en este periodo"}>
       {rows.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Sin datos en este periodo.</div> : rows.map((r, i) => (
         <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
           <span style={{ flex: 1 }}>{r[0]}</span>{cols.map((c, j) => <span key={j} style={{ minWidth: 70, textAlign: "right", fontWeight: j === cols.length - 1 ? 700 : 400 }}>{r[j + 1]}</span>)}
         </div>
       ))}
-    </AdminCard>
+    </FoldCard>
   );
   const totalUnidades = catalog.products.reduce((a, p) => a + productTotalStock(p), 0);
   const agotados = catalog.products.filter(productSoldOut).length;
@@ -8345,7 +8339,7 @@ const AdminReportsScreen = ({ catalog }) => {
         {card("Web", money(sum(web)), `${web.length} pedidos`)}
       </div>
       <ProfitSection catalog={catalog} sales={valid} all={list} range={periodRange(f)} />
-      {table("Por vendedora", Object.entries(bySeller).sort((a, b) => b[1].total - a[1].total).map(([n, v]) => [n, v.count, v.units, money(v.total)]), ["Ventas", "Prendas", "Total"])}
+      {table("Por vendedora", Object.entries(bySeller).sort((a, b) => b[1].total - a[1].total).map(([n, v]) => [n, v.count, v.units, money(v.total)]), ["Ventas", "Prendas", "Total"], true)}
       {table("Por sede", Object.entries(byStore).sort((x, y) => y[1].total - x[1].total).map(([n, v]) => [n, v.count, money(v.total)]), ["Ventas", "Total"])}
       {table("Por día", Object.entries(byDay).sort((a, b) => { const p = (x) => x.split("/").reverse().join(""); return p(b[0]).localeCompare(p(a[0])); }).map(([d, v]) => [d, money(v)]), ["Total"])}
       {table("Por medio de pago", Object.entries(byPay).sort((a, b) => b[1] - a[1]).map(([m, v]) => [m, money(v)]), ["Total"])}
@@ -8482,10 +8476,15 @@ const MORE_ITEMS = [
   { id: "backup", g: "seguridad", t: "Copia de seguridad (datos)", d: "Descargar ventas, clientas y catálogo (una vez por semana).", icon: HardDriveDownload, k: "respaldo backup datos json", only: "superadmin" },
 ];
 const MORE_RECENT_KEY = "flyboutique:mas-recientes:v1";
+const MORE_OPEN_KEY = "flyboutique:mas-abiertos:v1";
+const MORE_GROUP_ICONS = { ventas: Banknote, inventario: Package, clientes: Users, tienda: Store, equipo: BarChart3, seguridad: ShieldCheck };
 const normTxt = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const AdminMoreScreen = ({ setScreen, role, catalog }) => {
   const [q, setQ] = useState("");
   const [recent, setRecent] = useState(() => { try { return JSON.parse(localStorage.getItem(MORE_RECENT_KEY) || "[]"); } catch (e) { return []; } });
+  // Grupos desplegables (como un menú por módulos): se ven solo los títulos y se abre el que necesitas. Se recuerda qué dejaste abierto.
+  const [openG, setOpenG] = useState(() => { try { const v = JSON.parse(localStorage.getItem(MORE_OPEN_KEY) || "null"); return Array.isArray(v) ? v : []; } catch (e) { return []; } });
+  const toggleG = (g) => setOpenG((cur) => { const next = cur.includes(g) ? cur.filter((x) => x !== g) : [...cur, g]; try { localStorage.setItem(MORE_OPEN_KEY, JSON.stringify(next)); } catch (e) { /* sin guardado */ } return next; });
   const items = MORE_ITEMS.filter((it) => !it.only || it.only === role);
   const ordersPending = (catalog?.sales || []).filter((x) => x.channel === "online" && x.source === "web" && x.status !== "anulado" && x.paymentStatus !== "confirmado").length;
   const badgeOf = (it) => (it.badge === "orders" && ordersPending > 0 ? ordersPending : 0);
@@ -8536,10 +8535,21 @@ const AdminMoreScreen = ({ setScreen, role, catalog }) => {
           {MORE_GROUPS.map(([g, title]) => {
             const list = items.filter((it) => it.g === g).sort((a, b) => a.t.localeCompare(b.t, "es"));
             if (!list.length) return null;
+            const isOpen = openG.includes(g); const GIcon = MORE_GROUP_ICONS[g] || LayoutGrid;
+            const alert = list.reduce((a, it) => a + badgeOf(it), 0);
             return (
-              <section key={g} style={{ marginBottom: 18 }}>
-                <div className="more-head">{title}</div>
-                <div className="more-grid">{list.map((it) => tile(it, idx++))}</div>
+              <section key={g} className={`more-group${isOpen ? " is-open" : ""}`}>
+                <button type="button" className="more-group-btn" aria-expanded={isOpen} onClick={() => toggleG(g)}>
+                  <span className="more-group-ico"><GIcon size={17} color={C.ink} strokeWidth={1.8} /></span>
+                  <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                    <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 14.5, fontWeight: 700, color: C.ink }}>{title}</span>
+                    {!isOpen && <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{list.map((it) => it.t).join(" · ")}</span>}
+                  </span>
+                  {alert > 0 && !isOpen && <span className="more-badge" style={{ position: "static" }}>{alert}</span>}
+                  <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>{list.length}</span>
+                  <ChevronDown className="more-group-chev" size={18} color={C.ink} />
+                </button>
+                {isOpen && <div className="more-grid more-group-body">{list.map((it) => tile(it, idx++))}</div>}
               </section>
             );
           })}
@@ -10404,6 +10414,21 @@ export default function FlyBoutiqueApp() {
         .dash-tile { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both; transition: transform .15s ease, box-shadow .2s ease; }
         .dash-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,.07); }
         .more-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        .fold-chev { transition: transform .25s ease; flex-shrink: 0; }
+        .fold-card.is-open .fold-chev { transform: rotate(180deg); }
+        .fold-body { animation: groupIn .28s ease both; }
+        @media (prefers-reduced-motion: reduce) { .fold-body { animation: none; } .fold-chev { transition: none; } }
+        .more-group { border: 1px solid ${C.line}; border-radius: 14px; margin-bottom: 10px; background: ${C.paper}; overflow: hidden; }
+        .more-group.is-open { border-color: ${C.ink}; }
+        .more-group-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; background: none; border: none; cursor: pointer; min-height: 60px; }
+        .more-group-ico { width: 36px; height: 36px; border-radius: 10px; background: ${C.paperDeep}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .more-group.is-open .more-group-ico { background: ${C.ink}; }
+        .more-group.is-open .more-group-ico svg { color: ${C.paper}; stroke: ${C.paper}; }
+        .more-group-chev { transition: transform .25s ease; flex-shrink: 0; }
+        .more-group.is-open .more-group-chev { transform: rotate(180deg); }
+        .more-group-body { padding: 0 12px 12px; animation: groupIn .28s ease both; }
+        @keyframes groupIn { from { opacity: 0; transform: translateY(-6px); } }
+        @media (prefers-reduced-motion: reduce) { .more-group-body { animation: none; } .more-group-chev { transition: none; } }
         @media (min-width: 760px) { .more-grid { grid-template-columns: 1fr 1fr; } }
         .more-head { font-family: ${FONT_BODY}; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: ${C.stone}; margin: 0 0 8px; }
         .more-tile { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid ${C.line}; background: ${C.paper}; cursor: pointer; animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both; transition: transform .15s ease, box-shadow .2s ease, border-color .2s ease; }
