@@ -3990,7 +3990,7 @@ const PasswordInput = ({ value, onChange, style, dark = false, ...rest }) => {
   );
 };
 
-const StaffAccess = ({ onDone, onCancel, installName, onInstall }) => {
+const StaffAccess = ({ onDone, onCancel, installName, onInstall, installHint }) => {
   const [step, setStep] = useState("checking");
   const [profile, setProfile] = useState(null);
   const [factorId, setFactorId] = useState(null);
@@ -4159,6 +4159,7 @@ const StaffAccess = ({ onDone, onCancel, installName, onInstall }) => {
           <Download size={15} color={C.paper} /> Instalar «{installName}» en este equipo
         </button>
       )}
+      {installName && onInstall && installHint && <div style={{ marginTop: 8, fontFamily: FONT_BODY, fontSize: 12, color: C.paper, maxWidth: 270, textAlign: "center" }}>Listo. Toca otra vez «Instalar» para terminar.</div>}
     </>
   );
 };
@@ -9777,6 +9778,10 @@ export default function FlyBoutiqueApp() {
     if (title) title.setAttribute("content", caja ? "Fly Caja" : staff ? "Fly Staff" : "Fly");
     const icon = document.querySelector('link[rel="apple-touch-icon"]');
     if (icon) icon.setAttribute("href", app ? `/icons/${app}-apple-touch-icon.png` : "/icons/apple-touch-icon.png");
+    // App instalada: se recuerda que es la de staff/caja, así al abrirla vuelve a su pantalla aunque el celular la abra en «/»
+    // (ver index.html). Se olvida al tocar «Volver a la tienda».
+    const standalone = window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    if (standalone && app) { try { localStorage.setItem("fly:homeApp", app); } catch (e) { /* sin almacenamiento */ } }
   }, [mode]);
   const [session, setSession] = useState(null); // { staffMember } — perfil de staff_profiles
   const sessionRef = useRef(null); sessionRef.current = session;
@@ -10190,11 +10195,16 @@ export default function FlyBoutiqueApp() {
   // (el navegador vuelve a ofrecer la instalación con el manifiesto nuevo).
   useEffect(() => { setInstallEvt(null); }, [mode]);
   const staffAppName = () => { try { return sessionStorage.getItem("fly:app") === "caja" ? "Fly Caja" : "Fly Staff"; } catch (e) { return "Fly Staff"; } };
+  const [installHint] = useState(() => { try { const h = sessionStorage.getItem("fly:installHint"); sessionStorage.removeItem("fly:installHint"); return !!h; } catch (e) { return false; } });
   const installStaffApp = async () => {
     const name = staffAppName();
+    // Si la página se cargó como tienda (se entró al staff sin recargar), el celular instalaría con la dirección de la tienda:
+    // se recarga en /staff o /caja y se vuelve a tocar «Instalar».
+    const key = name === "Fly Caja" ? "caja" : "staff";
+    if (window.__flyBootApp !== undefined && window.__flyBootApp !== key) { try { sessionStorage.setItem("fly:installHint", "1"); } catch (e) { /* nada */ } window.location.assign(`/${key}`); return; }
     if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (e) { /* cancelado */ } setInstallEvt(null); return; }
-    if (isIOS) alert(`Para instalar «${name}» en el iPhone:\n\n1. Abre esta página en Safari.\n2. Toca Compartir (el cuadrado con flecha hacia arriba).\n3. Elige «Agregar a pantalla de inicio» y toca «Agregar».`);
-    else alert(`Para instalar «${name}»:\n\n1. Abre esta página en Chrome.\n2. Toca los tres puntitos (arriba a la derecha).\n3. Elige «Instalar app» o «Agregar a pantalla de inicio».`);
+    if (isIOS) alert(`Para instalar «${name}» en el iPhone:\n\n1. Abre flyboutique.vercel.app/${key} en Safari.\n2. Toca Compartir (el cuadrado con flecha hacia arriba).\n3. Elige «Agregar a pantalla de inicio» y toca «Agregar».`);
+    else alert(`Para instalar «${name}»:\n\n1. Abre flyboutique.vercel.app/${key} en Chrome.\n2. Toca los tres puntitos (arriba a la derecha).\n3. Elige «Instalar app» o «Agregar a pantalla de inicio».`);
   };
   const installApp = async () => {
     if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (e) { /* cancelado */ } setInstallEvt(null); return; }
@@ -10475,7 +10485,7 @@ export default function FlyBoutiqueApp() {
             )}
           </div>
         ) : mode === "staffLogin" ? (
-          <StaffAccess onDone={enterStaff} onCancel={() => { setMode("store"); clearStaffHash(); }} installName={isStandalone ? null : staffAppName()} onInstall={installStaffApp} />
+          <StaffAccess onDone={enterStaff} onCancel={() => { try { localStorage.removeItem("fly:homeApp"); } catch (e) { /* nada */ } setMode("store"); clearStaffHash(); }} installName={isStandalone ? null : staffAppName()} onInstall={installStaffApp} installHint={installHint} />
         ) : mode === "staff" && session ? (
           <StaffApp catalog={catalog} updateCatalog={updateCatalog} patchCatalog={setCatalog} refreshData={refreshPrivate} role={session.staffMember.role} staffName={session.staffMember.name} staffUsername={session.staffMember.username}
             currentUserId={session.staffMember.user_id} reserveNumber={reserveNumber} onExit={() => exitStaff("Sesión cerrada")} initialScreen={staffScreenFromHash()} />
