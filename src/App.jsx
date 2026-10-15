@@ -1243,6 +1243,16 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
         </div>
       )}
 
+      {outletCount > 0 && (
+        <button className="outlet-card" onClick={() => setScreen("outlet")} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "calc(100% - 40px)", margin: "0 20px 30px", padding: "18px 20px", borderRadius: 12, border: "none", background: C.ink, cursor: "pointer", textAlign: "left" }}>
+          <span>
+            <span style={{ display: "block", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.paper }}>{t("OUTLET")}</span>
+            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, color: `${C.paper}BB`, marginTop: 3 }}>{t(outletCount === 1 ? "Últimas unidades a precio final · {n} prenda" : "Últimas unidades a precio final · {n} prendas", { n: outletCount })}</span>
+          </span>
+          <ChevronRight className="nudge-x" size={18} color={C.paper} />
+        </button>
+      )}
+
       <Reveal>
       <SectionTitle eyebrow="Recién llegado" title={t("Nueva colección")} action="Ver todo" onAction={() => setScreen("category")} />
       <div className="nuevos-row" style={{ display: "flex", gap: 14, overflowX: "auto", padding: "0 20px 6px", marginBottom: 32, scrollbarWidth: "none" }}>
@@ -1274,15 +1284,6 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
         </div></Reveal>
       )}
 
-      {outletCount > 0 && (
-        <button onClick={() => setScreen("outlet")} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "calc(100% - 40px)", margin: "0 20px 32px", padding: "18px 20px", borderRadius: 12, border: `1px solid ${C.ink}`, background: C.paper, cursor: "pointer", textAlign: "left" }}>
-          <span>
-            <span style={{ display: "block", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.ink }}>{t("OUTLET")}</span>
-            <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 3 }}>{t(outletCount === 1 ? "Últimas unidades a precio final · {n} prenda" : "Últimas unidades a precio final · {n} prendas", { n: outletCount })}</span>
-          </span>
-          <ChevronRight className="nudge-x" size={18} color={C.ink} />
-        </button>
-      )}
 
     </div>
   );
@@ -1388,7 +1389,7 @@ const ViewedScreen = ({ catalog, viewedIds, onOpen, favs, onToggleFav, onQuickAd
   );
 };
 
-const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCategory, onOpen, favs, onToggleFav, onQuickAdd, cartSessionId, searchQuery = "", setSearchQuery, group = null, setGroup }) => {
+const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, setActiveCategory, onOpen, favs, onToggleFav, onQuickAdd, cartSessionId, searchQuery = "", setSearchQuery, group = null, setGroup }) => {
   const [panel, setPanel] = useState(null);
   const products = catalog.products.filter((p) => p.showOnline !== false && (outlet ? isOutlet(p) && outletOn(catalog.settings) : !isOutlet(p)));
   const { collections } = catalog;
@@ -1452,6 +1453,7 @@ const CategoryScreen = ({ outlet = false, catalog, activeCategory, setActiveCate
           {filterBtn("precio", "Precio", Ticket, priceLimit < maxPrice ? 1 : 0)}
           {allTags.length > 0 && filterBtn("destacado", "Destacado", Star, tags.size)}
           {filterBtn("orden", sort === "relevance" ? "Ordenar" : (SORT_OPTIONS.find(([k]) => k === sort) || [, "Ordenar"])[1], ArrowUpDown, 0)}
+          {!outlet && onOutlet && <button onClick={onOutlet} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 999, border: `1px solid ${C.ink}`, background: C.paper, color: C.ink, fontFamily: FONT_DISPLAY, fontSize: 12, fontWeight: 800, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>{t("OUTLET")} <ChevronRight size={13} /></button>}
         </div>
         {panel && (
           <div style={{ padding: "14px 0 6px" }}>
@@ -3988,7 +3990,7 @@ const PasswordInput = ({ value, onChange, style, dark = false, ...rest }) => {
   );
 };
 
-const StaffAccess = ({ onDone, onCancel }) => {
+const StaffAccess = ({ onDone, onCancel, installName, onInstall }) => {
   const [step, setStep] = useState("checking");
   const [profile, setProfile] = useState(null);
   const [factorId, setFactorId] = useState(null);
@@ -4152,6 +4154,11 @@ const StaffAccess = ({ onDone, onCancel }) => {
         <button onClick={cancel} style={darkBtn}>Volver a la tienda</button>
         {!isLocked && <button onClick={login} disabled={busy} style={{ ...lightBtn, opacity: busy ? 0.6 : 1 }}>{busy ? "Entrando…" : "Entrar"}</button>}
       </div>
+      {installName && onInstall && (
+        <button className="staff-install" onClick={onInstall} style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px dashed ${C.paper}66`, borderRadius: 10, padding: "10px 14px", color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", maxWidth: 270, width: "100%", justifyContent: "center" }}>
+          <Download size={15} color={C.paper} /> Instalar «{installName}» en este equipo
+        </button>
+      )}
     </>
   );
 };
@@ -9665,14 +9672,17 @@ export default function FlyBoutiqueApp() {
   setStaffMode(mode !== "store");
   useEffect(() => { try { document.documentElement.lang = mode === "store" ? lang : "es"; } catch (e) { /* nada */ } }, [lang, mode]);
   // En el panel del staff, «Agregar a pantalla de inicio» instala otra app: «Fly Staff» (abre directo en el acceso del staff)
+  // Si se entró por /caja, se ofrece «Fly Caja» (app aparte que abre directo en la caja).
   useEffect(() => {
     const staff = mode !== "store";
+    let caja = false; try { caja = staff && sessionStorage.getItem("fly:app") === "caja"; } catch (e) { /* nada */ }
+    const app = caja ? "caja" : staff ? "staff" : "";
     const link = document.querySelector('link[rel="manifest"]');
-    if (link) link.setAttribute("href", staff ? "/manifest-staff.webmanifest" : "/manifest.webmanifest");
+    if (link) link.setAttribute("href", app ? `/manifest-${app}.webmanifest` : "/manifest.webmanifest");
     const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-    if (title) title.setAttribute("content", staff ? "Fly Staff" : "Fly");
+    if (title) title.setAttribute("content", caja ? "Fly Caja" : staff ? "Fly Staff" : "Fly");
     const icon = document.querySelector('link[rel="apple-touch-icon"]');
-    if (icon) icon.setAttribute("href", staff ? "/icons/staff-apple-touch-icon.png" : "/icons/apple-touch-icon.png");
+    if (icon) icon.setAttribute("href", app ? `/icons/${app}-apple-touch-icon.png` : "/icons/apple-touch-icon.png");
   }, [mode]);
   const [session, setSession] = useState(null); // { staffMember } — perfil de staff_profiles
   const sessionRef = useRef(null); sessionRef.current = session;
@@ -10082,6 +10092,16 @@ export default function FlyBoutiqueApp() {
     window.addEventListener("appinstalled", onInstalled);
     return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); };
   }, []);
+  // Al pasar de la tienda al staff cambia el manifiesto: el aviso guardado era de la otra app, se descarta
+  // (el navegador vuelve a ofrecer la instalación con el manifiesto nuevo).
+  useEffect(() => { setInstallEvt(null); }, [mode]);
+  const staffAppName = () => { try { return sessionStorage.getItem("fly:app") === "caja" ? "Fly Caja" : "Fly Staff"; } catch (e) { return "Fly Staff"; } };
+  const installStaffApp = async () => {
+    const name = staffAppName();
+    if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (e) { /* cancelado */ } setInstallEvt(null); return; }
+    if (isIOS) alert(`Para instalar «${name}» en el iPhone:\n\n1. Abre esta página en Safari.\n2. Toca Compartir (el cuadrado con flecha hacia arriba).\n3. Elige «Agregar a pantalla de inicio» y toca «Agregar».`);
+    else alert(`Para instalar «${name}»:\n\n1. Abre esta página en Chrome.\n2. Toca los tres puntitos (arriba a la derecha).\n3. Elige «Instalar app» o «Agregar a pantalla de inicio».`);
+  };
   const installApp = async () => {
     if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (e) { /* cancelado */ } setInstallEvt(null); return; }
     if (isIOS) alert(t("Para instalar Fly en tu iPhone:\n\n1. Toca el botón Compartir (el cuadrado con flecha hacia arriba, abajo en Safari).\n2. Elige \"Agregar a pantalla de inicio\".\n3. Toca \"Agregar\"."));
@@ -10361,7 +10381,7 @@ export default function FlyBoutiqueApp() {
             )}
           </div>
         ) : mode === "staffLogin" ? (
-          <StaffAccess onDone={enterStaff} onCancel={() => { setMode("store"); clearStaffHash(); }} />
+          <StaffAccess onDone={enterStaff} onCancel={() => { setMode("store"); clearStaffHash(); }} installName={isStandalone ? null : staffAppName()} onInstall={installStaffApp} />
         ) : mode === "staff" && session ? (
           <StaffApp catalog={catalog} updateCatalog={updateCatalog} patchCatalog={setCatalog} refreshData={refreshPrivate} role={session.staffMember.role} staffName={session.staffMember.name} staffUsername={session.staffMember.username}
             currentUserId={session.staffMember.user_id} reserveNumber={reserveNumber} onExit={() => exitStaff("Sesión cerrada")} initialScreen={staffScreenFromHash()} />
@@ -10376,7 +10396,7 @@ export default function FlyBoutiqueApp() {
               {screen === "home" && !selectedProduct && !clubMember && clubOn(catalog?.settings) && <ClubInvite onJoin={() => setScreen("loyalty")} />}
               {screen === "info" && <InfoScreen sectionIndex={infoSectionIndex} setScreen={setScreen} />}
               {screen === "outlet" && <CategoryScreen key="outlet" outlet catalog={catalog} activeCategory={outletCat} setActiveCategory={setOutletCat} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={outletQ} setSearchQuery={setOutletQ} group={null} setGroup={() => {}} />}
-              {screen === "category" && <CategoryScreen catalog={catalog} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={searchQuery} setSearchQuery={setSearchQuery} group={catalogGroup} setGroup={setCatalogGroup} />}
+              {screen === "category" && <CategoryScreen onOutlet={outletOn(catalog.settings) && catalog.products.some((p) => p.showOnline !== false && isOutlet(p) && !productSoldOut(p)) ? () => setScreen("outlet") : null} catalog={catalog} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={searchQuery} setSearchQuery={setSearchQuery} group={catalogGroup} setGroup={setCatalogGroup} />}
               {screen === "viewed" && <ViewedScreen catalog={catalog} viewedIds={viewedIds} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} onRemoveViewed={removeFromViewed} setScreen={setScreen} />}
               {screen === "cart" && <CartScreen cart={cart} onRenewHold={renewHold} updateQty={updateQty} removeItem={removeItem} setScreen={setScreen} culqiPublicKey={catalog.settings?.culqiPublicKey} payAccounts={catalog.settings}
                 promoCodes={catalog.promoCodes} clubMember={clubMember} onConfirmOrder={confirmOnlineOrder} points={points} />}

@@ -21,7 +21,7 @@ const catalog = { products: [mk("p1", "Vestido Lino", 100), mk("p2", "Blusa Arch
     await p.evaluate(() => { location.hash = "#/"; }); await p.waitForTimeout(500);
     await p.getByText(/Últimas unidades a precio final/).first().click(); await p.waitForTimeout(700);
     t = await p.innerText("body");
-    console.log(label, "3) Sección Outlet muestra la prenda y reglas:", t.includes("Blusa Archivo") && t.includes("Venta final"));
+    console.log(label, "3) Sección Outlet muestra la prenda y reglas:", t.includes("Blusa Archivo") && /venta final/i.test(t));
     await p.screenshot({ path: `${out}/outlet-${label}.png` });
     // cesta: vestido 100 + blusa outlet 40, cupón 10% → 10; delivery: 100 < 120 → 12; total 142
     for (const id of ["p1", "p2"]) { await p.evaluate((x) => { location.hash = "#/p/" + x; }, id); await p.waitForTimeout(900); if (id === "p2") console.log(label, "4) Ficha Outlet con reglas:", (await p.innerText("body")).includes("Sin cambios ni devoluciones")); await p.getByRole("button", { name: /añadir a la cesta|agregar a la cesta|añadir$/i }).last().click(); await p.waitForTimeout(400); }
