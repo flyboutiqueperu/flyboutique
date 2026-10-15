@@ -56,10 +56,11 @@ const hist = [
   await p.screenshot({ path: `${out}/m-login.png` });
   await p.fill('input[placeholder="Contraseña"]', "clave1234"); await p.click("text=Entrar");
   await p.waitForTimeout(2500);
-  await p.screenshot({ path: `${out}/m-panel.png` });
+  await p.screenshot({ path: `${out}/m-panel.png` }); await p.evaluate(() => { const el = [...document.querySelectorAll("*")].find((x) => x.scrollHeight > x.clientHeight + 50 && /auto|scroll/.test(getComputedStyle(x).overflowY)); if (el) el.scrollTop = el.scrollHeight; }); await p.waitForTimeout(400); await p.screenshot({ path: `${out}/m-panel-fin.png` }); await p.evaluate(() => { document.querySelectorAll("*").forEach((x) => { if (x.scrollTop) x.scrollTop = 0; }); });
   const w = await p.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   console.log("2) Panel: ancho página", w[0], "pantalla", w[1], w[0] > w[1] + 2 ? "⚠ SE DESBORDA" : "ok");
   await p.getByText("Más", { exact: true }).last().click(); await p.waitForTimeout(400);
+  await p.locator('.more-group-btn:has-text("Equipo y reportes")').click(); await p.waitForTimeout(300); // los grupos de «Más» son desplegables
   await p.getByText("Reportes", { exact: true }).first().click(); await p.waitForTimeout(1200);
   let t = await p.innerText("body");
   console.log("R1) Ventas sin envío 447:", /Ventas \(sin envío\)[\s\S]{0,40}S\/ 447\.00/.test(t), "| incompleto por Pantalón:", t.includes("Faltan costos de 1 de 3") && t.includes("Pantalón Sastre (1)"));

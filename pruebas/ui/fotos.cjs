@@ -69,6 +69,7 @@ const log = (k, v) => { (calls[k] = calls[k] || []).push(v); };
   // Copia de datos completa (2500 ventas)
   await p.evaluate(() => { location.hash = "#staff/more"; }); await p.waitForTimeout(800);
   const dl = p.waitForEvent("download", { timeout: 20000 }); 
+  await p.evaluate(() => document.querySelectorAll(".more-group:not(.is-open) .more-group-btn").forEach((b) => { if (b.textContent.includes("Seguridad")) b.click(); })); await p.waitForTimeout(300);
   await p.click("button:has-text('Copia de seguridad (datos)')"); // «Más» → Seguridad y copias
   const d = await dl; const f = path.join(out, d.suggestedFilename()); await d.saveAs(f); await p.waitForTimeout(500);
   const j = JSON.parse(fs.readFileSync(f, "utf8"));
