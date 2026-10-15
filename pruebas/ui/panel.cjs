@@ -64,7 +64,7 @@ const hist = [
   console.log("2) Panel: ancho página", w[0], "pantalla", w[1], w[0] > w[1] + 2 ? "⚠ SE DESBORDA" : "ok");
   await p.waitForTimeout(800);
   const t = await p.innerText("body");
-  console.log("D1) Hoy/Semana/Mes:", /HOY[\s\S]{0,30}S\/ \d+/.test(t), "| tienda/web:", /S\/ \d+ \/ S\/ \d+/.test(t), "| guías en camino 2:", /GUÍAS EN CAMINO\s*2/.test(t), "| diferencia caja:", t.includes("Faltó sencillo"), "| actividad:", t.includes("Guía emitida · T001-000004"));
+  console.log("D1) Hoy/Semana/Mes:", /HOY[\s\S]{0,30}S\/ \d+/.test(t), "| tienda/web:", /Mes: tienda \/ web\s*S\/ ?[\d,.]+\s*S\/ ?[\d,.]+/i.test(t), "| guías en camino 2:", /GUÍAS EN CAMINO\s*2/.test(t), "| diferencia caja:", t.includes("Faltó sencillo"), "| actividad:", t.includes("Guía emitida · T001-000004"));
   await p.screenshot({ path: `${out}/panel.png`, fullPage: false });
   await b.close(); srv.close();
 })().catch((e) => { console.log("FALLO:", e.message); process.exit(1); });

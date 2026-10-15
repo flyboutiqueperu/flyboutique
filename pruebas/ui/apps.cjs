@@ -1,7 +1,7 @@
 // Prueba de las 3 apps instalables (tienda, Fly Staff, Fly Caja) y de dónde se ve el Outlet. Uso: node pruebas/ui/apps.cjs <carpeta>
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
 const types = { ".js": "text/javascript", ".png": "image/png", ".css": "text/css", ".webmanifest": "application/manifest+json" };
 const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?")[0].split("#")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": types[path.extname(f)] || "text/html" }); r.end(fs.readFileSync(f)); }).listen(4381);
 const mk = (id, name, price, extra = {}) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, images: [], variants: [{ id: id + "M", size: "M", colorName: "Negro", colorHex: "#111", stock: 3 }], ...extra });
@@ -48,6 +48,30 @@ let ok = true; const check = (txt, v) => { console.log(v ? "OK " : "FALLA", txt)
   await chip.click(); await p3.waitForTimeout(800);
   check("el chip abre el Outlet", (await p3.evaluate(() => document.body.innerText)).includes("Blusa Archivo") && p3.url().includes("/outlet"));
   await p3.screenshot({ path: `${out}/apps-outlet.png` });
+
+  // Instalar desde la tienda (entró al staff sin recargar): recarga en /staff para que el celular use el manifiesto correcto
+  await p3.goto("http://localhost:4381/"); await p3.waitForTimeout(1200);
+  await p3.evaluate(() => { location.hash = "#staff"; }); await p3.waitForTimeout(800);
+  await p3.click(".staff-install"); await p3.waitForTimeout(2000);
+  check("instalar desde la tienda recarga en /staff (" + p3.url() + ")", p3.url().endsWith("/#staff") && (await p3.evaluate(() => document.querySelector('link[rel="manifest"]').getAttribute("href"))) === "/manifest-staff.webmanifest");
+  check("aviso «toca otra vez Instalar»", (await p3.evaluate(() => document.body.innerText)).includes("Toca otra vez «Instalar»"));
+  check("un solo manifiesto en la página", (await p3.evaluate(() => document.querySelectorAll('link[rel="manifest"]').length)) === 1);
+
+  // App instalada que el celular abre en «/»: vuelve sola al staff; «Volver a la tienda» lo olvida
+  const ctx2 = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await ctx2.addInitScript(() => { localStorage.setItem("flyboutique:cookieconsent:v1", "none"); const mm = window.matchMedia.bind(window); window.matchMedia = (q) => (q.includes("display-mode: standalone") ? { matches: true, media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} } : mm(q)); });
+  const p4 = await ctx2.newPage(); p4.setDefaultTimeout(4000); p4.on("pageerror", (e) => { console.log("ERROR EN PÁGINA:", e.message); ok = false; });
+  await p4.route("http://fake.supabase.test/**", (rt) => rt.request().url().includes("store_data") ? rt.fulfill({ json: { data: catalog } }) : rt.fulfill({ json: [] }));
+  await p4.goto("http://localhost:4381/staff"); await p4.waitForTimeout(1500);
+  check("app instalada recuerda que es staff", (await p4.evaluate(() => localStorage.getItem("fly:homeApp"))) === "staff");
+  await p4.goto("http://localhost:4381/"); await p4.waitForTimeout(1500);
+  check("abierta en «/» vuelve al acceso del staff", (await p4.evaluate(() => document.body.innerText)).includes("Acceso Staff") && p4.url().endsWith("/#staff"));
+  check("…con manifiesto staff", (await p4.evaluate(() => document.querySelector('link[rel="manifest"]').getAttribute("href"))) === "/manifest-staff.webmanifest");
+  check("instalada: sin botón de instalar", (await p4.locator(".staff-install").count()) === 0);
+  await p4.click("text=Volver a la tienda"); await p4.waitForTimeout(500);
+  await p4.goto("http://localhost:4381/"); await p4.waitForTimeout(1500);
+  check("tras «Volver a la tienda» abre la tienda", !(await p4.evaluate(() => document.body.innerText)).includes("Acceso Staff"));
+  await ctx2.close();
 
   catalog.settings.outletEnabled = false;
   await p3.goto("http://localhost:4381/"); await p3.waitForTimeout(1500);

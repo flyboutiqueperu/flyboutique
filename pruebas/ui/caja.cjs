@@ -51,7 +51,7 @@ let cash = null; const calls = [];
   await p.screenshot({ path: `${out}/pos-con-prenda.png` });
   const cobrar = await p.$("text=/Cobrar/"); if (cobrar) { await cobrar.click(); await p.waitForTimeout(500);
     const t = await p.innerText("body");
-    console.log("4b) Cobro pide código:", t.includes("Código de quien atendió"));
+    console.log("4b) Cobro pide quién atendió (nombre o código):", t.includes("¿Quién atendió?") && t.includes("Obligatorio para registrar la venta"));
     await p.fill('input[placeholder="Ej. MA01"]', "ma01"); await p.waitForTimeout(200);
     console.log("4c) Código reconocido:", (await p.innerText("body")).includes("✓ María Alvarado"));
     await p.screenshot({ path: `${out}/cobro-codigo.png` });

@@ -29,7 +29,8 @@ const loggedIn = async (p) => { try { await p.waitForSelector("text=/Caja/", { t
     await p.fill('input[placeholder="Usuario"]', "larco"); await p.fill('input[placeholder="Contraseña"]', "clave1234");
     await p.click("text=Entrar"); await p.waitForTimeout(2500);
     let t = await p.innerText("body");
-    console.log(`[${name}] guía se abrió sola:`, t.includes("Cómo hacer una venta"), "| mensaje vendedora:", t.includes("no abrir la caja"));
+    // La guía ya no se abre sola (solo con «Ayuda»); la vendedora entra a «Caja» y ve que debe pedir que la abran.
+    console.log(`[${name}] guía cerrada al entrar:`, !/Cómo (usar la caja|hacer una venta)/.test(t), "| mensaje vendedora:", t.includes("no abrir la caja") || t.includes("Pide al cajero o a Administración que la abra"));
     try { await p.click(".nav-item >> nth=1", { timeout: 3000 }); console.log("  menú se puede tocar: sí"); await p.click(".nav-item >> nth=0"); } catch (e) { console.log("  menú se puede tocar: NO"); }
     await p.click(".staff-help-btn"); await p.waitForTimeout(400);
     const sc = await p.$eval(".help-steps", (el) => ({ scroll: el.scrollHeight > el.clientHeight + 2 }));

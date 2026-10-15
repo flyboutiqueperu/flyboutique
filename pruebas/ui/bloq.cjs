@@ -28,9 +28,12 @@ const loggedIn = async (p) => { try { await p.waitForSelector("text=/Caja/", { t
   await p.fill('input[placeholder="Usuario"]', "larco"); await p.fill('input[placeholder="Contraseña"]', "clave1234");
   await p.click("text=Entrar"); await p.waitForTimeout(2500);
   const t = await p.innerText("body");
-  console.log("ROL vendedora_pc: guía abierta sola:", t.includes("Cómo hacer una venta"), "| caja cerrada:", t.includes("está cerrada"));
+  // La guía ya NO se abre sola: solo al tocar «Ayuda».
+  console.log("ROL vendedora_pc: guía cerrada al entrar (no se abre sola):", !/Cómo (usar la caja|hacer una venta)/.test(t), "| caja cerrada:", t.includes("está cerrada"));
   await p.screenshot({ path: process.argv[2] + "/bloq-pc.png" });
-  await p.screenshot({ path: process.argv[2] + "/bloq-pc-antes.png" }); const ent = await p.$("text=Entendido"); console.log("  botón Entendido visible:", ent ? await ent.isVisible() : false); if (ent) { try { await ent.click({ timeout: 3000 }); } catch (e) { console.log("  no se puede tocar Entendido"); } await p.waitForTimeout(400); }
+  try { await p.click("button.staff-help-btn", { timeout: 3000 }); await p.waitForTimeout(400); } catch (e) { console.log("  no se puede tocar Ayuda"); }
+  console.log("  Ayuda abre la guía:", /Cómo (usar la caja|hacer una venta)/.test(await p.innerText("body")));
+  await p.screenshot({ path: process.argv[2] + "/bloq-pc-antes.png" }); const ent = await p.$("text=Entendido"); console.log("  botón Entendido visible:", ent ? await ent.isVisible() : false); if (ent) { try { await ent.click({ timeout: 3000 }); } catch (e) { console.log("  no se puede tocar Entendido"); } await p.waitForTimeout(400); console.log("  guía cerrada tras Entendido:", !/Cómo (usar la caja|hacer una venta)/.test(await p.innerText("body"))); }
   // ¿se puede tocar el menú?
   const nav = await p.$$(".nav-item"); console.log("  botones de menú visibles:", nav.length);
   try { await p.click(".nav-item >> nth=1", { timeout: 3000 }); console.log("  tocar menú: OK"); } catch (e) { console.log("  tocar menú: BLOQUEADO →", e.message.split("\n")[0].slice(0, 160)); }

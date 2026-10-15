@@ -47,7 +47,7 @@ let cash = null; const calls = []; const lookups = []; const MODO = process.env.
   await p.fill('input[placeholder="0.00"]', "100"); await p.click("text=Abrir caja");
   await p.waitForSelector("text=Caja abierta"); await p.waitForTimeout(400);
   await p.screenshot({ path: `${out}/caja-abierta.png`, fullPage: true });
-  console.log("2) Caja abierta con resumen:", (await p.innerText("body")).match(/Efectivo que debe haber\s*S\/ [\d.]+/)?.[0]);
+  console.log("2) Caja abierta con resumen:", (await p.innerText("body")).match(/Efectivo que debe haber en la caja\s*S\/ ?[\d.]+/)?.[0]);
   await p.click("text=Cerrar caja"); await p.fill('input[inputmode="decimal"]', "215"); await p.waitForTimeout(300);
   console.log("3) Arqueo muestra:", (await p.innerText("body")).match(/Esperado S\/ [\d.]+ · [^\n]+/)?.[0]);
   await p.screenshot({ path: `${out}/caja-arqueo.png` }); await p.click("text=Cancelar"); await p.screenshot({ path: `${out}/caja-botones.png` });
@@ -60,7 +60,7 @@ let cash = null; const calls = []; const lookups = []; const MODO = process.env.
   await p.screenshot({ path: `${out}/pos-con-prenda.png` });
   const cobrar = await p.$("text=/Cobrar/"); if (cobrar) { await cobrar.click(); await p.waitForTimeout(500);
     const t = await p.innerText("body");
-    console.log("4b) Cobro pide código:", t.includes("Código de quien atendió"));
+    console.log("4b) Cobro pide quién atendió (nombre o código):", t.includes("¿Quién atendió?") && t.includes("Obligatorio para registrar la venta"));
     await p.fill('input[placeholder="Ej. MA01"]', "ma01"); await p.waitForTimeout(200);
     console.log("4c) Código reconocido:", (await p.innerText("body")).includes("✓ María Alvarado"));
     const box = () => p.evaluate(() => [...document.querySelectorAll('[role="status"]')].map((x) => x.textContent).join(" | "));

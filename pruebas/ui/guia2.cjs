@@ -49,7 +49,7 @@ const route = async (rt) => {
   await p.click("button[title^='Cambio de turno']"); await p.waitForTimeout(300);
   await p.click("button[title='María Alvarado (MA01)'] >> nth=0"); await p.fill('input[inputmode="decimal"] >> nth=0', "583"); await p.waitForTimeout(200);
   await p.fill('input[placeholder="583.00"]', "200"); await p.click("button[title='Lucía Torres (LU01)'] >> nth=1");
-  await p.evaluate(() => window.scrollTo(0, 0)); await p.locator("text=Cierre y arqueo").scrollIntoViewIfNeeded();
+  await p.evaluate(() => window.scrollTo(0, 0)); await p.locator('text="Cerrar el día"').scrollIntoViewIfNeeded(); // en cambio de turno el formulario se titula «Cambio de turno»
   await shot("cambio-turno");
   await p.click("button[title^='Cerrar caja']"); await p.waitForTimeout(300);
   await p.click("button[title='Lucía Torres (LU01)'] >> nth=0"); await p.fill('input[inputmode="decimal"] >> nth=0', "580"); await p.fill('input[placeholder^="Motivo de la diferencia"]', "Vuelto mal dado en una venta");
