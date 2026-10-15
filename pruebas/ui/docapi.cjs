@@ -11,7 +11,7 @@ const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: "u1", aal: "aal2"
 const user = { id: "u1", email: "ana@staff.flyboutique.pe", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, factors: [{ id: "f1", factor_type: "totp", status: "verified" }] };
 const mk = (id, name, price, sizes) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, images: [], variants: sizes.map((s, i) => ({ id: id + s, size: s, colorName: "Negro", colorHex: "#111", stock: 3 + i, sku: (id + "-" + s).toUpperCase() })) });
 const catalog = { products: [mk("p1", "Blusa Seda Marfil", 129, ["S", "M"]), mk("p2", "Pantalón Sastre", 189, ["M"])], collections: [], banners: [], settings: {}, promoCodes: [] };
-let suppliers = [], purchases = []; const calls = {}; const cfg = { configured: false, dniUrl: null, rucUrl: null, cached: 0 };
+let suppliers = [], purchases = []; const calls = {}; const cfg = { configured: false, dniUrl: null, rucUrl: null, cached: 7, monthCalls: 12, monthFound: 10, lastProblem: { result: "sin-saldo", at: new Date().toISOString() } };
 const log = (k, v) => { (calls[k] = calls[k] || []).push(v); };
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
@@ -53,7 +53,7 @@ const log = (k, v) => { (calls[k] = calls[k] || []).push(v); };
   const abre = (await body()).includes("Consulta DNI / RUC");
   console.log(`1) [${role}] abre la pantalla:`, abre);
   if (!abre) { await b.close(); srv.close(); return; }
-  console.log("2) Estado inicial:", (await body()).match(/Apagada[^\n]*|✓ Activa/)?.[0]);
+  console.log("2) Estado inicial:", (await body()).match(/Apagada[^\n]*|✓ Activa/)?.[0], "| contador:", (await body()).match(/Este mes: \d+ consultas[^.]*/)?.[0], "| problema:", (await body()).match(/Último problema: [^·]*/)?.[0]);
   await p.fill('input[placeholder="Pega aquí el token"]', "tok-secreto-123"); await p.click("button:has-text('Guardar')"); await p.waitForTimeout(500);
   console.log("3) Token enviado:", calls.cfg?.[0]?.p_token === "tok-secreto-123", "| campo se vacía:", (await p.inputValue('input[placeholder="Pega aquí el token"]')) === "", "| estado:", (await body()).match(/✓ Activa|Apagada/)?.[0], "| el token no se ve en pantalla:", !(await body()).includes("tok-secreto-123"));
   await p.fill('input[placeholder="DNI (8) o RUC (11)"]', "45678912"); await p.click("button:has-text('Consultar')"); await p.waitForTimeout(400);

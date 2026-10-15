@@ -20,6 +20,7 @@ begin
   elsif r.uri like '%dni?numero=11111111' then return query select 404, '{"message":"not found"}';
   elsif r.uri like '%ruc?numero=20100047218' then return query select 200, '{"data":{"razonSocial":"Banco de Credito del Peru","estado":"ACTIVO","condicion":"HABIDO","direccion":"Calle Centenario 156","distrito":"La Molina","provincia":"Lima","departamento":"Lima"}}';
   elsif r.uri like '%caido%' then raise exception 'timeout';
+  elsif r.uri like '%dni?numero=99999999' then return query select 429, '{"message":"quota exceeded"}';
   else return query select 404, ''; end if;
 end $$;
 \set ON_ERROR_STOP 1
@@ -45,6 +46,8 @@ select count(*) as llamadas_al_proveedor_por_45678912 from t_http_calls where ur
 select lookup_document('RUC', '20100047218') as ruc_ok;
 select lookup_document('DNI', '11111111')->>'reason' as dni_no_existe;
 select lookup_document('DNI', '1234')->>'reason' as dni_corto;
+select lookup_document('DNI', '99999999')->>'reason' as sin_saldo;
+select doc_lookup_status()->>'monthCalls' as llamadas_mes_5, doc_lookup_status()->>'monthFound' as encontradas_mes_2, doc_lookup_status()->'lastProblem'->>'result' as ultimo_problema;
 select lookup_document('RUC', '20100047219')->>'reason' as ruc_digito_malo;
 -- Sin conexión con el proveedor
 select t_as('{"sub":"44444444-4444-4444-4444-444444444444","aal":"aal2"}');

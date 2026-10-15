@@ -5847,7 +5847,7 @@ const DocApiScreen = () => {
     setTestRes("Consultando…");
     const { data, error } = await supabase.rpc("lookup_document", { p_type: type, p_number: n });
     if (error) { setTestRes("Error: " + msg(error.message)); return; }
-    setTestRes(data.ok ? `✓ ${data.name}${data.address ? ` · ${data.address}` : ""}${data.estado ? ` · ${data.estado}` : ""}${data.condicion ? ` · ${data.condicion}` : ""}` : ({ NO_CONFIGURADO: "Falta guardar el token.", TOKEN_RECHAZADO: "El proveedor rechazó el token: revisa que esté bien copiado y vigente.", NO_ENCONTRADO: "No se encontró ese número.", SIN_CONEXION: "No se pudo conectar con el proveedor.", LIMITE: "Límite de consultas de esta hora.", RUC_INVALIDO: "Ese RUC no es válido.", NUMERO_INVALIDO: "Escribe un DNI de 8 dígitos o un RUC de 11." }[data.reason] || data.reason));
+    setTestRes(data.ok ? `✓ ${data.name}${data.address ? ` · ${data.address}` : ""}${data.estado ? ` · ${data.estado}` : ""}${data.condicion ? ` · ${data.condicion}` : ""}` : ({ NO_CONFIGURADO: "Falta guardar el token.", TOKEN_RECHAZADO: "El proveedor rechazó el token: revisa que esté bien copiado y vigente.", NO_ENCONTRADO: "No se encontró ese número (o el proveedor ya no da ese tipo de consulta).", SIN_SALDO: "Se acabaron las consultas de tu plan.", SIN_CONEXION: "No se pudo conectar con el proveedor.", LIMITE: "Límite de consultas de esta hora.", RUC_INVALIDO: "Ese RUC no es válido.", NUMERO_INVALIDO: "Escribe un DNI de 8 dígitos o un RUC de 11." }[data.reason] || data.reason));
   };
   if (st === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 24 (consulta DNI/RUC) en Supabase.</div>;
   if (!st) return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Cargando…</div>;
@@ -5859,7 +5859,9 @@ const DocApiScreen = () => {
       <AdminCard style={{ marginBottom: 14 }}>
         <span style={labelStyle}>Estado</span>
         <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: st.configured ? C.ink : C.accent, marginBottom: 4 }}>{st.configured ? "✓ Activa" : "Apagada: falta el token del proveedor"}</div>
-        <div style={hint}>{st.cached} números guardados en memoria.</div>
+        <div style={hint}>Este mes: <strong>{st.monthCalls ?? 0}</strong> consultas al proveedor ({st.monthFound ?? 0} encontradas). Las repetidas salen de la memoria y no cuentan. {st.cached} números guardados.</div>
+        <div style={{ ...hint, marginTop: 4 }}>El saldo exacto que te queda lo ves en el panel de tu proveedor. Si se acaba, la caja sigue funcionando: solo hay que escribir el nombre a mano.</div>
+        {st.lastProblem && <div style={{ ...hint, marginTop: 6, color: C.accent }}>Último problema: {({ "sin-saldo": "se acabaron las consultas del plan", "token-401": "el proveedor rechazó el token", "token-403": "el proveedor rechazó el token", "sin-conexion": "no hubo conexión con el proveedor" })[st.lastProblem.result] || st.lastProblem.result} · {fmtDT(st.lastProblem.at)}</div>}
       </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}>
         <span style={labelStyle}>{st.configured ? "Cambiar token" : "Guardar token"}</span>
@@ -5867,6 +5869,7 @@ const DocApiScreen = () => {
         <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Pega aquí el token" style={{ ...inputStyle, marginBottom: 10 }} />
         <details style={{ marginBottom: 10 }}>
           <summary style={{ ...hint, cursor: "pointer" }}>Direcciones del proveedor (solo si usas otro proveedor)</summary>
+          <div style={{ ...hint, marginBottom: 8 }}>{"{n}"} es donde va el número. Si tu proveedor pide el token en la dirección, escribe {"{token}"} en ese lugar.</div>
           <Field label="Consulta DNI ({n} = número)"><input style={inputStyle} value={dniUrl} onChange={(e) => setDniUrl(e.target.value)} placeholder="https://api.decolecta.com/v1/reniec/dni?numero={n}" /></Field>
           <Field label="Consulta RUC ({n} = número)"><input style={inputStyle} value={rucUrl} onChange={(e) => setRucUrl(e.target.value)} placeholder="https://api.decolecta.com/v1/sunat/ruc?numero={n}" /></Field>
         </details>
@@ -6736,7 +6739,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
       try { const { data, error } = await supabase.rpc("lookup_document", { p_type: docType, p_number: doc }); res = error ? null : data; } catch (e) { res = null; }
       if (!alive) return;
       if (!res || res.reason === "NO_CONFIGURADO") { lookupOff.current = !res || res.reason === "NO_CONFIGURADO"; setLookup(null); return; }
-      const why = { LIMITE: "Se alcanzó el límite de consultas de esta hora: escribe el nombre a mano.", SIN_CONEXION: "No se pudo consultar ahora: escribe el nombre a mano.", TOKEN_RECHAZADO: "La consulta de DNI/RUC no está funcionando (token). Avisa a Administración.", RUC_INVALIDO: "Este RUC no es válido: revisa los números.", NUMERO_INVALIDO: "Revisa el número." };
+      const why = { SIN_SALDO: "Se acabaron las consultas del plan del proveedor: escribe el nombre a mano.", LIMITE: "Se alcanzó el límite de consultas de esta hora: escribe el nombre a mano.", SIN_CONEXION: "No se pudo consultar ahora: escribe el nombre a mano.", TOKEN_RECHAZADO: "La consulta de DNI/RUC no está funcionando (token). Avisa a Administración.", RUC_INVALIDO: "Este RUC no es válido: revisa los números.", NUMERO_INVALIDO: "Revisa el número." };
       const view = res.ok ? { state: "ok", data: res } : res.reason === "NO_ENCONTRADO" ? { state: "nf" } : { state: "err", msg: why[res.reason] || "No se pudo consultar: escribe el nombre a mano." };
       lookupCache.current[key] = { view, res };
       setLookup(view); apply(res);

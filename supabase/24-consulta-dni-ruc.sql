@@ -49,7 +49,12 @@ begin
     'configured', coalesce((select value from public.app_secrets where name = 'docs_api_token'), '') <> '',
     'dniUrl', (select value from public.app_secrets where name = 'docs_api_dni_url'),
     'rucUrl', (select value from public.app_secrets where name = 'docs_api_ruc_url'),
-    'cached', (select count(*) from public.doc_lookups));
+    'cached', (select count(*) from public.doc_lookups),
+    -- Consultas que llegaron al proveedor este mes (las que salen de la memoria no cuentan ni se pagan)
+    'monthCalls', (select count(*) from public.doc_lookup_log where at >= date_trunc('month', now()) and result not in ('memoria', 'sin-conexion')),
+    'monthFound', (select count(*) from public.doc_lookup_log where at >= date_trunc('month', now()) and result = 'ok'),
+    'lastProblem', (select jsonb_build_object('result', result, 'at', at) from public.doc_lookup_log
+                     where result in ('sin-saldo', 'token-401', 'token-403', 'sin-conexion') order by at desc limit 1));
 end $$;
 revoke execute on function public.doc_lookup_status() from public, anon;
 grant execute on function public.doc_lookup_status() to authenticated;
@@ -114,7 +119,7 @@ begin
   if n_hour >= 60 then return jsonb_build_object('ok', false, 'reason', 'LIMITE'); end if;
   url := coalesce(nullif((select value from public.app_secrets where name = case when typ = 'DNI' then 'docs_api_dni_url' else 'docs_api_ruc_url' end), ''),
                   case when typ = 'DNI' then 'https://api.decolecta.com/v1/reniec/dni?numero={n}' else 'https://api.decolecta.com/v1/sunat/ruc?numero={n}' end);
-  url := replace(url, '{n}', num);
+  url := replace(replace(url, '{n}', num), '{token}', tok);   -- algunos proveedores piden el token en la dirección
   begin
     begin perform extensions.http_set_curlopt('CURLOPT_TIMEOUT', '6'); exception when others then null; end;
     select r.status, r.content into st, body
@@ -126,6 +131,10 @@ begin
   if st = 401 or st = 403 then
     insert into public.doc_lookup_log (user_id, doc_type, number, result) values (auth.uid(), typ, num, 'token-' || st);
     return jsonb_build_object('ok', false, 'reason', 'TOKEN_RECHAZADO');
+  end if;
+  if st = 402 or st = 429 then   -- se acabaron las consultas del plan (o demasiadas seguidas): la caja sigue a mano
+    insert into public.doc_lookup_log (user_id, doc_type, number, result) values (auth.uid(), typ, num, 'sin-saldo');
+    return jsonb_build_object('ok', false, 'reason', 'SIN_SALDO');
   end if;
   begin j := body::jsonb; exception when others then j := null; end;
   if j ? 'data' and jsonb_typeof(j->'data') = 'object' then j := j->'data'; end if;   -- algunos proveedores envuelven la respuesta

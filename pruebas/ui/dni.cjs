@@ -28,6 +28,7 @@ let cash = null; const calls = []; const lookups = []; const MODO = process.env.
       const bd = rt.request().postDataJSON(); lookups.push(bd.p_number);
       if (MODO === "sin-sql") return rt.fulfill({ status: 404, json: { code: "PGRST202", message: "Could not find the function" } });
       if (MODO === "sin-token") return rt.fulfill({ json: { ok: false, reason: "NO_CONFIGURADO" } });
+      if (bd.p_number === "33334444") return rt.fulfill({ json: { ok: false, reason: "SIN_SALDO" } });
       const db = { "45678912": { ok: true, name: "Lucia Torres Vega", source: "proveedor" }, "20100047218": { ok: true, name: "BANCO DE CREDITO DEL PERU", address: "Calle Centenario 156, La Molina, Lima, Lima", estado: "ACTIVO", condicion: "HABIDO", source: "proveedor" }, "20601234565": { ok: true, name: "EMPRESA DE BAJA SAC", estado: "BAJA DE OFICIO", condicion: "NO HABIDO", source: "memoria" } };
       return rt.fulfill({ json: db[bd.p_number] || { ok: false, reason: "NO_ENCONTRADO" } });
     }
@@ -68,6 +69,8 @@ let cash = null; const calls = []; const lookups = []; const MODO = process.env.
     console.log(`D1) [${MODO}] DNI 45678912 → nombre:`, JSON.stringify(await val('input[placeholder^="Nombres y apellidos"]')), "| aviso:", JSON.stringify(await box()));
     await p.fill('input[placeholder^="DNI (8 dígitos)"]', "11112222"); await p.waitForTimeout(900);
     console.log(`D2) [${MODO}] DNI que no existe → nombre:`, JSON.stringify(await val('input[placeholder^="Nombres y apellidos"]')), "| aviso:", JSON.stringify(await box()));
+    await p.fill('input[placeholder^="DNI (8 dígitos)"]', "33334444"); await p.waitForTimeout(900);
+    console.log(`D2b) [${MODO}] plan agotado → aviso:`, JSON.stringify(await box()));
     await p.fill('input[placeholder^="Nombres y apellidos"]', "Nombre escrito a mano");
     await p.fill('input[placeholder^="DNI (8 dígitos)"]', "45678912"); await p.waitForTimeout(900);
     console.log(`D3) [${MODO}] Nombre escrito a mano se respeta:`, JSON.stringify(await val('input[placeholder^="Nombres y apellidos"]')));
