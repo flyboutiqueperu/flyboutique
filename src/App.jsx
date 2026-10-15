@@ -3898,7 +3898,7 @@ const CookieConsent = ({ current, onSave, onOpenPolicy }) => {
   const [stats, setStats] = useState(current === "all" || current === "stats");
   const [marketing, setMarketing] = useState(current === "all");
   const choice = stats && marketing ? "all" : stats ? "stats" : "essential";
-  const btn = (primary) => ({ flex: 1, padding: "12px", borderRadius: 9, border: primary ? "none" : "1px solid rgba(255,255,255,0.3)", background: primary ? C.paper : "transparent", color: primary ? C.ink : C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" });
+  const btn = (primary) => ({ flex: 1, minWidth: 0, padding: "12px", borderRadius: 9, border: primary ? "none" : "1px solid rgba(255,255,255,0.3)", background: primary ? C.paper : "transparent", color: primary ? C.ink : C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" });
   const Toggle = ({ on, onClick, disabled }) => (
     <button onClick={onClick} disabled={disabled} aria-pressed={on} style={{ width: 40, height: 22, borderRadius: 999, border: "none", background: on ? C.paper : "rgba(255,255,255,0.25)", position: "relative", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1, flexShrink: 0 }}>
       <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: "50%", background: on ? C.ink : C.paper, transition: "left .15s ease" }} />
@@ -3906,16 +3906,16 @@ const CookieConsent = ({ current, onSave, onOpenPolicy }) => {
   );
   const row = (title, desc, toggle) => (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: "1px solid rgba(255,255,255,0.12)" }}>
-      <div style={{ flex: 1 }}><div style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.paper }}>{title}</div><div style={{ fontFamily: FONT_BODY, fontSize: 11, color: `${C.paper}AA`, lineHeight: 1.5 }}>{desc}</div></div>
+      <div style={{ flex: 1 }}><div className="cookie-rt" style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.paper }}>{title}</div><div className="cookie-rd" style={{ fontFamily: FONT_BODY, fontSize: 11, color: `${C.paper}AA`, lineHeight: 1.5 }}>{desc}</div></div>
       {toggle}
     </div>
   );
   return (
     <div className="cookie-box" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90, background: C.ink, padding: "18px 20px calc(18px + env(safe-area-inset-bottom))", animation: "slideUp .3s cubic-bezier(.2,.8,.2,1)", maxHeight: "85vh", overflowY: "auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.paper, marginBottom: 8 }}><Cookie size={16} /> {t("Tu privacidad en Fly")}</div>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: `${C.paper}CC`, lineHeight: 1.6, marginBottom: 14 }}>
-        Usamos cookies necesarias para que la tienda funcione (tu cesta y tu sesión). Con tu permiso, también usamos cookies de estadísticas para mejorar la tienda. Nunca vendemos tus datos.{" "}
-        <button onClick={onOpenPolicy} style={{ background: "none", border: "none", padding: 0, color: C.paper, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>{t("Política de privacidad")}</button>
+      <div className="cookie-title" style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.paper, marginBottom: 8 }}><Cookie size={16} /> {t("Tu privacidad en Fly")}</div>
+      <div className="cookie-text" style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: `${C.paper}CC`, lineHeight: 1.6, marginBottom: 14 }}>
+        {t("Usamos cookies necesarias para que la tienda funcione (tu cesta y tu sesión). Con tu permiso, también usamos cookies de estadísticas para mejorar la tienda. Nunca vendemos tus datos.")}{" "}
+        <button onClick={onOpenPolicy} style={{ background: "none", border: "none", padding: 0, color: C.paper, textDecoration: "underline", fontFamily: "inherit", fontSize: "inherit", cursor: "pointer" }}>{t("Política de privacidad")}</button>
       </div>
       {config && (
         <div style={{ marginBottom: 14 }}>
@@ -3924,17 +3924,17 @@ const CookieConsent = ({ current, onSave, onOpenPolicy }) => {
           {row(t("Marketing"), t("Anuncios relevantes en redes sociales."), <Toggle on={marketing} onClick={() => setMarketing((x) => !x)} />)}
         </div>
       )}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div className="cookie-btns" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {config ? (
           <>
-            <button onClick={() => onSave("essential")} style={btn(false)}>{t("Solo necesarias")}</button>
-            <button onClick={() => onSave(choice)} style={btn(true)}>{t("Guardar mi elección")}</button>
+            <button onClick={() => onSave("essential")} className="cookie-btn" style={btn(false)}>{t("Solo necesarias")}</button>
+            <button onClick={() => onSave(choice)} className="cookie-btn" style={btn(true)}>{t("Guardar mi elección")}</button>
           </>
         ) : (
           <>
-            <button onClick={() => setConfig(true)} style={btn(false)}>{t("Configurar")}</button>
-            <button onClick={() => onSave("essential")} style={btn(false)}>{t("Solo necesarias")}</button>
-            <button onClick={() => onSave("all")} style={btn(true)}>{t("Aceptar todo")}</button>
+            <button onClick={() => setConfig(true)} className="cookie-btn" style={btn(false)}>{t("Configurar")}</button>
+            <button onClick={() => onSave("essential")} className="cookie-btn" style={btn(false)}>{t("Solo necesarias")}</button>
+            <button onClick={() => onSave("all")} className="cookie-btn" style={btn(true)}>{t("Aceptar todo")}</button>
           </>
         )}
       </div>
@@ -10500,6 +10500,12 @@ export default function FlyBoutiqueApp() {
           .pdp-slide { max-height: 76vh; }
         }
         @media (min-width: 600px) and (max-width: 899px) {
+          .cookie-box { padding: 22px 32px calc(22px + env(safe-area-inset-bottom)) !important; }
+          .cookie-box .cookie-title { font-size: 17px !important; }
+          .cookie-box .cookie-text { font-size: 13.5px !important; }
+          .cookie-box .cookie-rt { font-size: 13.5px !important; }
+          .cookie-box .cookie-rd { font-size: 12.5px !important; }
+          .cookie-box .cookie-btn { font-size: 13.5px !important; padding: 14px !important; }
           .product-grid { grid-template-columns: repeat(3, 1fr) !important; }
         }
         .back-top { bottom: 92px !important; }
@@ -10628,7 +10634,13 @@ export default function FlyBoutiqueApp() {
           .search-panel { flex: none !important; width: min(760px, 92vw); margin: 96px auto 0; max-height: calc(100vh - 140px); border-radius: 16px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.25); }
           .search-grid { grid-template-columns: repeat(6, 1fr) !important; }
           /* Aviso de cookies en PC: tarjeta en la esquina */
-          .cookie-box { left: 24px !important; right: auto !important; bottom: 24px !important; width: 440px; border-radius: 16px; }
+          .cookie-box { left: 32px !important; right: auto !important; bottom: 32px !important; width: 560px; max-width: calc(100vw - 64px); border-radius: 18px; padding: 26px 28px 24px !important; box-shadow: 0 24px 60px rgba(0,0,0,0.28); }
+          .cookie-box .cookie-title { font-size: 19px !important; margin-bottom: 10px !important; }
+          .cookie-box .cookie-title svg { width: 20px; height: 20px; }
+          .cookie-box .cookie-text { font-size: 14.5px !important; line-height: 1.65 !important; margin-bottom: 18px !important; }
+          .cookie-box .cookie-rt { font-size: 14.5px !important; }
+          .cookie-box .cookie-rd { font-size: 13px !important; }
+          .cookie-box .cookie-btn { font-size: 14px !important; padding: 14px 16px !important; }
           .install-card { display: none !important; }
           .page-narrow { max-width: 760px; margin: 0 auto; }
         }

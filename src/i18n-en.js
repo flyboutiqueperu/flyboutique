@@ -1,5 +1,6 @@
 // Traducciones de la tienda al inglés (español → inglés). Si falta una, se muestra en español.
 const EN = {
+ "Usamos cookies necesarias para que la tienda funcione (tu cesta y tu sesión). Con tu permiso, también usamos cookies de estadísticas para mejorar la tienda. Nunca vendemos tus datos.": "We use necessary cookies so the store works (your bag and your session). With your permission, we also use analytics cookies to improve the store. We never sell your data.",
  "No se pudo cargar la verificación. Revisa tu conexión.": "The verification couldn't load. Check your connection.",
  "La verificación está tardando (señal débil).": "The verification is taking a while (weak signal).",
  "Instalar la app": "Install the app",
