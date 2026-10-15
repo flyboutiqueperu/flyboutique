@@ -9793,10 +9793,10 @@ const CustomersScreen = ({ catalog, refreshData }) => {
   return (
     <div style={{ padding: "18px 18px 100px", maxWidth: 760, margin: "0 auto" }}>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Fly Lovers (Club Fly)</h1>
-      <div style={{ ...txt, marginBottom: 14 }}>{all.length} registradas · <strong>{yes}</strong> aceptan recibir publicidad. Solo a ellas se les envían ofertas; los avisos de pedidos se envían a todas.</div>
+      <div style={{ ...txt, marginBottom: 14 }}>{all.length} {all.length === 1 ? "persona registrada" : "personas registradas"} · <strong>{yes}</strong> aceptan recibir publicidad. Solo a quienes aceptan se les envían ofertas; los avisos de pedidos se envían a todos.</div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, celular, correo o DNI" style={{ ...inputStyle, marginBottom: 10 }} />
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-        {chip("todas", "Todas")}{chip("si", "Con permiso")}{chip("no", "Sin permiso")}
+        {chip("todas", "Todos")}{chip("si", "Con permiso")}{chip("no", "Sin permiso")}
         <button onClick={exportConsent} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 999, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}><FileSpreadsheet size={13} /> Descargar las que tienen permiso</button>
       </div>
       {msg && <div style={{ ...txt, color: C.ink, background: C.paperDeep, borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>{msg}</div>}
@@ -9820,6 +9820,21 @@ const CustomersScreen = ({ catalog, refreshData }) => {
                 <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 10 }}>
                   <div style={txt}>Puntos: <strong>{Number(c.points) || 0}</strong> · Compras: <strong>{c.st.n}</strong>{c.st.last ? ` · Última: ${new Date(c.st.last).toLocaleDateString("es-PE")}` : ""}{c.doc ? ` · Doc.: ${c.doc}` : ""}</div>
                   <div style={{ ...txt, marginTop: 4 }}>Registro: {c.createdAt ? new Date(c.createdAt).toLocaleDateString("es-PE") : "—"}{c.via ? ` (${c.via})` : ""}</div>
+                  {(() => {
+                    const buys = (catalog.sales || []).filter((s) => s.customerPhone === c.phone && s.status !== "anulado").sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 8);
+                    return buys.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ ...txt, fontWeight: 600, color: C.ink, marginBottom: 2 }}>Últimas compras</div>
+                        {buys.map((s) => (
+                          <div key={s.id} style={{ ...txt, display: "flex", justifyContent: "space-between", gap: 8, padding: "3px 0", borderBottom: `1px solid ${C.paperDeep}` }}>
+                            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{new Date(s.createdAt).toLocaleDateString("es-PE")} · {s.channel === "online" ? "Web" : "Tienda"} · {(s.items || []).map((i) => `${i.qty > 1 ? `${i.qty}× ` : ""}${i.name}`).join(", ")}</span>
+                            <strong style={{ color: C.ink, whiteSpace: "nowrap" }}>{moneyExact(netSale(s).total)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  {!String(c.phone || "").startsWith("g:") && <a href={`https://wa.me/${String(c.phone).replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink }}><MessageCircle size={14} /> Escribir por WhatsApp{consentOf(c)?.optIn ? "" : " (solo para su pedido, no publicidad)"}</a>}
                   <div style={{ ...txt, marginTop: 4 }}>Publicidad: {cs ? `${cs.optIn ? "acepta" : "no acepta"} desde ${new Date(cs.at).toLocaleString("es-PE")} (${cs.via || "—"}${cs.by ? `, anotó ${cs.by}` : ""}${cs.note ? `: «${cs.note}»` : ""})` : "nunca respondió → no se le envía publicidad"}</div>
                   <div style={{ marginTop: 10 }}>
                     <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="¿Cómo lo pidió? (obligatorio)" style={{ ...inputStyle, marginBottom: 8 }} />
@@ -10021,11 +10036,54 @@ const GuideImage = ({ src, alt }) => {
   return <img src={src} alt={alt || ""} onError={() => setOk(false)} loading="lazy" style={{ width: "100%", borderRadius: 10, border: `1px solid ${C.line}`, display: "block", background: C.paperDeep }} />;
 };
 
-const StaffHelp = ({ screen, onOpenManual }) => {
-  const guide = STAFF_GUIDES[screen];
+// ---- Asistente de ayuda (gratis, sin internet ni IA de pago): busca la respuesta en el manual, las guías y las opciones del panel ----
+const HELP_STOP = new Set("como cómo que qué para por con una uno unos unas los las del una de la el en se me mi mis lo le y o a al es esta este hago hacer puedo quiero donde dónde cuando cuál cual hay sale".split(" ").map((w) => normTxt(w)));
+const HELP_SYN = { anular: "anular anulo anula cancelar borrar eliminar", devolver: "devolver devolucion devuelve cambio cambiar reembolso", imprimir: "imprimir reimprimir ticket boleta comprobante", foto: "foto fotos imagen imagenes subir", precio: "precio precios oferta rebaja descuento", caja: "caja abrir cerrar arqueo turno fondo efectivo dinero", stock: "stock inventario cantidad agotado agotada", cliente: "cliente clientes fly lovers club puntos", vendedora: "vendedora vendedor codigo ma01", promo: "promo promocion promociones cupon cupones combo" };
+const helpWords = (q) => {
+  const ws = normTxt(q).replace(/[^a-z0-9ñ ]/g, " ").split(/\s+/).filter((w) => w.length >= 3 && !HELP_STOP.has(w));
+  const more = []; ws.forEach((w) => Object.values(HELP_SYN).forEach((g) => { if (g.split(" ").some((s) => s.startsWith(w.slice(0, 5)))) more.push(...g.split(" ")); }));
+  return [...new Set([...ws, ...more])];
+};
+const helpAnswer = (q, role) => {
+  const ws = helpWords(q); if (!ws.length) return [];
+  const docs = [];
+  MORE_ITEMS.filter((it) => it.id !== "backup" && canOpenScreen(role, it.id)).forEach((it) => docs.push({ title: it.t, steps: [it.d], screen: it.id, head: `${it.t} ${it.k}`, body: it.d }));
+  Object.entries(STAFF_GUIDES).filter(([sc]) => canOpenScreen(role, sc) || sc === "manual").forEach(([sc, g]) => docs.push({ title: g.title, steps: g.steps.map((s) => s[1]), screen: sc, head: g.title, body: g.steps.map((s) => s[1]).join(" ") }));
+  MANUAL_SECTIONS.filter((x) => !x.roles || x.roles.includes(role)).forEach((sec) => (sec.items || []).forEach((it) => docs.push({ title: it.title, steps: it.steps || [], screen: null, head: `${it.title} ${sec.title}`, body: (it.steps || []).join(" ") })));
+  const score = (d) => { const H = normTxt(d.head), B = normTxt(d.body); return ws.reduce((a, w) => { const st = w.slice(0, Math.max(4, w.length - 2)); return a + (H.includes(st) ? 3 : 0) + (B.includes(st) ? 1 : 0); }, 0); };
+  return docs.map((d) => ({ ...d, s: score(d) })).filter((d) => d.s > 0).sort((a, b) => b.s - a.s).slice(0, 3);
+};
+const HelpAsk = ({ role, onGo }) => {
+  const [q, setQ] = useState("");
+  const [asked, setAsked] = useState("");
+  const res = useMemo(() => (asked ? helpAnswer(asked, role) : []), [asked, role]);
+  const ask = (e) => { e && e.preventDefault(); setAsked(q.trim()); };
+  return (
+    <div style={{ marginBottom: 12, flexShrink: 0 }}>
+      <form onSubmit={ask} style={{ display: "flex", gap: 8 }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pregunta lo que necesites (ej. ¿cómo anulo una venta?)" aria-label="Pregunta de ayuda" style={{ ...inputStyle, flex: 1 }} />
+        <button type="submit" disabled={!q.trim()} style={{ padding: "0 16px", borderRadius: 8, border: "none", background: q.trim() ? C.ink : C.line, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: q.trim() ? "pointer" : "default" }}>Preguntar</button>
+      </form>
+      {asked && (
+        <div className="help-answer" style={{ marginTop: 10, maxHeight: "40vh", overflowY: "auto" }}>
+          {res.length === 0 ? (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, background: C.paperDeep, borderRadius: 12, padding: "10px 12px" }}>No encontré eso en el manual. Prueba con otras palabras (ej. «devolución», «abrir caja», «subir fotos») o abre el manual completo.</div>
+          ) : res.map((r, i) => (
+            <div key={i} style={{ background: C.paperDeep, borderRadius: 12, padding: "10px 12px", marginBottom: 8 }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{i === 0 ? "Esto te puede servir: " : ""}{r.title}</div>
+              <ol style={{ margin: 0, paddingLeft: 18, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.5 }}>{r.steps.slice(0, 6).map((s, j) => <li key={j}>{s}</li>)}</ol>
+              {r.screen && onGo && <button onClick={() => onGo(r.screen)} style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 999, border: `1px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Ir a esa pantalla <ChevronRight size={13} /></button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+const StaffHelp = ({ screen, onOpenManual, role, onGo }) => {
+  const guide = STAFF_GUIDES[screen] || { title: "Ayuda", steps: [] };
   const [open, setOpen] = useState(false);
   useEffect(() => { setOpen(false); }, [screen]); // la guía solo se abre al tocar el botón de Ayuda
-  if (!guide) return null;
   return (
     <>
       <button onClick={() => setOpen(true)} title="¿Cómo se hace? Ver los pasos de esta pantalla" className="staff-help-btn"
@@ -10040,6 +10098,7 @@ const StaffHelp = ({ screen, onOpenManual }) => {
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>{guide.title}</div>
               <button onClick={() => setOpen(false)} aria-label="Cerrar ayuda" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
             </div>
+            {role && <HelpAsk role={role} onGo={onGo ? (sc) => { setOpen(false); onGo(sc); } : null} />}
             <div className="help-steps" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, overflowY: "auto", minHeight: 0, flex: 1 }}>
               {guide.img && <div style={{ gridColumn: "1 / -1" }}><GuideImage src={guide.img} alt={guide.title} /></div>}
               {guide.steps.map(([icon, text], i) => {
@@ -10416,7 +10475,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
         {(role === "administrador" || role === "superadmin" || role === "cajero" || role === "vendedora_tienda" || role === "vendedora_online" || role === "almacen") && screen === "onlineorders" && <OnlineOrdersScreen sales={catalog.sales} onUpdateFulfillment={updateFulfillment} onValidatePayment={validateOnlinePayment} canValidate={role === "administrador" || role === "superadmin"} settings={catalog.settings} onCancelUnpaid={role !== "almacen" ? cancelUnpaid : null} onSaveUnpaidHours={isAdminRole ? saveUnpaidHours : null} onSaveCartHold={isAdminRole ? saveCartHold : null} />}
       </div>
-      {screen !== "manual" && <StaffHelp screen={screen} onOpenManual={() => setScreen("manual")} />}
+      {screen !== "manual" && <StaffHelp screen={screen} role={role} onGo={setScreen} onOpenManual={() => setScreen("manual")} />}
       <AdminNav screen={screen} setScreen={setScreen} role={role} />
     </div>
   );

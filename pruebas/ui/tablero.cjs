@@ -62,6 +62,17 @@ const route = async (rt) => {
       check("pc: apagar temporadas guarda y avisa", alerts.some((a) => a.includes("Temporadas apagadas")));
     } else {
       check("movil: menú abajo, sin la lista lateral", side.h < 120 && side.more === "none");
+      await p.click(".staff-help-btn"); await p.fill('input[aria-label="Pregunta de ayuda"]', "¿cómo anulo una venta?"); await p.click("text=Preguntar"); await p.waitForTimeout(300);
+      const ans = await p.locator(".help-answer").innerText();
+      check("movil: el asistente responde «anular venta» con Comprobantes", ans.includes("Comprobantes"));
+      await p.fill('input[aria-label="Pregunta de ayuda"]', "quiero subir fotos de una prenda"); await p.click("text=Preguntar"); await p.waitForTimeout(300);
+      check("movil: «subir fotos» lleva a Productos", (await p.locator(".help-answer").innerText()).includes("Productos"));
+      await p.fill('input[aria-label="Pregunta de ayuda"]', "xyzzy"); await p.click("text=Preguntar"); await p.waitForTimeout(300);
+      check("movil: si no sabe, lo dice", (await p.locator(".help-answer").innerText()).includes("No encontré"));
+      await p.fill('input[aria-label="Pregunta de ayuda"]', "devolución de una prenda"); await p.click("text=Preguntar"); await p.waitForTimeout(300);
+      await p.locator(".help-answer button:has-text('Ir a esa pantalla')").first().click(); await p.waitForTimeout(800);
+      check("movil: «Ir a esa pantalla» abre Devolución", (await p.innerText("body")).toLowerCase().includes("devoluci") && p.url().includes("returns"));
+      await p.goto("http://localhost:4398/#staff/dashboard"); await p.waitForTimeout(800);
     }
     await p.mouse.move(700, 5); await p.screenshot({ path: `${out}/tablero-${equipo}.png` });
     await ctx.close();
