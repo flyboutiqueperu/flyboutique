@@ -38,7 +38,7 @@ let cash = null; const calls = [];
   await p.fill('input[placeholder="0.00"]', "100"); await p.click("text=Abrir caja");
   await p.waitForSelector("text=Caja abierta"); await p.waitForTimeout(400);
   await p.screenshot({ path: `${out}/caja-abierta.png`, fullPage: true });
-  console.log("2) Caja abierta con resumen:", (await p.innerText("body")).match(/Efectivo que debe haber\s*S\/ [\d.]+/)?.[0]);
+  console.log("2) Caja abierta con resumen:", (await p.innerText("body")).match(/Efectivo que debe haber en la caja\s*S\/ ?[\d.]+/)?.[0]);
   await p.click("text=Cerrar caja"); await p.fill('input[inputmode="decimal"]', "215"); await p.waitForTimeout(300);
   console.log("3) Arqueo muestra:", (await p.innerText("body")).match(/Esperado S\/ [\d.]+ · [^\n]+/)?.[0]);
   await p.screenshot({ path: `${out}/caja-arqueo.png` }); await p.click("text=Cancelar"); await p.screenshot({ path: `${out}/caja-botones.png` });

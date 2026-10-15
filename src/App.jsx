@@ -4235,26 +4235,35 @@ const BusinessSummary = ({ catalog, go }) => {
   const out = catalog.products.filter(productSoldOut).length;
   const diffs = (extra.cash || []).filter((c) => Math.abs(Number(c.difference) || 0) >= 0.5);
   const pct = (a, b) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
-  const tile = (label, value, sub, onClick, alert, small) => (
-    <button key={label} onClick={onClick} style={{ textAlign: "left", background: C.paperDeep, border: `1px solid ${alert ? C.accent : C.line}`, borderRadius: 12, padding: "14px 16px", cursor: onClick ? "pointer" : "default", minWidth: 0 }}>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: C.stone }}>{label}</div>
+  const TILE_ICONS = { "Pagos por validar": Banknote, "Por preparar o enviar": Truck, "Guías en camino": ArrowLeftRight, "Stock bajo": Package, Hoy: BarChart3, "Esta semana": BarChart3, "Este mes": BarChart3, "Mes: tienda / web": Store };
+  const tile = (label, value, sub, onClick, alert, small) => {
+    const Icon = TILE_ICONS[label];
+    return (
+    <button key={label} className="dash-tile" onClick={onClick} style={{ textAlign: "left", background: C.paperDeep, border: `1px solid ${alert ? C.accent : C.line}`, borderRadius: 12, padding: "14px 16px", cursor: onClick ? "pointer" : "default", minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: alert ? C.accent : C.stone }}>{Icon && <Icon size={14} />}{label}</div>
       <div style={{ fontFamily: FONT_DISPLAY, fontSize: small ? 17 : 22, fontWeight: 800, color: alert ? C.accent : C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums", lineHeight: 1.25 }}>{value}</div>
       {sub && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 1 }}>{sub}</div>}
     </button>
-  );
+    );
+  };
+  const quick = [["pos", "Vender", ShoppingCart], ["caja", "Caja", Banknote], ["onlineorders", "Pedidos web", Truck], ["stock", "Stock", Package], ["products", "Productos", LayoutGrid], ["reports", "Reportes", BarChart3]];
   return (
     <>
-      <span style={labelStyle}>Ventas</span>
-      <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
-        {periods.map(([label, cur, prev, vsText]) => { const p = pct(tot(cur), tot(prev)); return tile(label, money(tot(cur)), `${cur.length} ventas${p !== null ? ` · ${p >= 0 ? "+" : ""}${p}% ${vsText}` : ""}`, () => go("reports")); })}
-        {tile("Mes: tienda / web", <>{money(tot(shop))}<br />{money(tot(web))}</>, `${shop.length} en tienda · ${web.length} por la web`, () => go("reports"), false, true)}
+      <span style={labelStyle}>Accesos rápidos</span>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        {quick.map(([k, l, Icon]) => <button key={k} className="more-chip" onClick={() => go(k)}><Icon size={14} /> {l}</button>)}
       </div>
-      <span style={labelStyle}>Pendientes</span>
+      <span style={labelStyle}>Necesita atención</span>
       <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
         {tile("Pagos por validar", toValidate, "Pedidos web", () => go("onlineorders"), toValidate > 0)}
         {tile("Por preparar o enviar", toShip, "Pedidos web pagados", () => go("onlineorders"))}
         {tile("Guías en camino", extra.transfers ?? "—", "Traslados por recibir", () => go("transfers"), (extra.transfers || 0) > 0)}
         {tile("Stock bajo", low, `${out} productos agotados`, () => go("stock"), out > 0)}
+      </div>
+      <span style={labelStyle}>Ventas</span>
+      <div className="report-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
+        {periods.map(([label, cur, prev, vsText]) => { const p = pct(tot(cur), tot(prev)); return tile(label, money(tot(cur)), `${cur.length} ventas${p !== null ? ` · ${p >= 0 ? "+" : ""}${p}% ${vsText}` : ""}`, () => go("reports")); })}
+        {tile("Mes: tienda / web", <>{money(tot(shop))}<br />{money(tot(web))}</>, `${shop.length} en tienda · ${web.length} por la web`, () => go("reports"), false, true)}
       </div>
       {extra.cash && (
         <AdminCard style={{ marginBottom: 14 }}>
@@ -8632,6 +8641,17 @@ const BigAction = ({ icon: Icon, title, hint, onClick, dark = false, disabled = 
   </button>
 );
 
+// Paso numerado (se marca ✓ al completarlo): guía al abrir la caja
+const CashStep = ({ n, title, done, children }) => (
+  <div className={`cash-step${done ? " is-done" : ""}`}>
+    <span className="cash-step-n">{done ? <Check size={14} /> : n}</span>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 8 }}>{title}</div>
+      {children}
+    </div>
+  </div>
+);
+
 const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
   const canManage = ["superadmin", "administrador", "cajero"].includes(role);
   const isAdmin = role === "superadmin" || role === "administrador";
@@ -8644,6 +8664,8 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
   const [closing, setClosing] = useState(null); // { counted, notes }
   const [closedReport, setClosedReport] = useState(null);
   const [history, setHistory] = useState([]);
+  const formRef = useRef(null);
+  useEffect(() => { if ((move || closing) && formRef.current) formRef.current.scrollIntoView({ behavior: "smooth", block: "center" }); }, [!!move, !!closing, move?.type, closing?.shift]);
   // Quién hace cada cosa (si hay códigos de vendedora creados)
   const [sellers, setSellers] = useState([]);
   useEffect(() => { supabase.from("sellers").select("code,name").eq("active", true).order("code").then(({ data }) => setSellers(data || []), () => {}); }, []);
@@ -8719,27 +8741,55 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink, marginBottom: 6 }}>La caja de {store.name} está cerrada</div>
           {canManage ? (
             <>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 12, lineHeight: 1.6 }}>Cuenta el dinero con el que empiezas el día (fondo para dar vuelto) y abre la caja. Quedará abierta todo el turno, aunque cambie la vendedora.</div>
-              <SellerPicker sellers={sellers} value={openSeller} onChange={setOpenSeller} label="¿Quién abre la caja?" />
-              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                {[0, 50, 100, 150, 200].map((v) => <Chip key={v} active={openAmount === String(v)} onClick={() => setOpenAmount(String(v))}>{v === 0 ? "Sin fondo" : `S/ ${v}`}</Chip>)}
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Fondo inicial S/</span>
-                <input inputMode="decimal" value={openAmount} onChange={(e) => setOpenAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" style={{ ...inputStyle, width: 120, fontSize: 15 }} />
-                <button disabled={busy || (needSeller && !openSeller)} onClick={openCash} title={needSeller && !openSeller ? "Primero toca quién abre la caja" : "Abrir la caja con este fondo"} style={{ ...btn(true), opacity: needSeller && !openSeller ? 0.5 : 1 }}>{busy ? "Abriendo…" : "Abrir caja"}</button>
-              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 14, lineHeight: 1.6 }}>Sigue estos pasos para empezar el día. La caja queda abierta todo el turno, aunque cambie la vendedora.</div>
+              {needSeller && (
+                <CashStep n={1} title="¿Quién abre la caja?" done={!!openSeller}>
+                  <SellerPicker sellers={sellers} value={openSeller} onChange={setOpenSeller} label="" />
+                </CashStep>
+              )}
+              <CashStep n={needSeller ? 2 : 1} title="¿Con cuánto dinero empiezas? (fondo para dar vuelto)" done={openAmount !== ""}>
+                <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                  {[0, 50, 100, 150, 200].map((v) => <Chip key={v} active={openAmount === String(v)} onClick={() => setOpenAmount(String(v))}>{v === 0 ? "Sin fondo" : `S/ ${v}`}</Chip>)}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Otro monto S/</span>
+                  <input inputMode="decimal" value={openAmount} onChange={(e) => setOpenAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" aria-label="Fondo inicial" style={{ ...inputStyle, width: 130, fontSize: 16 }} />
+                </div>
+              </CashStep>
+              <CashStep n={needSeller ? 3 : 2} title="Abre la caja" done={false}>
+                <button disabled={busy || (needSeller && !openSeller)} onClick={openCash} className={!(needSeller && !openSeller) && openAmount !== "" ? "btn-ready" : ""}
+                  style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: needSeller && !openSeller ? C.line : C.ink, color: needSeller && !openSeller ? C.stone : C.paper, fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, letterSpacing: "0.04em", cursor: needSeller && !openSeller ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <Banknote size={18} /> {busy ? "Abriendo…" : `Abrir caja${openAmount !== "" ? ` con ${money2(Number(openAmount) || 0)}` : ""}`}
+                </button>
+                {needSeller && !openSeller && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 6 }}>Primero toca quién abre la caja (paso 1).</div>}
+              </CashStep>
             </>
           ) : <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft }}>Pide al cajero o a Administración que la abra para poder vender.</div>}
         </AdminCard>
       ) : (
         <>
-          <AdminCard style={{ marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: C.ink }}>Caja abierta · {store.name}</div>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>Abrió {cash.opened_seller || cash.opened_by_name || "—"} · {fmtDateTime(cash.opened_at)}</div>
+          <div className="cash-hero">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="cash-live" /> <span style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 700 }}>Caja abierta · {store.name}</span></div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.7 }}>Abrió {cash.opened_seller || cash.opened_by_name || "—"} · {fmtDateTime(cash.opened_at)}</div>
             </div>
-            {canManage && cash.expectedCash !== undefined && (
+            {canManage && cash.expectedCash !== undefined ? (
+              <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 14, flexWrap: "wrap", marginTop: 14 }}>
+                <div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12, opacity: 0.7 }}>Efectivo que debe haber en la caja</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, fontWeight: 800, lineHeight: 1.1 }}>{money2(cash.expectedCash)}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <span className="cash-pill">{cash.salesCount || 0} ventas</span>
+                  <span className="cash-pill">Vendido {money2(Object.values(cash.byMethod || {}).reduce((a, v) => a + Number(v || 0), 0))}</span>
+                </div>
+              </div>
+            ) : <div style={{ fontFamily: FONT_BODY, fontSize: 13, marginTop: 10, opacity: 0.85 }}>Ya puedes vender.</div>}
+          </div>
+          {canManage && cash.expectedCash !== undefined && (
+          <AdminCard style={{ marginBottom: 14 }}>
+            <details>
+              <summary style={{ fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, color: C.ink, cursor: "pointer" }}>Ver detalle del turno (fondo, pagos, entradas y salidas, por vendedora)</summary>
               <div style={{ marginTop: 10 }}>
                 <Row label="Fondo inicial" value={money2(cash.opening_amount)} />
                 {Object.entries(cash.byMethod || {}).map(([m, v]) => <Row key={m} label={`Ventas ${m}`} value={money2(v)} />)}
@@ -8749,22 +8799,31 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 4 }}>{cash.salesCount || 0} ventas en este turno</div>
                 <BySellerTable bySeller={cash.bySeller} />
               </div>
-            )}
+            </details>
           </AdminCard>
+          )}
 
           {canManage && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
-                {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint="Ir al punto de venta" onClick={onGoSell} dark />}
-                {onReturns && <BigAction icon={Undo2} title="Devolución o cambio" hint="De una venta ya hecha" onClick={onReturns} />}
-                {onCredits && <BigAction icon={Ticket} title="Vales" hint="Ver saldo de un vale" onClick={onCredits} />}
+              <div className="more-head">Atender clientes</div>
+              <div className="cash-grid">
+                {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint="Cobrar prendas al cliente" onClick={onGoSell} dark />}
+                {onReturns && <BigAction icon={Undo2} title="Devolución o cambio" hint="La persona trae una prenda" onClick={onReturns} />}
+                {onCredits && <BigAction icon={Wallet} title="Vales" hint="Ver el saldo de un vale" onClick={onCredits} />}
+              </div>
+              <div className="more-head">Dinero de la caja</div>
+              <div className="cash-grid">
                 <BigAction icon={Plus} title="Entrada" hint="Meter efectivo (ej. sencillo)" onClick={() => { setMove({ type: "entrada", amount: "", reason: "" }); setClosing(null); }} />
                 <BigAction icon={Minus} title="Salida" hint="Sacar efectivo (ej. compras)" onClick={() => { setMove({ type: "salida", amount: "", reason: "" }); setClosing(null); }} />
-                <BigAction icon={RotateCcw} title="Cambio de turno" hint="Entregar la caja a otra vendedora" onClick={() => { setClosing({ counted: "", notes: "", shift: true, next: "" }); setMove(null); }} />
+              </div>
+              <div className="more-head">Fin del turno</div>
+              <div className="cash-grid">
+                <BigAction icon={RotateCcw} title="Cambio de turno" hint="Entregar la caja a otra persona" onClick={() => { setClosing({ counted: "", notes: "", shift: true, next: "" }); setMove(null); }} />
                 <BigAction icon={Banknote} title="Cerrar caja" hint="Contar el dinero y cerrar el día" onClick={() => { setClosing({ counted: "", notes: "", shift: false }); setMove(null); }} />
               </div>
+              <div ref={formRef} />
               {move && (
-                <AdminCard style={{ marginBottom: 14 }}>
+                <AdminCard style={{ marginBottom: 14, border: `1.5px solid ${C.ink}` }}>
                   <span style={labelStyle}>{move.type === "entrada" ? "Entrada de efectivo" : "Salida de efectivo"}</span>
                   <SellerPicker sellers={sellers} value={move.seller || ""} onChange={(c) => setMove({ ...move, seller: c })} label="¿Quién lo hace?" />
                   <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -8778,8 +8837,8 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
                 </AdminCard>
               )}
               {closing && (
-                <AdminCard style={{ marginBottom: 14 }}>
-                  <span style={labelStyle}>Cierre y arqueo</span>
+                <AdminCard style={{ marginBottom: 14, border: `1.5px solid ${C.ink}` }}>
+                  <span style={labelStyle}>{closing.shift ? "Cambio de turno" : "Cierre y arqueo"}</span>
                   <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
                     <Chip active={!closing.shift} onClick={() => setClosing({ ...closing, shift: false })}>Cerrar el día</Chip>
                     <Chip active={!!closing.shift} onClick={() => setClosing({ ...closing, shift: true, next: closing.next ?? "" })}>Cambio de turno (sigue abierta)</Chip>
@@ -10080,6 +10139,8 @@ export default function FlyBoutiqueApp() {
         @keyframes nudgeX { 0%, 70%, 100% { transform: translateX(0); } 85% { transform: translateX(5px); } }
         .nudge-x { animation: nudgeX 2.4s ease infinite; }
         /* Más (panel): tarjetas con ícono que entran una tras otra y responden al tocar */
+        .dash-tile { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both; transition: transform .15s ease, box-shadow .2s ease; }
+        .dash-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,.07); }
         .more-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
         @media (min-width: 760px) { .more-grid { grid-template-columns: 1fr 1fr; } }
         .more-head { font-family: ${FONT_BODY}; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: ${C.stone}; margin: 0 0 8px; }
@@ -10091,6 +10152,15 @@ export default function FlyBoutiqueApp() {
         .more-tile:hover .more-ico, .more-tile:active .more-ico { transform: rotate(-6deg) scale(1.06); }
         .more-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: ${C.accent}; color: #fff; font-family: ${FONT_BODY}; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; animation: bump .5s ease 2; }
         .more-chip { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid ${C.line}; background: ${C.paperDeep}; font-family: ${FONT_BODY}; font-size: 12.5px; color: ${C.ink}; cursor: pointer; }
+        /* Caja: tarjeta negra del turno, pasos para abrir y grupos de botones */
+        .cash-hero { background: ${C.ink}; color: ${C.paper}; border-radius: 16px; padding: 16px 18px; margin-bottom: 12px; animation: cardIn .45s ease both; }
+        @keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,.7); } 100% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
+        .cash-live { width: 9px; height: 9px; border-radius: 50%; background: #fff; animation: livePulse 1.6s ease-out infinite; flex-shrink: 0; }
+        .cash-pill { font-family: ${FONT_BODY}; font-size: 12px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.12); }
+        .cash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+        .cash-step { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid ${C.line}; }
+        .cash-step-n { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid ${C.ink}; display: flex; align-items: center; justify-content: center; font-family: ${FONT_BODY}; font-size: 13px; font-weight: 700; color: ${C.ink}; flex-shrink: 0; transition: background .25s ease, color .25s ease; }
+        .cash-step.is-done .cash-step-n { background: ${C.ink}; color: ${C.paper}; animation: bump .4s ease; }
         /* Caja: botones grandes que entran uno tras otro; «Vender» late suave para guiar */
         .big-action { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both; transition: transform .15s ease, box-shadow .2s ease; }
         .big-action:nth-child(2) { animation-delay: 40ms; } .big-action:nth-child(3) { animation-delay: 80ms; } .big-action:nth-child(4) { animation-delay: 120ms; }
