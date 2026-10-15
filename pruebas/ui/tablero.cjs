@@ -13,7 +13,7 @@ const catalog = { products: [{ id: "p1", name: "Blusa Seda Valentina", slug: "p1
 const at = (h) => { const d = new Date(); d.setHours(h, 15, 0, 0); return d.getTime(); };
 const sale = (id, h, total, method, extra = {}) => ({ id, data: { id, serie: "B001", numero: id.length, tipo: "boleta", total, subtotal: total, discount: 0, status: "emitido", createdAt: at(h), channel: "tienda", storeId: "principal", staffName: "María", paymentMethod: method, payments: [{ method, amount: total }], items: [{ productId: "p1", variantId: "v1", name: "Blusa Seda Valentina", qty: total / 100, unitPrice: 100 }], ...extra } });
 const sales = [sale("s1", 11, 100, "Efectivo"), sale("s2", 11, 100, "Yape"), sale("s3", 16, 300, "Yape", { tipo: "factura", staffName: "Lucía" }), sale("s4", 12, 999, "Efectivo", { status: "anulado" })];
-let ok = true; const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if (!v) ok = false; };
+let ok = true; const alerts = []; const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if (!v) ok = false; };
 const route = async (rt) => {
   const u = rt.request().url();
   if (u.includes("/auth/v1/token")) return rt.fulfill({ json: { access_token: jwt, token_type: "bearer", expires_in: 3600, expires_at: exp, refresh_token: "r", user } });
@@ -31,7 +31,7 @@ const route = async (rt) => {
     await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
     const p = await ctx.newPage(); p.setDefaultTimeout(4000);
     p.on("pageerror", (e) => { console.log("ERROR EN PÁGINA:", e.message); ok = false; });
-    p.on("dialog", (d) => d.accept());
+    p.on("dialog", (d) => { alerts.push(d.message()); d.accept(); });
     await p.route("http://fake.supabase.test/**", route);
     await p.goto("http://localhost:4398/#staff");
     await p.fill('input[placeholder="Usuario"]', "ana"); await p.fill('input[placeholder="Contraseña"]', "clave1234"); await p.click("text=Entrar");
@@ -55,6 +55,11 @@ const route = async (rt) => {
       check("pc: el menú lateral abre Reportes", (await p.innerText("body")).includes("Por vendedora"));
       check("pc: Reportes queda marcado en el menú", await p.locator(".side-link.is-active:has-text('Reportes')").count() === 1);
       await p.goto("http://localhost:4398/#staff/dashboard"); await p.waitForTimeout(800);
+      await p.click("text=Temporadas (Navidad"); await p.waitForTimeout(300);
+      const tc = await p.innerText("body");
+      check("pc: Panel → Temporadas muestra la de hoy y sus fechas", tc.includes("Hoy se ve:") && tc.includes("Día de la Madre") && tc.includes("Fiestas Patrias"));
+      await p.selectOption('select[aria-label="Temporada"]', "off"); await p.click("text=Guardar temporadas"); await p.waitForTimeout(400);
+      check("pc: apagar temporadas guarda y avisa", alerts.some((a) => a.includes("Temporadas apagadas")));
     } else {
       check("movil: menú abajo, sin la lista lateral", side.h < 120 && side.more === "none");
     }

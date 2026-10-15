@@ -7,6 +7,7 @@ import {
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
   FileText, Truck, ArrowLeftRight, UserCog, Images, FolderArchive, ClipboardList, History, Share, SquarePlus, Contact, BadgePercent, Wallet, BookOpenCheck, HardDriveDownload,
   MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
+  Snowflake, Leaf, Sun, Flower2, Ghost, Flag, Wind, Tag as TagIcon,
 } from "lucide-react";
 // Excel y códigos de barras solo se descargan cuando el staff los usa (la tienda abre más rápido en celular)
 const loadXLSX = () => import("xlsx");
@@ -960,8 +961,78 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
 /* ------------------------------------------------------------------ */
 // Ajustes de la tienda a mano para textos fijos (la cinta de arriba); se actualiza al cargar el catálogo
 let SHOP_SETTINGS = {};
+// ---- Temporadas: detalles de la web según la fecha (Navidad, Día de la Madre, Fiestas Patrias, Halloween…) ----
+// Se configura en Panel → «Temporadas». Siempre en blanco y negro: un mensaje en la franja negra, una nota bajo la portada
+// y figuritas que caen unos segundos en el inicio (una vez por visita; nada si el equipo pide menos movimiento).
+const nthSunday = (y, m, n) => { const wd = new Date(y, m - 1, 1).getDay(); return ((7 - wd) % 7) + 1 + (n - 1) * 7; };
+const lastFriday = (y, m) => { const d = new Date(y, m, 0); while (d.getDay() !== 5) d.setDate(d.getDate() - 1); return d.getDate(); };
+const SEASONS = [
+  { id: "navidad", name: "Navidad", icon: Snowflake, msg: "Navidad en FLY: encuentra el regalo perfecto", range: () => [[12, 1], [12, 25]] },
+  { id: "anionuevo", name: "Año Nuevo", icon: Sparkles, msg: "Cierra el año con brillo", range: () => [[12, 26], [12, 31]] },
+  { id: "sanvalentin", name: "San Valentín", icon: Heart, msg: "San Valentín: regala algo que se use y se recuerde", range: () => [[2, 1], [2, 14]] },
+  { id: "madre", name: "Día de la Madre", icon: Flower2, msg: "Día de la Madre: un detalle para mamá", range: (y) => [[4, 25], [5, nthSunday(y, 5, 2)]] },
+  { id: "padre", name: "Día del Padre", icon: Gift, msg: "Día del Padre: regalos para papá", range: (y) => [[6, 1], [6, nthSunday(y, 6, 3)]] },
+  { id: "fiestaspatrias", name: "Fiestas Patrias", icon: Flag, msg: "¡Felices Fiestas Patrias!", range: () => [[7, 15], [7, 29]] },
+  { id: "halloween", name: "Halloween", icon: Ghost, msg: "Halloween en FLY", range: () => [[10, 24], [10, 31]] },
+  { id: "blackfriday", name: "Black Friday", icon: TagIcon, msg: "Black Friday: revisa las ofertas", range: (y) => { const f = lastFriday(y, 11); return [[11, f - 3], [11, Math.min(30, f + 3)]]; } },
+  { id: "verano", name: "Verano", icon: Sun, msg: "Temporada de verano: lo nuevo para el sol", range: () => [[1, 1], [3, 20]] },
+  { id: "otono", name: "Otoño", icon: Leaf, msg: "Llega el otoño: capas y tonos cálidos", range: () => [[3, 21], [6, 20]] },
+  { id: "invierno", name: "Invierno", icon: Wind, msg: "Invierno: abrigos y tejidos para el frío", range: () => [[6, 21], [9, 22]] },
+  { id: "primavera", name: "Primavera", icon: Flower2, msg: "Primavera: colores y telas ligeras", range: () => [[9, 23], [12, 31]] },
+];
+const seasonRange = (s, y = new Date().getFullYear()) => s.range(y);
+// La primera de la lista que cae en la fecha gana (las fechas especiales van antes que las estaciones)
+const seasonFor = (date = new Date(), skip = []) => {
+  const md = (date.getMonth() + 1) * 100 + date.getDate();
+  return SEASONS.find((s) => { if (skip.includes(s.id)) return false; const [[m1, d1], [m2, d2]] = seasonRange(s, date.getFullYear()); return md >= m1 * 100 + d1 && md <= m2 * 100 + d2; }) || null;
+};
+const seasonCfg = (settings) => ({ mode: "auto", fx: true, skip: [], msgs: {}, ...(settings?.season || {}) });
+const activeSeason = (settings, date = new Date()) => {
+  const cfg = seasonCfg(settings);
+  if (cfg.mode === "off") return null;
+  const s = cfg.mode === "auto" ? seasonFor(date, cfg.skip || []) : SEASONS.find((x) => x.id === cfg.mode);
+  if (!s) return null;
+  const own = (cfg.msgs || {})[s.id] || {};
+  const msg = getLang() === "en" ? (own.en || t(own.es || s.msg)) : (own.es || s.msg);
+  return { ...s, label: t(s.name), msg, fx: cfg.fx !== false };
+};
+const SeasonNote = ({ season }) => {
+  const Icon = season.icon;
+  return (
+    <div className="season-note" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "0 20px 26px", padding: "12px 16px", border: `1px solid ${C.line}`, borderRadius: 12, textAlign: "center" }}>
+      <Icon size={17} color={C.ink} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+      <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.4 }}><strong style={{ fontFamily: FONT_DISPLAY, letterSpacing: "0.12em", fontSize: 11, textTransform: "uppercase", marginRight: 8 }}>{season.label}</strong>{season.msg}</span>
+    </div>
+  );
+};
+const SEASON_FX_KEY = "fly:temporada-fx";
+const SeasonFx = ({ season }) => {
+  const [on, setOn] = useState(() => {
+    try { if (sessionStorage.getItem(SEASON_FX_KEY) === season.id) return false; } catch (e) { /* sin sessionStorage */ }
+    try { if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false; } catch (e) { /* nada */ }
+    return true;
+  });
+  useEffect(() => {
+    if (!on) return undefined;
+    try { sessionStorage.setItem(SEASON_FX_KEY, season.id); } catch (e) { /* nada */ }
+    const tm = setTimeout(() => setOn(false), 9500);
+    return () => clearTimeout(tm);
+  }, [on, season.id]);
+  if (!on) return null;
+  const Icon = season.icon;
+  return (
+    <div className="season-fx" aria-hidden="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 40, overflow: "hidden" }}>
+      {Array.from({ length: 14 }, (_, i) => (
+        <span key={i} style={{ position: "absolute", top: -30, left: `${(i * 37 + 5) % 100}%`, opacity: 0.18 + (i % 4) * 0.08, animation: `season-fall ${5 + (i % 4)}s linear ${(i * 0.45) % 3.5}s 1 both` }}>
+          <Icon size={12 + (i % 3) * 5} color={C.ink} strokeWidth={1.4} />
+        </span>
+      ))}
+    </div>
+  );
+};
 const Marquee = () => {
-  const text = `${t("ENVÍO GRATIS EN TRUJILLO DESDE S/ {n}", { n: localShippingOf(SHOP_SETTINGS).freeFrom })}  ·  ${clubOn(SHOP_SETTINGS) ? `${t("CLUB FLY: GANA PUNTOS EN CADA COMPRA")}  ·  ` : ""}${t("NUEVA COLECCIÓN DISPONIBLE")}  ·  `;
+  const season = activeSeason(SHOP_SETTINGS);
+  const text = `${season ? `${season.msg.toUpperCase()}  ·  ` : ""}${t("ENVÍO GRATIS EN TRUJILLO DESDE S/ {n}", { n: localShippingOf(SHOP_SETTINGS).freeFrom })}  ·  ${clubOn(SHOP_SETTINGS) ? `${t("CLUB FLY: GANA PUNTOS EN CADA COMPRA")}  ·  ` : ""}${t("NUEVA COLECCIÓN DISPONIBLE")}  ·  `;
   return (
     <div style={{ background: C.ink, overflow: "hidden", height: 28, display: "flex", alignItems: "center" }}>
       <div style={{ display: "flex", animation: "marquee 22s linear infinite" }}>
@@ -1271,6 +1342,7 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
   const activeBanners = banners.filter((b) => b.active).sort((a, b) => a.order - b.order);
   const hero = activeBanners[0];
   const featuredCollections = collections.filter((c) => c.featured).sort((a, b) => a.order - b.order);
+  const season = activeSeason(catalog.settings);
 
   const heroTarget = (b = hero) => {
     if (!b) return setScreen("category");
@@ -1288,6 +1360,8 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
         </div>
       )}
 
+      {season && <SeasonNote season={season} />}
+      {season && season.fx && <SeasonFx season={season} />}
       {outletCount > 0 && (
         <button className="outlet-card" onClick={() => setScreen("outlet")} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "calc(100% - 40px)", margin: "0 20px 30px", padding: "18px 20px", borderRadius: 12, border: "none", background: C.ink, cursor: "pointer", textAlign: "left" }}>
           <span>
@@ -4572,6 +4646,61 @@ const BusinessSummary = ({ catalog, go }) => {
   );
 };
 
+// Panel → «Temporadas»: automático por fecha, una fija o apagado; mensaje propio por temporada (y en inglés si se quiere)
+const SeasonSettings = ({ catalog, updateCatalog }) => {
+  const [cfg, setCfg] = useState(() => seasonCfg(catalog.settings));
+  const y = new Date().getFullYear();
+  const now = activeSeason({ season: cfg });
+  const fmt = ([m, d]) => `${d} ${MONTHS[m - 1].slice(0, 3).toLowerCase()}`;
+  const setMsg = (id, k, v) => setCfg((c) => ({ ...c, msgs: { ...(c.msgs || {}), [id]: { ...((c.msgs || {})[id] || {}), [k]: v } } }));
+  const toggleSkip = (id) => setCfg((c) => ({ ...c, skip: (c.skip || []).includes(id) ? c.skip.filter((x) => x !== id) : [...(c.skip || []), id] }));
+  const save = () => {
+    const msgs = Object.fromEntries(Object.entries(cfg.msgs || {}).map(([k, v]) => [k, { es: (v.es || "").trim(), en: (v.en || "").trim() }]).filter(([, v]) => v.es || v.en));
+    updateCatalog((c) => ({ ...c, settings: { ...c.settings, season: { mode: cfg.mode, fx: cfg.fx !== false, skip: cfg.skip || [], msgs } } }));
+    try { sessionStorage.removeItem(SEASON_FX_KEY); } catch (e) { /* nada */ }
+    alert(cfg.mode === "off" ? "Temporadas apagadas: la tienda se ve como siempre." : `Guardado. Ahora en la tienda: ${now ? `${now.name} — «${now.msg}»` : "nada (ninguna temporada cae en la fecha de hoy)"}.`);
+  };
+  return (
+    <FoldCard title="Temporadas (Navidad, Día de la Madre, Fiestas Patrias…)" summary={cfg.mode === "off" ? "Apagado" : now ? `Ahora: ${now.name}` : "Automático"}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
+        Detalles que cambian solos según la fecha, sin tocar los banners: un mensaje en la franja negra de arriba, una nota debajo de la portada y figuritas que caen unos segundos en el inicio (una vez por visita). Todo en blanco y negro, como la marca.
+      </div>
+      <Field label="¿Qué temporada se muestra?">
+        <select value={cfg.mode} onChange={(e) => setCfg((c) => ({ ...c, mode: e.target.value }))} style={inputStyle} aria-label="Temporada">
+          <option value="auto">Automático según la fecha (recomendado)</option>
+          <option value="off">Apagado</option>
+          {SEASONS.map((s) => <option key={s.id} value={s.id}>Siempre: {s.name}</option>)}
+        </select>
+      </Field>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 12, cursor: "pointer" }}>
+        <input type="checkbox" checked={cfg.fx !== false} onChange={(e) => setCfg((c) => ({ ...c, fx: e.target.checked }))} /> Figuritas que caen en el inicio (unos segundos)
+      </label>
+      <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 12 }}>
+        {cfg.mode === "off" ? "No se muestra ninguna temporada." : now ? <>Hoy se ve: <strong>{now.name}</strong> — «{now.msg}»</> : "Hoy no cae ninguna temporada."}
+      </div>
+      {cfg.mode !== "off" && SEASONS.map((s) => {
+        const Icon = s.icon; const r = seasonRange(s, y); const off = cfg.mode === "auto" && (cfg.skip || []).includes(s.id);
+        if (cfg.mode !== "auto" && cfg.mode !== s.id) return null;
+        return (
+          <div key={s.id} style={{ borderTop: `1px solid ${C.line}`, padding: "10px 0", opacity: off ? 0.5 : 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>
+              <Icon size={15} /> <strong>{s.name}</strong> <span style={{ color: C.stone, fontSize: 11.5 }}>{fmt(r[0])} – {fmt(r[1])}</span>
+              {cfg.mode === "auto" && <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, cursor: "pointer" }}><input type="checkbox" checked={!off} onChange={() => toggleSkip(s.id)} aria-label={`Usar ${s.name}`} /> Usar</label>}
+            </div>
+            {!off && (
+              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                <input value={(cfg.msgs || {})[s.id]?.es || ""} onChange={(e) => setMsg(s.id, "es", e.target.value)} placeholder={s.msg} aria-label={`Mensaje de ${s.name}`} style={{ ...inputStyle, flex: "2 1 220px", fontSize: 12.5 }} />
+                <input value={(cfg.msgs || {})[s.id]?.en || ""} onChange={(e) => setMsg(s.id, "en", e.target.value)} placeholder="En inglés (opcional)" aria-label={`Mensaje en inglés de ${s.name}`} style={{ ...inputStyle, flex: "1 1 160px", fontSize: 12.5 }} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <button onClick={save} style={{ marginTop: 10, padding: "10px 16px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Guardar temporadas</button>
+    </FoldCard>
+  );
+};
+
 const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
   const { products, banners, collections } = catalog;
   const agotados = products.filter(productSoldOut).length;
@@ -4700,6 +4829,7 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
         </div>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6 }}>Ideal para liquidar a precio de costo sin mezclarlo con la colección: precio final, sin cupones ni puntos, envío a cargo del cliente y sin cambios (salvo falla de fábrica).</div>
       </FoldCard>
+      <SeasonSettings catalog={catalog} updateCatalog={updateCatalog} />
       <FoldCard title="Programa de puntos (Club Fly)">
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
           <Switch on={clubOn(catalog.settings)} label={clubOn(catalog.settings) ? "Club Fly activo" : "Club Fly en pausa"} onClick={() => {
@@ -10994,6 +11124,7 @@ export default function FlyBoutiqueApp() {
         @keyframes slideUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes toastIn { from { transform: translate(-50%, -10px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
         @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        @keyframes season-fall { from { transform: translateY(0) rotate(0deg); } to { transform: translateY(110vh) rotate(220deg); } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 0.9s linear infinite; }
         button { font-family: inherit; }
