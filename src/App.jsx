@@ -4180,7 +4180,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["transfers", "purchases", "docapi", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "purchases", "docapi", "fotoscopia", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -5814,6 +5814,66 @@ const TransfersScreen = ({ catalog, role, refreshData }) => {
           {done.length ? done.map(row) : <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Aún no hay guías.</div>}
         </>
       )}
+    </div>
+  );
+};
+
+// ---- Copia de las fotos y videos (Storage no entra en la copia de datos) ----
+const PhotoBackupScreen = ({ catalog }) => {
+  const [items, setItems] = useState(null);
+  const [prog, setProg] = useState(null);
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const ctrl = useRef(null);
+  useEffect(() => { import("./fotos-copia.js").then((m) => setItems(m.collectMedia(catalog))).catch(() => setItems([])); }, [catalog]);
+  const mb = (b) => `${(b / 1048576).toFixed(b > 104857600 ? 0 : 1)} MB`;
+  const start = async () => {
+    setBusy(true); setResult(null); setProg({ done: 0, total: items.length, bytes: 0, part: 1, failed: 0 });
+    ctrl.current = new AbortController();
+    try {
+      const m = await import("./fotos-copia.js");
+      const r = await m.downloadMediaBackup(catalog, { onProgress: setProg, signal: ctrl.current.signal });
+      setResult(r);
+    } catch (e) { setResult({ error: e.name === "AbortError" ? "Cancelaste la copia. No se descargó ningún archivo de la parte en curso." : (e.message || String(e)) }); }
+    setBusy(false);
+  };
+  const counts = (items || []).reduce((a, it) => { a[it.kind] = (a[it.kind] || 0) + 1; return a; }, {});
+  const hint = { fontFamily: FONT_BODY, fontSize: 12, color: C.stone, lineHeight: 1.55 };
+  return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 640 }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Copia de las fotos</h1>
+      <div style={{ ...hint, marginBottom: 14 }}>La copia de datos (Más → Descargar copia de seguridad) no incluye las fotos ni los videos. Aquí se descargan todos en uno o varios archivos ZIP, con un índice que dice a qué producto y color va cada foto. Hazlo una vez al mes y cuando subas muchas fotos nuevas.</div>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Qué se va a guardar</span>
+        {items === null ? <div style={hint}>Contando…</div> : (
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, lineHeight: 1.7 }}>
+            <strong>{items.length}</strong> archivos{Object.keys(counts).length ? ": " : ""}{Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(" · ")}
+          </div>
+        )}
+        <div style={{ ...hint, marginTop: 6 }}>Las miniaturas no se guardan (se vuelven a crear con «Optimizar fotos»). Recomendado: en una computadora con wifi. Si son muchas, se descargan en partes de 300 MB: el navegador puede preguntar si permites varias descargas, toca «Permitir».</div>
+      </AdminCard>
+      {prog && (
+        <AdminCard style={{ marginBottom: 14 }}>
+          <span style={labelStyle}>{busy ? "Descargando…" : "Listo"}</span>
+          <div style={{ height: 8, borderRadius: 999, background: C.paperDeep, overflow: "hidden", marginBottom: 8 }}>
+            <div style={{ height: "100%", width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 100}%`, background: C.ink, transition: "width .3s ease" }} />
+          </div>
+          <div role="status" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>{prog.done} de {prog.total} archivos · {mb(prog.bytes)} · parte {prog.part}{prog.failed ? <span style={{ color: C.accent }}> · {prog.failed} no se pudieron bajar</span> : null}</div>
+        </AdminCard>
+      )}
+      {result && (
+        <AdminCard style={{ marginBottom: 14 }}>
+          {result.error ? <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.accent }}>{result.error}</div> : (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, lineHeight: 1.6 }}>
+              ✓ Copia lista: {result.done - result.failed} archivos ({mb(result.bytes)}) en {result.parts} {result.parts === 1 ? "archivo ZIP" : "archivos ZIP"}. Revisa tu carpeta de Descargas y guárdalos juntos en Google Drive.
+              {result.failed > 0 && <div style={{ color: C.accent, marginTop: 6 }}>{result.failed} no se pudieron descargar (están en indice.csv con su dirección). Si son fotos de internet que ya no existen, conviene volver a subirlas al producto.</div>}
+            </div>
+          )}
+        </AdminCard>
+      )}
+      {busy
+        ? <button onClick={() => ctrl.current?.abort()} style={{ width: "100%", padding: "13px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" }}>Cancelar</button>
+        : <PrimaryButton disabled={!items || !items.length} onClick={start}><Download size={16} /> Descargar copia de las fotos</PrimaryButton>}
     </div>
   );
 };
@@ -7907,25 +7967,36 @@ const AdminComplaintsScreen = ({ staffName }) => {
 };
 
 // Copia de seguridad completa en un archivo (productos, ventas, clientas, stock, staff y reclamos)
+// Supabase entrega como máximo 1000 filas por consulta: se piden de 1000 en 1000 hasta traer todas
+async function fetchAllRows(table, cols, orderCol) {
+  const out = [];
+  for (let from = 0; from < 500000; from += 1000) {
+    const { data, error } = await supabase.from(table).select(cols).order(orderCol).range(from, from + 999);
+    if (error) throw new Error(`${table}: ${error.message}`);
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
 async function downloadBackup() {
   try {
-    const [main, sales, customers, priv, staff, complaints, reviews] = await Promise.all([
+    const [main, salesRows, customersRows, priv, staff, complaints, reviews] = await Promise.all([
       supabase.from("store_data").select("data").eq("id", "main").maybeSingle(),
-      supabase.from("sales").select("data"), supabase.from("customers").select("phone,data"),
+      fetchAllRows("sales", "id,data", "id"), fetchAllRows("customers", "phone,data", "phone"),
       supabase.from("store_private").select("data").eq("id", "main").maybeSingle(),
       supabase.from("staff_profiles").select("username,name,role,active,created_at"),
       supabase.from("complaints").select("*"), supabase.from("product_reviews").select("*"),
     ]);
     const backup = {
       exportedAt: new Date().toISOString(), app: "Fly Boutique",
-      catalog: main.data?.data || null, sales: (sales.data || []).map((r) => r.data), customers: customers.data || [],
+      catalog: main.data?.data || null, sales: salesRows.map((r) => r.data), customers: customersRows,
       private: priv.data?.data || null, staff: staff.data || [], complaints: complaints.data || [], reviews: reviews.data || [],
     };
     const blob = new Blob([JSON.stringify(backup, null, 1)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = `fly-respaldo-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a); a.click(); a.remove();
-    alert("Copia descargada. Guárdala en un lugar seguro (por ejemplo Google Drive). Hazlo al menos una vez por semana.");
+    alert(`Copia descargada: ${salesRows.length} ventas y pedidos, ${customersRows.length} clientas. Guárdala en un lugar seguro (por ejemplo Google Drive). Hazlo al menos una vez por semana. Las fotos se descargan aparte: Más → Copia de las fotos.`);
   } catch (e) { alert("No se pudo generar la copia: " + (e.message || e)); }
 }
 
@@ -7947,6 +8018,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("customers")} style={quickLinkStyle}><Users size={16} color={C.ink} /> Clientas (Club Fly y permisos de publicidad) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("sellers")} style={quickLinkStyle}><User size={16} color={C.ink} /> Vendedores (códigos MA01) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      {role === "superadmin" && <button onClick={() => setScreen("fotoscopia")} style={quickLinkStyle}><ImageIcon size={16} color={C.ink} /> Copia de las fotos (ZIP) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={downloadBackup} style={quickLinkStyle}><DatabaseBackup size={16} color={C.ink} /> Descargar copia de seguridad <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("promocodes")} style={quickLinkStyle}><Gift size={16} color={C.ink} /> Códigos promocionales <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("docapi")} style={quickLinkStyle}><Scan size={16} color={C.ink} /> Consulta DNI / RUC (autocompletar en caja) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
@@ -8885,7 +8957,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -9102,6 +9174,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {isAdminRole && screen === "customers" && <CustomersScreen catalog={catalog} refreshData={refreshData} />}
         {screen === "manual" && <StaffManual role={role} />}
         {canOpenScreen(role, "docapi") && screen === "docapi" && <DocApiScreen />}
+        {canOpenScreen(role, "fotoscopia") && screen === "fotoscopia" && <PhotoBackupScreen catalog={catalog} />}
         {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}

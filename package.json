@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "fflate": "^0.8.2",
     "jsbarcode": "^3.11.6",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.383.0",
