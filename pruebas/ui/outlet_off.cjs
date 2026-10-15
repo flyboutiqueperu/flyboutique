@@ -6,7 +6,7 @@ const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?
 const mk = (id, name, price, extra = {}) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, featured: true, tag: "Nuevo", images: [], variants: [{ id: id + "M", size: "M", colorName: "Negro", colorHex: "#111", stock: 3, sku: id.toUpperCase() + "M" }], ...extra });
 const catalog = { products: [mk("p1", "Vestido Lino", 100), mk("p2", "Blusa Archivo", 40, { outlet: true, compareAtPrice: 120, tag: null })], collections: [], banners: [], settings: { outletEnabled: false, localShipping: { price: 12, freeFrom: 120 } }, promoCodes: [{ code: "FLY10", type: "percent", value: 10, active: true }] };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   for (const [label, vp] of [["celular", { width: 390, height: 844 }], ["pc", { width: 1366, height: 860 }]]) {
     const ctx = await b.newContext({ locale: "es-PE", viewport: vp, isMobile: label === "celular" });
     await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));

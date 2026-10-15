@@ -9,7 +9,7 @@ const jwt = `${b64({ alg: "HS256" })}.${b64({ sub: "c1", role: "authenticated", 
 const user = { id: "c1", email: "lucia@gmail.com", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email", providers: ["email"] }, user_metadata: {} };
 const catalog = { products: [], collections: [], banners: [], settings: { loyalty: { enabled: true } }, promoCodes: [] };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); const sent = []; const calls = [];

@@ -1,0 +1,65 @@
+# Revisión automática de cada Pull Request: compila la app y corre las pruebas de navegador principales
+# (con Supabase simulado: no toca producción ni datos reales). Si algo falla, el PR muestra una ✗ roja.
+name: Revisión automática
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: revision-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            pruebas/ui/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar la app (lo mismo que hace Vercel)
+        run: npm run build
+
+      - name: Compilar la versión de pruebas (Supabase simulado)
+        run: npx vite build --outDir pruebas/ui/dist --emptyOutDir
+        env:
+          VITE_SUPABASE_URL: http://fake.supabase.test
+          VITE_SUPABASE_ANON_KEY: x
+
+      - name: Preparar el navegador de pruebas
+        working-directory: pruebas/ui
+        run: |
+          npm ci
+          npx playwright-core install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Pruebas de navegador
+        run: |
+          mkdir -p /tmp/capturas
+          fallas=""
+          for t in apps instalar cookies banner-en faltan cierre captcha actividad; do
+            echo "::group::$t"
+            if ! node "pruebas/ui/$t.cjs" /tmp/capturas; then fallas="$fallas $t"; fi
+            echo "::endgroup::"
+          done
+          EQUIPO=movil node pruebas/ui/cierre.cjs /tmp/capturas || fallas="$fallas cierre-movil"
+          if [ -n "$fallas" ]; then echo "Fallaron:$fallas"; exit 1; fi
+
+      - name: Guardar capturas si algo falló
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas
+          path: /tmp/capturas
+          retention-days: 7

@@ -7,7 +7,7 @@ const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?
 const catalog = { products: [], collections: [], banners: [], settings: {}, promoCodes: [] };
 let ok = true; const check = (txt, v) => { console.log(v ? "OK " : "FALLA", txt); if (!v) ok = false; };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   for (const [name, vp] of [["pc", { viewport: { width: 1440, height: 900 } }], ["laptop", { viewport: { width: 1280, height: 760 } }], ["tablet", { viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true }], ["movil", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }]]) {
     const ctx = await b.newContext({ locale: "es-PE", ...vp });
     const p = await ctx.newPage(); p.setDefaultTimeout(5000);

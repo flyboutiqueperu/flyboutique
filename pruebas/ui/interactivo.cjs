@@ -8,7 +8,7 @@ const img = "http://localhost:4365/img/a.svg";
 const mk = (id, name, extra = {}) => ({ id, name, category: "Vestidos", price: 129, status: "active", showOnline: true, featured: true, tag: "Bestseller", description: "Lino.", images: [{ id: "i" + id, url: img }], variants: [{ id: id + "s", size: "S", colorName: "Negro", colorHex: "#111", stock: 3 }], ...extra });
 const catalog = { products: Array.from({ length: 8 }, (_, i) => mk("p" + i, "Prenda " + i, i === 1 ? { compareAtPrice: 159 } : {})), collections: [], banners: [{ id: "b1", active: true, order: 1, title: "Nueva colección", image: img }], settings: {}, promoCodes: [] };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.setDefaultTimeout(5000);

@@ -28,7 +28,7 @@ const route = (p) => p.route("http://fake.supabase.test/**", async (rt) => {
 const faltan = async (p) => { const l = p.locator(".faltan:visible"); return (await l.count()) ? (await l.first().innerText()).trim() : ""; };
 
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.setDefaultTimeout(5000);

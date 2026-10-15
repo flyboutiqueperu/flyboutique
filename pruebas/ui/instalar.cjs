@@ -21,7 +21,7 @@ const page = async (b, ua, init) => {
 // Android: el navegador avisa que se puede instalar (evento simulado)
 const fakePrompt = () => { window.__prompted = 0; setTimeout(() => { const e = new Event("beforeinstallprompt"); e.prompt = () => { window.__prompted++; }; e.userChoice = Promise.resolve({ outcome: "accepted" }); window.dispatchEvent(e); }, 600); };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   // 1) Android en /caja: aparece solo, un toque instala
   let p = await page(b, null, fakePrompt);
   await p.goto("http://localhost:4383/caja"); await p.waitForTimeout(2500);
