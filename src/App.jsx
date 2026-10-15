@@ -8699,6 +8699,7 @@ const cashErrorText = (e) => {
   if (e?.code === "PGRST202") return "Falta correr el archivo 11-fase2-caja.sql en Supabase.";
   const m = e?.message || String(e || "");
   const k = Object.keys(CASH_ERRORS).find((x) => m.includes(x));
+  if (!k && typeof navigator !== "undefined" && navigator.onLine === false) return "Sin internet: no se guardó. Conéctate y vuelve a tocar el botón (no se duplica).";
   return k ? CASH_ERRORS[k] : "No se pudo completar. Revisa tu conexión e intenta de nuevo.";
 };
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
@@ -8807,6 +8808,8 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
   const [closedReport, setClosedReport] = useState(null);
   const [history, setHistory] = useState([]);
   const formRef = useRef(null);
+  const reportRef = useRef(null);
+  useEffect(() => { if (closedReport && reportRef.current) reportRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); }, [closedReport]);
   useEffect(() => { if ((move || closing) && formRef.current) formRef.current.scrollIntoView({ behavior: "smooth", block: "center" }); }, [!!move, !!closing, move?.type, closing?.shift]);
   // Quién hace cada cosa (si hay códigos de vendedora creados)
   const [sellers, setSellers] = useState([]);
@@ -8863,10 +8866,12 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
           <button onClick={load} style={btn(false)}>Actualizar</button>
         </div>
       </div>
-      {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginBottom: 12 }}>{msg}</div>}
+      {msg && !closing && !move && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginBottom: 12 }}>{msg}</div>}
 
       {closedReport && (
         <AdminCard style={{ marginBottom: 14 }}>
+          <div ref={reportRef} style={{ scrollMarginTop: 80 }} />
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 8 }}>✓ Caja cerrada. Este es el informe del turno.</div>
           <CashReport s={closedReport} storeName={store.name} />
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button onClick={() => window.print()} style={btn(false)}>Imprimir</button>
@@ -8972,6 +8977,9 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
                     <input inputMode="decimal" value={move.amount} onChange={(e) => setMove({ ...move, amount: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="Monto S/" style={{ ...inputStyle, width: 130 }} />
                     <input value={move.reason} onChange={(e) => setMove({ ...move, reason: e.target.value })} placeholder={move.type === "entrada" ? "Motivo (ej. sencillo del banco)" : "Motivo (ej. compra de bolsas)"} style={inputStyle} />
                   </div>
+                  {(() => { const falta = [needSeller && !move.seller && "toca quién lo hace", !(Number(move.amount) > 0) && "escribe el monto", !move.reason.trim() && "escribe el motivo"].filter(Boolean);
+                    return falta.length ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 8 }}>Para guardar: {falta.join(", ")}.</div> : null; })()}
+                  {msg && <div role="alert" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginBottom: 8 }}>{msg}</div>}
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setMove(null)} style={btn(false)}>Cancelar</button>
                     <button disabled={busy || !(Number(move.amount) > 0) || !move.reason.trim() || (needSeller && !move.seller)} onClick={saveMove} style={btn(true)}>Guardar</button>
@@ -9007,6 +9015,12 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
                       <SellerPicker sellers={sellers} value={closing.sellerIn || ""} onChange={(c) => setClosing({ ...closing, sellerIn: c })} label="¿Quién recibe la caja?" />
                     </div>
                   )}
+                  {(() => {
+                    const falta = [needSeller && !closing.seller && (closing.shift ? "toca quién entrega la caja" : "toca quién cierra la caja"), closing.counted === "" && "escribe el efectivo contado",
+                      closing.counted !== "" && diff !== 0 && !closing.notes.trim() && "escribe el motivo de la diferencia", needSeller && closing.shift && !closing.sellerIn && "toca quién recibe la caja"].filter(Boolean);
+                    return falta.length ? <div className="cash-missing" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 8 }}>Para continuar: {falta.join(", ")}.</div> : null;
+                  })()}
+                  {msg && <div role="alert" className="cash-form-error" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginBottom: 8 }}>{msg}</div>}
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setClosing(null)} style={btn(false)}>Cancelar</button>
                     <button disabled={busy || closing.counted === "" || (diff !== 0 && !closing.notes.trim()) || (needSeller && (!closing.seller || (closing.shift && !closing.sellerIn)))}
