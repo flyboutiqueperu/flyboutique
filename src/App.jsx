@@ -3912,13 +3912,15 @@ const CookieConsent = ({ current, onSave, onOpenPolicy }) => {
   );
   return (
     <div className="cookie-box" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90, background: C.ink, padding: "18px 20px calc(18px + env(safe-area-inset-bottom))", animation: "slideUp .3s cubic-bezier(.2,.8,.2,1)", maxHeight: "85vh", overflowY: "auto" }}>
+      <div className="cookie-main">
       <div className="cookie-title" style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_DISPLAY, fontSize: 14, fontWeight: 800, color: C.paper, marginBottom: 8 }}><Cookie size={16} /> {t("Tu privacidad en Fly")}</div>
       <div className="cookie-text" style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: `${C.paper}CC`, lineHeight: 1.6, marginBottom: 14 }}>
         {t("Usamos cookies necesarias para que la tienda funcione (tu cesta y tu sesión). Con tu permiso, también usamos cookies de estadísticas para mejorar la tienda. Nunca vendemos tus datos.")}{" "}
         <button onClick={onOpenPolicy} style={{ background: "none", border: "none", padding: 0, color: C.paper, textDecoration: "underline", fontFamily: "inherit", fontSize: "inherit", cursor: "pointer" }}>{t("Política de privacidad")}</button>
       </div>
+      </div>
       {config && (
-        <div style={{ marginBottom: 14 }}>
+        <div className="cookie-config" style={{ marginBottom: 14 }}>
           {row(t("Necesarias"), t("Cesta, sesión y seguridad. Siempre activas."), <Toggle on disabled />)}
           {row(t("Estadísticas"), t("Cuántas personas visitan la tienda y cómo navegan (Google Analytics, Microsoft Clarity)."), <Toggle on={stats} onClick={() => setStats((x) => !x)} />)}
           {row(t("Marketing"), t("Anuncios relevantes en redes sociales."), <Toggle on={marketing} onClick={() => setMarketing((x) => !x)} />)}
@@ -10633,14 +10635,19 @@ export default function FlyBoutiqueApp() {
           .search-scrim { background: rgba(0,0,0,0.35) !important; }
           .search-panel { flex: none !important; width: min(760px, 92vw); margin: 96px auto 0; max-height: calc(100vh - 140px); border-radius: 16px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.25); }
           .search-grid { grid-template-columns: repeat(6, 1fr) !important; }
-          /* Aviso de cookies en PC: tarjeta en la esquina */
-          .cookie-box { left: 32px !important; right: auto !important; bottom: 32px !important; width: 560px; max-width: calc(100vw - 64px); border-radius: 18px; padding: 26px 28px 24px !important; box-shadow: 0 24px 60px rgba(0,0,0,0.28); }
-          .cookie-box .cookie-title { font-size: 19px !important; margin-bottom: 10px !important; }
+          /* Aviso de cookies en PC: franja a lo ancho de la página (con sus márgenes), texto a la izquierda y botones a la derecha */
+          .cookie-box { left: max(32px, calc((100vw - 1240px) / 2)) !important; right: max(32px, calc((100vw - 1240px) / 2)) !important; bottom: 24px !important; width: auto; border-radius: 18px; padding: 24px 32px !important;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.28); display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 40px; align-items: center; }
+          .cookie-box .cookie-main { grid-column: 1; grid-row: 1; }
+          .cookie-box .cookie-btns { grid-column: 2; grid-row: 1; flex-wrap: nowrap !important; }
+          .cookie-box .cookie-config { grid-column: 1 / -1; grid-row: 2; margin: 14px 0 0 !important; display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 28px; }
+          .cookie-box .cookie-config > div { border-top: 1px solid rgba(255,255,255,0.12); }
+          .cookie-box .cookie-title { font-size: 19px !important; margin-bottom: 8px !important; }
           .cookie-box .cookie-title svg { width: 20px; height: 20px; }
-          .cookie-box .cookie-text { font-size: 14.5px !important; line-height: 1.65 !important; margin-bottom: 18px !important; }
+          .cookie-box .cookie-text { font-size: 14.5px !important; line-height: 1.6 !important; margin-bottom: 0 !important; }
           .cookie-box .cookie-rt { font-size: 14.5px !important; }
           .cookie-box .cookie-rd { font-size: 13px !important; }
-          .cookie-box .cookie-btn { font-size: 14px !important; padding: 14px 16px !important; }
+          .cookie-box .cookie-btn { font-size: 14px !important; padding: 14px 22px !important; flex: none !important; white-space: nowrap; }
           .install-card { display: none !important; }
           .page-narrow { max-width: 760px; margin: 0 auto; }
         }

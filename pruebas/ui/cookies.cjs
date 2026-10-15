@@ -8,15 +8,15 @@ const catalog = { products: [], collections: [], banners: [], settings: {}, prom
 let ok = true; const check = (txt, v) => { console.log(v ? "OK " : "FALLA", txt); if (!v) ok = false; };
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-  for (const [name, vp] of [["pc", { viewport: { width: 1440, height: 900 } }], ["tablet", { viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true }], ["movil", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }]]) {
+  for (const [name, vp] of [["pc", { viewport: { width: 1440, height: 900 } }], ["laptop", { viewport: { width: 1280, height: 760 } }], ["tablet", { viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true }], ["movil", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }]]) {
     const ctx = await b.newContext({ locale: "es-PE", ...vp });
     const p = await ctx.newPage(); p.setDefaultTimeout(5000);
     p.on("pageerror", (e) => { console.log("ERROR EN PÁGINA:", e.message); ok = false; });
     await p.route("http://fake.supabase.test/**", (rt) => rt.request().url().includes("store_data") ? rt.fulfill({ json: { data: catalog } }) : rt.fulfill({ json: [] }));
     await p.goto("http://localhost:4387/"); await p.waitForSelector(".cookie-box", { timeout: 8000 }); await p.waitForTimeout(500);
-    const m = await p.evaluate(() => { const box = document.querySelector(".cookie-box").getBoundingClientRect(); const fs = (sel) => parseFloat(getComputedStyle(document.querySelector(sel)).fontSize); return { w: Math.round(box.width), right: Math.round(box.right), bottom: Math.round(box.bottom), text: fs(".cookie-text"), btn: fs(".cookie-btn"), title: fs(".cookie-title"), btnH: Math.round(document.querySelector(".cookie-btn").getBoundingClientRect().height), vw: innerWidth, vh: innerHeight }; });
+    const m = await p.evaluate(() => { const box = document.querySelector(".cookie-box").getBoundingClientRect(); const fs = (sel) => parseFloat(getComputedStyle(document.querySelector(sel)).fontSize); return { w: Math.round(box.width), right: Math.round(box.right), bottom: Math.round(box.bottom), text: fs(".cookie-text"), btn: fs(".cookie-btn"), title: fs(".cookie-title"), btnH: Math.round(document.querySelector(".cookie-btn").getBoundingClientRect().height), left: Math.round(box.left), sameRow: document.querySelector(".cookie-btn").getBoundingClientRect().top < document.querySelector(".cookie-text").getBoundingClientRect().bottom, vw: innerWidth, vh: innerHeight }; });
     console.log(`  [${name}]`, JSON.stringify(m));
-    if (name === "pc") check("PC: tarjeta grande y letra legible", m.w >= 540 && m.text >= 14 && m.btn >= 14 && m.title >= 18 && m.btnH >= 44);
+    if (name === "pc" || name === "laptop") { const mg = Math.max(32, (m.vw - 1240) / 2); check(`${name}: franja a lo ancho con márgenes iguales (izq ${m.left}, der ${m.vw - m.right})`, Math.abs(m.left - mg) <= 1 && Math.abs(m.vw - m.right - mg) <= 1 && m.w >= m.vw - 2 * mg - 2); check(`${name}: letra legible y botones al lado del texto`, m.text >= 14 && m.btn >= 14 && m.title >= 18 && m.btnH >= 44 && m.sameRow); }
     else check(`${name}: ocupa el ancho y no se sale`, m.w === m.vw && m.bottom <= m.vh && m.text >= (name === "tablet" ? 13.5 : 11.5) && m.btnH >= 40);
     await p.screenshot({ path: `${out}/cookies-${name}.png` });
     await p.click("text=Configurar"); await p.waitForTimeout(300);
