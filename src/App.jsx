@@ -3179,19 +3179,35 @@ const TURNSTILE_SITE_KEY = "0x4AAAAAAFUXHjfYE0JKDuvg";
 const TurnstileBox = ({ siteKey, onToken }) => {
   const boxRef = useRef(null);
   const [failed, setFailed] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let id = null; let alive = true;
+    // Con señal débil puede tardar: a los 12 s se ofrece «Reintentar» (sin quitar la verificación: el servidor la exige)
+    const slowTimer = setTimeout(() => { if (alive && id === null) setSlow(true); }, 12000);
     loadTurnstile().then((ts) => {
       if (!alive || !boxRef.current) return;
       id = ts.render(boxRef.current, {
         sitekey: siteKey, theme: "light", language: "es",
-        callback: (t) => onToken(t), "expired-callback": () => onToken(""), "error-callback": () => onToken(""),
+        callback: (tk) => { setSlow(false); onToken(tk); }, "expired-callback": () => onToken(""), "error-callback": () => { onToken(""); setFailed(true); },
       });
     }).catch(() => setFailed(true));
-    return () => { alive = false; try { if (id !== null && window.turnstile) window.turnstile.remove(id); } catch (e) { /* ya removido */ } };
-  }, [siteKey]);
-  if (failed) return <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent, marginTop: 10 }}>{t("No se pudo cargar la verificación. Revisa tu conexión y recarga la página.")}</div>;
-  return <div ref={boxRef} style={{ display: "flex", justifyContent: "center", marginTop: 12, minHeight: 66 }} />;
+    return () => { alive = false; clearTimeout(slowTimer); try { if (id !== null && window.turnstile) window.turnstile.remove(id); } catch (e) { /* ya removido */ } };
+  }, [siteKey, attempt]);
+  const retry = () => { setFailed(false); setSlow(false); onToken(""); setAttempt((n) => n + 1); };
+  const retryBtn = <button type="button" className="captcha-retry" onClick={retry} style={{ marginTop: 8, padding: "9px 16px", borderRadius: 8, border: `1px solid ${C.ink}`, background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{t("Reintentar")}</button>;
+  if (failed) return (
+    <div style={{ textAlign: "center", marginTop: 10 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.accent }}>{t("No se pudo cargar la verificación. Revisa tu conexión.")}</div>
+      {retryBtn}
+    </div>
+  );
+  return (
+    <>
+      <div key={attempt} ref={boxRef} style={{ display: "flex", justifyContent: "center", marginTop: 12, minHeight: 66 }} />
+      {slow && <div style={{ textAlign: "center" }}><div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>{t("La verificación está tardando (señal débil).")}</div>{retryBtn}</div>}
+    </>
+  );
 };
 
 // Entrar con correo + contraseña (solo sirve si la clienta la creó estando dentro con código o Google)

@@ -1,5 +1,7 @@
 // Traducciones de la tienda al inglés (español → inglés). Si falta una, se muestra en español.
 const EN = {
+ "No se pudo cargar la verificación. Revisa tu conexión.": "The verification couldn't load. Check your connection.",
+ "La verificación está tardando (señal débil).": "The verification is taking a while (weak signal).",
  "Instalar la app": "Install the app",
  "Instala «{n}»": "Install «{n}»",
  "Ábrela desde tu pantalla de inicio, a pantalla completa.": "Open it from your home screen, full screen.",
