@@ -2,7 +2,7 @@
 // Revisa: sin errores, la pantalla no queda en blanco, la cesta no se pierde y el staff sigue en español.
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist");
+const dist = process.env.DIST || path.join(__dirname, "dist");
 const srv = http.createServer((q, r) => { const u = q.url.split("?")[0]; if (u.startsWith("/img/")) { r.writeHead(200, { "content-type": "image/svg+xml" }); return r.end('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="#555"/></svg>'); } let f = path.join(dist, u); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": u.endsWith(".js") ? "text/javascript" : u.endsWith(".css") ? "text/css" : "text/html" }); r.end(fs.readFileSync(f)); }).listen(4364);
 const img = "http://localhost:4364/img/a.svg";
 const mk = (id, name, cat, extra = {}) => ({ id, name, category: cat, price: 129, compareAtPrice: id === "p2" ? 159 : null, status: "active", showOnline: true, description: "Vestido de lino.", images: [{ id: "i" + id, url: img }, { id: "j" + id, url: img }], variants: [{ id: id + "s", size: "S", colorName: "Negro", colorHex: "#111", stock: 3 }, { id: id + "m", size: "M", colorName: "Rojo", colorHex: "#b11", stock: 1 }], ...extra });

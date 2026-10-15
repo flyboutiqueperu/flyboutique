@@ -1891,6 +1891,7 @@ const ReviewForm = ({ onSubmit, onCancel }) => {
         <button disabled={!author.trim() || !text.trim()} onClick={() => onSubmit({ author: author.trim(), rating, text: text.trim(), photo })}
           style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: (!author.trim() || !text.trim()) ? C.line : C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{t("Publicar reseña")}</button>
       </div>
+      <Faltan tr={t} items={[!author.trim() && "escribe tu nombre", !text.trim() && "escribe tu opinión"]} />
     </div>
   );
 };
@@ -2678,7 +2679,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
       ) : (
         <PrimaryButton key={canPlaceManual ? "ok" : "no"} className={canPlaceManual && !placing ? "btn-ready" : ""} onClick={confirmManualPayment} disabled={!canPlaceManual || placing}><MessageCircle size={16} /> {placing ? t("Registrando tu pedido…") : t("Confirmar pedido por WhatsApp")}</PrimaryButton>
       )}
-      {!canPlaceManual && paymentMethod !== "Tarjeta" && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 8, textAlign: "center" }}>{t("Completa tu nombre, celular")}{deliveryMethod !== "recojo" ? t(", dirección") : ""}{needsOp ? t(" y el número de operación") : ""} {t("para continuar.")}</div>}
+      {paymentMethod !== "Tarjeta" && <Faltan tr={t} center items={[!customerName.trim() && "escribe tu nombre", !phoneIsValid(customerPhone) && "escribe un celular válido", ...(deliveryMethod !== "recojo" ? addressMissing(addr, deliveryMethod) : []), needsOp && opNumber.trim().length < 4 && "escribe el número de operación del pago"]} />}
     </div>
   );
 };
@@ -3030,6 +3031,7 @@ const ComplaintsScreen = ({ settings, setScreen }) => {
       <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.5, margin: "6px 0" }}><input type="checkbox" checked={f.accept} onChange={(e) => set("accept", e.target.checked)} style={{ marginTop: 3 }} /> {t("Declaro que los datos son verdaderos y acepto que se usen solo para atender esta hoja, según la Política de privacidad.")}</label>
       {legal}
       <div style={{ marginTop: 14 }}><PrimaryButton disabled={!valid || busy} onClick={submit}>{busy ? t("Registrando…") : t("Enviar hoja de reclamación")}</PrimaryButton></div>
+      <Faltan tr={t} items={[f.name.trim().length < 3 && "escribe tu nombre completo", f.docNumber.trim().length < 6 && "escribe tu número de documento", f.address.trim().length < 5 && "escribe tu domicilio", !emailOk && "escribe un correo válido", !phoneIsValid(f.phone) && "escribe un teléfono válido", f.minor && !f.guardian.trim() && "escribe el nombre del padre, madre o apoderado", !f.itemDesc.trim() && "describe el producto o servicio", f.detail.trim().length < 10 && "cuenta qué pasó (al menos 10 letras)", !f.request.trim() && "escribe qué solicitas", !f.accept && "marca la declaración de datos verdaderos"]} />
 
       {label(t("Consultar una hoja ya registrada"))}
       <div style={{ display: "flex", gap: 8 }}>
@@ -3071,6 +3073,7 @@ const TrackOrderScreen = ({ settings, setScreen, initialCode = "" }) => {
       <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder={t("Número de pedido")} style={{ ...inputStyle, marginBottom: 8, fontSize: 15 }} />
       <PhoneInput value={phone} onChange={setPhone} style={{ marginBottom: 10 }} />
       <PrimaryButton disabled={busy || code.trim().length < 6 || !phoneIsValid(phone)} onClick={search}>{busy ? t("Buscando…") : t("Ver estado")}</PrimaryButton>
+      <Faltan tr={t} items={[code.trim().length < 6 && "escribe el número de pedido", !phoneIsValid(phone) && "escribe el celular con el que compraste"]} />
       {err && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginTop: 10 }}>{err}</div>}
       {res && (
         <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px", marginTop: 16 }}>
@@ -3774,6 +3777,7 @@ const AddressesScreen = ({ setScreen }) => {
           <input value={editing.label || ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} placeholder={t("Nombre (ej. Casa, Trabajo)")} style={{ ...inputStyle, marginBottom: 8 }} />
           <AddressFields value={editing} type={editing.type} onChange={(v) => setEditing({ ...editing, ...v })} />
           <PrimaryButton disabled={!ok} onClick={() => { const rec = { ...editing, id: editing.id || genId("dir") }; persist(editing.id ? list.map((x) => (x.id === rec.id ? rec : x)) : [...list, rec]); setEditing(null); }}>{t("Guardar dirección")}</PrimaryButton>
+          <Faltan tr={t} items={[!(editing.label || "").trim() && "ponle un nombre (ej. Casa)", ...addressMissing(editing, editing.type)]} />
         </div>
       </div>
     );
@@ -3977,6 +3981,19 @@ const InstallSheet = ({ app, tr = (x, v) => (v ? x.replace(/\{(\w+)\}/g, (m, k) 
       {ios && iosSafari && !ipad && !canPrompt && <ChevronDown className="install-arrow" size={30} color={C.ink} style={{ position: "fixed", bottom: "calc(2px + env(safe-area-inset-bottom, 0px))", left: "50%", marginLeft: -15, pointerEvents: "none" }} />}
     </div>
   );
+};
+
+// Línea corta que dice qué falta para habilitar un botón (desaparece cuando no falta nada).
+const Faltan = ({ items, tr, label = "Para continuar:", center }) => { const l = (items || []).filter(Boolean); if (!l.length) return null; const f = tr || ((x) => x); return <div className="faltan" role="status" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, margin: "8px 0", lineHeight: 1.5, textAlign: center ? "center" : "left" }}>{f(label)} {l.map((x) => f(x)).join(", ")}.</div>; };
+
+// Qué falta de una dirección de entrega (mismas reglas que addressComplete).
+const addressMissing = (a, type) => {
+  const m = [];
+  if (!a || !a.address || a.address.trim().length < 5) m.push("escribe la dirección (calle y número)");
+  if (type === "provincia") { if (!a?.department || !a?.city || !a?.district) m.push("elige departamento, provincia y distrito"); }
+  else if (type === "internacional") { if (!a?.country || !a?.city || !a?.zip) m.push("escribe país, ciudad y código postal"); }
+  else if (!a?.district) m.push("elige el distrito");
+  return m;
 };
 
 const Toast = ({ message }) => (
@@ -5147,7 +5164,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
         <button onClick={onCancel} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
         <PrimaryButton disabled={!canSave} onClick={handleSave} style={{ flex: 2, width: "auto" }}>Guardar producto</PrimaryButton>
       </div>
-      {!canSave && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 10, textAlign: "center" }}>Completa nombre, precio, al menos una talla y un color para guardar.</div>}
+      <Faltan center items={[!form.name.trim() && "escribe el nombre", form.price === "" && "pon el precio", !form.sizes.length && "elige al menos una talla", !form.colors.length && "agrega al menos un color"]} />
     </div>
   );
 };
@@ -5241,6 +5258,7 @@ const AdminBannerEditor = ({ banner, onSave, onCancel }) => {
         <button onClick={onCancel} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
         <PrimaryButton disabled={!canSave} onClick={() => onSave({ ...form, id: form.id || genId("ban") })} style={{ flex: 2, width: "auto" }}>Guardar banner</PrimaryButton>
       </div>
+      <Faltan center items={[!form.title.trim() && "escribe el título", !form.image && "sube la imagen"]} />
     </div>
   );
 };
@@ -5306,6 +5324,7 @@ const AdminPromoCodesScreen = ({ promoCodes, onSave, onDelete }) => {
           </div>
         </AdminCard>
         <PrimaryButton disabled={!canSave} onClick={() => { onSave({ ...editing, id: editing.id || genId("promo"), createdAt: editing.createdAt || Date.now() }); setEditing(null); }}>Guardar código</PrimaryButton>
+        <Faltan center items={[!editing.code.trim() && "escribe el código", !(editing.value > 0) && "pon un valor mayor que 0"]} />
       </div>
     );
   }
@@ -5634,6 +5653,7 @@ const AdminCollectionEditor = ({ collection, products, onSave, onCancel }) => {
         <button onClick={onCancel} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
         <PrimaryButton disabled={!canSave} onClick={() => onSave({ ...form, id: form.id || genId("col") })} style={{ flex: 2, width: "auto" }}>Guardar colección</PrimaryButton>
       </div>
+      <Faltan center items={[!form.name.trim() && "escribe el nombre", !form.cover && "sube la foto de portada"]} />
     </div>
   );
 };
@@ -5704,6 +5724,7 @@ const StockMovementSheet = ({ product, variant, settings, onClose, onSubmit }) =
             if (ok) onClose();
           }}>{busy ? "Guardando…" : "Registrar"}</PrimaryButton>
         </div>
+        <Faltan center items={[(qty === "" || (type !== "ajuste" && n <= 0)) && (type === "ajuste" ? "escribe cuántas contaste" : "escribe la cantidad (mayor que 0)"), t.needsNote && note.trim().length < 3 && "escribe el motivo"]} />
       </div>
     </div>
   );
@@ -5803,6 +5824,7 @@ const TransfersScreen = ({ catalog, role, refreshData }) => {
                 setView(data); setMode("list"); load(); refreshData && refreshData();
               }}>{busy ? "Guardando…" : "Confirmar recepción"}</PrimaryButton>
             </div>
+            <Faltan center items={[missing > 0 && recvNote.trim().length < 3 && "escribe qué pasó con lo que falta"]} />
           </AdminCard>
         ) : (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
@@ -5858,6 +5880,7 @@ const TransfersScreen = ({ catalog, role, refreshData }) => {
           if (error) { alert("No se pudo emitir la guía: " + errText(error.message || "")); return; }
           setLines([]); setNote(""); setMode("list"); setView(data); load(); refreshData && refreshData();
         }}>{busy ? "Emitiendo…" : `Emitir guía (${lines.reduce((a, l) => a + (parseInt(l.qty, 10) || 0), 0)} prendas)`}</PrimaryButton>
+        <Faltan center items={[!lines.length && "agrega al menos una prenda", bad && (!(parseInt(bad.qty, 10) > 0) ? `pon una cantidad mayor que 0 en «${bad.p.name}»` : `baja la cantidad de «${bad.p.name}» (en ${locationName(settings, from)} hay ${availAt(bad.v)})`)]} />
       </div>
     );
   }
@@ -5977,6 +6000,7 @@ const EInvoiceScreen = ({ catalog, role }) => {
             </div>
           </details>
           <PrimaryButton disabled={busy === "cfg" || (!st.configured && (!form.ruta.trim() || !form.token.trim()))} onClick={() => saveCfg(form.token.trim() || null)}>{busy === "cfg" ? "Guardando…" : "Guardar"}</PrimaryButton>
+          {!st.configured && <Faltan center items={[!form.ruta.trim() && "pega la RUTA", !form.token.trim() && "pega el TOKEN"]} />}
           {st.configured && <button onClick={() => { if (confirm("¿Apagar la facturación electrónica? Se borra el token guardado. Los comprobantes ya emitidos no cambian.")) saveCfg("-"); }} style={{ marginTop: 10, width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Apagar (borrar token)</button>}
         </AdminCard>
       )}
@@ -6241,6 +6265,7 @@ const DocApiScreen = () => {
           <Field label="Consulta RUC ({n} = número)"><input style={inputStyle} value={rucUrl} onChange={(e) => setRucUrl(e.target.value)} placeholder="https://api.decolecta.com/v1/sunat/ruc?numero={n}" /></Field>
         </details>
         <PrimaryButton disabled={busy || (!token.trim() && dniUrl === (st.dniUrl || "") && rucUrl === (st.rucUrl || ""))} onClick={() => save(token.trim())}>{busy ? "Guardando…" : "Guardar"}</PrimaryButton>
+        <Faltan center items={[!token.trim() && dniUrl === (st.dniUrl || "") && rucUrl === (st.rucUrl || "") && "pega el token o cambia una dirección"]} />
         {st.configured && <button onClick={() => { if (confirm("¿Apagar la consulta de DNI/RUC? Se borra el token guardado.")) save("-"); }} style={{ marginTop: 10, width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Apagar consulta (borrar token)</button>}
       </AdminCard>
       <AdminCard>
@@ -6249,6 +6274,7 @@ const DocApiScreen = () => {
           <input inputMode="numeric" value={testNum} onChange={(e) => setTestNum(e.target.value.replace(/\D/g, "").slice(0, 11))} placeholder="DNI (8) o RUC (11)" style={{ ...inputStyle, flex: 1 }} />
           <button onClick={test} disabled={!(testNum.length === 8 || testNum.length === 11)} style={{ padding: "0 16px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: testNum.length === 8 || testNum.length === 11 ? 1 : 0.5 }}>Consultar</button>
         </div>
+        <Faltan items={[!(testNum.length === 8 || testNum.length === 11) && "escribe un DNI de 8 dígitos o un RUC de 11"]} />
         {testRes && <div role="status" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginTop: 10 }}>{testRes}</div>}
       </AdminCard>
     </div>
@@ -6318,6 +6344,7 @@ const PurchasesScreen = ({ catalog, refreshData }) => {
             if (mode === "new" && data?.id) setForm((f) => ({ ...f, supplierId: String(data.id) }));
             setSup(null); load();
           }}>{busy ? "Guardando…" : "Guardar proveedor"}</PrimaryButton>
+          <Faltan center items={[sup.name.trim().length < 2 && "escribe el nombre o razón social"]} />
         </AdminCard>
       </div>
     );
@@ -6416,7 +6443,7 @@ const PurchasesScreen = ({ catalog, refreshData }) => {
           if (error) { alert("No se pudo registrar: " + purchaseErr(error.message)); return; }
           reqId.current = null; setLines([]); setForm((f) => ({ ...f, docRef: "", note: "" })); setMode("list"); setView(data); load(); refreshData && refreshData();
         }}>{busy ? "Registrando…" : `Registrar compra${lines.length ? ` (${units} prendas)` : ""}`}</PrimaryButton>
-        {!form.supplierId && lines.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 8, textAlign: "center" }}>Elige el proveedor para continuar.</div>}
+        <Faltan center items={[!form.supplierId && "elige el proveedor", !lines.length && "agrega al menos una prenda", bad && (!(parseInt(bad.qty, 10) > 0) ? `pon una cantidad mayor que 0 en «${bad.p.name}»` : `escribe el costo de «${bad.p.name}»`)]} />
       </div>
     );
   }
@@ -7023,6 +7050,7 @@ const PosClientPicker = ({ customers, onPick, onCreate, onClose }) => {
             <Field label="DNI / RUC / Carnet de extranjería"><input style={inputStyle} value={form.doc} onChange={(e) => setForm({ ...form, doc: e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 12) })} /></Field>
             <Field label="Celular (para sus puntos y WhatsApp)"><PhoneInput value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} /></Field>
             <PrimaryButton disabled={!form.name.trim()} onClick={() => onCreate({ ...form, name: form.name.trim(), phone: phoneIsValid(form.phone) ? form.phone : "" })}>Guardar y usar</PrimaryButton>
+            <Faltan center items={[!form.name.trim() && "escribe el nombre completo o razón social"]} />
           </>
         ) : (
           <>
@@ -7906,6 +7934,7 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
           {method === "Efectivo" && diff !== 0 && <div style={{ ...txt, fontSize: 11, marginBottom: 8 }}>Quedará como {diff > 0 ? "salida" : "entrada"} de efectivo en la caja abierta.</div>}
           {msg && <div style={{ ...txt, color: C.accent, marginBottom: 8 }}>{msg}</div>}
           <PrimaryButton disabled={busy || !anyRet} onClick={save}>{busy ? "Guardando…" : newItems.length ? "Registrar cambio" : "Registrar devolución"}</PrimaryButton>
+          <Faltan center items={[!anyRet && "marca qué prendas devuelve", !reason.trim() && "escribe el motivo"]} />
         </>
       )}
     </div>
@@ -8621,6 +8650,7 @@ const AdminUsersScreen = ({ currentUserId }) => {
         </AdminCard>
         {msg && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, marginBottom: 12 }}>{msg}</div>}
         <PrimaryButton disabled={!canSave || busy} onClick={save}>{busy ? "Guardando…" : isNew ? "Crear usuario" : "Guardar cambios"}</PrimaryButton>
+        <Faltan center items={[!editing.name.trim() && "escribe el nombre completo", !editing.username.trim() && "escribe el usuario", isNew && editing.password.length < 8 && "la contraseña debe tener al menos 8 caracteres"]} />
       </div>
     );
   }
@@ -8639,6 +8669,7 @@ const AdminUsersScreen = ({ currentUserId }) => {
               <button onClick={() => setPwdFor(null)} style={{ flex: 1, padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Cancelar</button>
               <button onClick={savePassword} disabled={pwdFor.value.length < 8} style={{ flex: 2, padding: "12px", borderRadius: 9, border: "none", background: pwdFor.value.length < 8 ? C.line : C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cambiar contraseña</button>
             </div>
+            <Faltan center items={[pwdFor.value.length < 8 && "la contraseña debe tener al menos 8 caracteres"]} />
           </div>
         </div>
       )}
@@ -9226,6 +9257,7 @@ const SellersScreen = ({ catalog }) => {
             <button onClick={() => { setEditing(null); setMsg(""); }} style={{ flex: 1, padding: "12px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Cancelar</button>
             <button disabled={busy || !editing.name.trim() || !editing.code} onClick={save} style={{ flex: 2, padding: "12px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{busy ? "Guardando…" : "Guardar"}</button>
           </div>
+          <Faltan center items={[!editing.name.trim() && "escribe el nombre de la vendedora", !editing.code && "escribe el código (ej. MA01)"]} />
         </AdminCard>
       </div>
     );
