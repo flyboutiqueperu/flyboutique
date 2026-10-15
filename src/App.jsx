@@ -5987,7 +5987,7 @@ const ACTIVITY_GROUPS = [
 ];
 const ACTIVITY_EXTRA = { caja_entrada: "Entrada de dinero", caja_salida: "Salida de dinero", devolucion: "Devolución", cambio_prendas: "Cambio de prendas", vale_creado: "Vale creado", vale_anulado: "Vale anulado", puntos_canjeados: "Puntos canjeados", comprobante_aceptado: "Comprobante aceptado por SUNAT", comprobante_enviado: "Comprobante enviado", comprobante_rechazado: "Comprobante rechazado", comprobante_error: "Comprobante con error", comprobante_anulado: "Comprobante anulado", nota_credito_aceptado: "Nota de crédito aceptada", nota_credito_enviado: "Nota de crédito enviada", nota_credito_rechazado: "Nota de crédito rechazada", nota_credito_error: "Nota de crédito con error", facturacion_config: "Configuración de facturación", consulta_doc_config: "Configuración DNI/RUC", permiso_publicidad: "Permiso de publicidad", vendedor_guardado: "Vendedor guardado" };
 const activityLabel = (a) => ACTION_LABELS[a] || ACTIVITY_EXTRA[a] || String(a || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
-const ACTIVITY_KEYS = { venta: "Venta", comprobante: "Comprobante", nota: "Nota", modifica: "Modifica", guia: "Guía", motivo: "Motivo", total: "Total", monto: "Monto", amount: "Monto", detalle: "Detalle", codigo: "Código", code: "Código", reason: "Motivo", token: "Token", sede: "Sede" };
+const ACTIVITY_KEYS = { venta: "Venta", comprobante: "Comprobante", nota: "Nota", modifica: "Modifica", guia: "Guía", motivo: "Motivo", total: "Total", monto: "Monto", amount: "Monto", detalle: "Detalle", codigo: "Código", code: "Código", reason: "Motivo", token: "Token", sede: "Sede", diferencia: "Diferencia", difference: "Diferencia", serie: "Serie", numero: "Número" };
 const activityDetail = (d) => {
   if (!d || typeof d !== "object") return "";
   return Object.entries(d).filter(([, v]) => v !== null && v !== undefined && v !== "" && typeof v !== "object").slice(0, 6)
@@ -6038,7 +6038,7 @@ const ActivityScreen = () => {
       </div>
       <div className="activity-filters" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
         <select aria-label="Persona" value={who} onChange={(e) => setWho(e.target.value)} style={sel}><option value="">Todas las personas</option>{people.map((p) => <option key={p} value={p}>{p}</option>)}</select>
-        <select aria-label="Tipo" value={group} onChange={(e) => setGroup(e.target.value)} style={sel}><option value="">Todo tipo de acción</option>{ACTIVITY_GROUPS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        <select aria-label="Tipo" value={group} onChange={(e) => setGroup(e.target.value)} style={sel}><option value="">Todo tipo</option>{ACTIVITY_GROUPS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
       </div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar (ej. B001-25, anulada, María)" style={{ ...inputStyle, marginBottom: 12 }} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>
