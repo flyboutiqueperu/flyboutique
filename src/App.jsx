@@ -5,6 +5,7 @@ import {
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
+  FileText, Truck, ArrowLeftRight, UserCog, Images, FolderArchive, ClipboardList, Contact, BadgePercent, Wallet, BookOpenCheck, HardDriveDownload,
   MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
 // Excel y códigos de barras solo se descargan cuando el staff los usa (la tienda abre más rápido en celular)
@@ -8254,33 +8255,103 @@ async function downloadBackup() {
   } catch (e) { alert("No se pudo generar la copia: " + (e.message || e)); }
 }
 
-const AdminMoreScreen = ({ setScreen, role }) => (
-  <div style={{ padding: "18px 18px 90px" }}>
-    <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 16px" }}>Más</h1>
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <button onClick={() => setScreen("banners")} style={quickLinkStyle}><ImageIcon size={16} color={C.ink} /> Banners <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("collections")} style={quickLinkStyle}><Layers size={16} color={C.ink} /> Colecciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("invoices")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Comprobantes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("facturacion")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Facturación electrónica (SUNAT · Nubefact) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("reports")} style={quickLinkStyle}><BarChart3 size={16} color={C.ink} /> Reportes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("purchases")} style={quickLinkStyle}><Package size={16} color={C.ink} /> Compras a proveedores (entrada de mercadería) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("transfers")} style={quickLinkStyle}><Navigation size={16} color={C.ink} /> Traslados entre sedes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("caja")} style={quickLinkStyle}><Banknote size={16} color={C.ink} /> Caja (abrir, cerrar y arqueo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("returns")} style={quickLinkStyle}><Undo2 size={16} color={C.ink} /> Devolución o cambio de prendas <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("credits")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Vales de compra (saldos) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("customers")} style={quickLinkStyle}><Users size={16} color={C.ink} /> Clientas (Club Fly y permisos de publicidad) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("sellers")} style={quickLinkStyle}><User size={16} color={C.ink} /> Vendedores (códigos MA01) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
-      {role === "superadmin" && <button onClick={() => setScreen("fotoscopia")} style={quickLinkStyle}><ImageIcon size={16} color={C.ink} /> Copia de las fotos (ZIP) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
-      {role === "superadmin" && <button onClick={downloadBackup} style={quickLinkStyle}><DatabaseBackup size={16} color={C.ink} /> Descargar copia de seguridad <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
-      {role === "superadmin" && <button onClick={() => setScreen("promocodes")} style={quickLinkStyle}><Gift size={16} color={C.ink} /> Códigos promocionales <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
-      {role === "superadmin" && <button onClick={() => setScreen("docapi")} style={quickLinkStyle}><Scan size={16} color={C.ink} /> Consulta DNI / RUC (autocompletar en caja) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
-      {role === "superadmin" && <button onClick={() => setScreen("users")} style={quickLinkStyle}><User size={16} color={C.ink} /> Usuarios y permisos <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
+// «Más»: opciones agrupadas por tema (orden alfabético dentro de cada grupo), con buscador, «Lo último que usaste»,
+// un ícono propio y una frase de para qué sirve cada una.
+const MORE_GROUPS = [
+  ["ventas", "Ventas y caja"], ["inventario", "Inventario y compras"], ["clientes", "Clientes y promociones"],
+  ["tienda", "Tienda online"], ["equipo", "Equipo y reportes"], ["seguridad", "Seguridad y copias"],
+];
+const MORE_ITEMS = [
+  { id: "caja", g: "ventas", t: "Caja", d: "Abrir con el fondo, entradas y salidas de dinero, arqueo y cierre del turno.", icon: Banknote, k: "abrir cerrar arqueo turno efectivo fondo" },
+  { id: "invoices", g: "ventas", t: "Comprobantes", d: "Buscar una venta, reimprimirla (58 mm, 80 mm, A4), enviarla o anularla.", icon: Receipt, k: "boleta nota venta reimprimir ticket anular buscar" },
+  { id: "returns", g: "ventas", t: "Devolución o cambio", d: "La persona trae una prenda: se devuelve el dinero, un vale o se cambia.", icon: Undo2, k: "devolver cambiar talla reembolso" },
+  { id: "facturacion", g: "ventas", t: "Facturación electrónica", d: "Boletas, facturas y notas de crédito en SUNAT con Nubefact: estado y reintentos.", icon: FileText, k: "sunat nubefact factura boleta nota credito token ruta" },
+  { id: "onlineorders", g: "ventas", t: "Pedidos online", d: "Pedidos de la web: validar el pago, preparar, enviar y entregar.", icon: Truck, k: "web pedido envio delivery pago validar", badge: "orders" },
+  { id: "credits", g: "ventas", t: "Vales de compra", d: "Consultar el saldo de un vale, su vencimiento o anularlo.", icon: Wallet, k: "vale saldo credito" },
+  { id: "purchases", g: "inventario", t: "Compras a proveedores", d: "Registrar la mercadería que llega: suma stock y actualiza el costo.", icon: ClipboardList, k: "proveedor compra factura mercaderia entrada costo" },
+  { id: "products", g: "inventario", t: "Productos", d: "Crear y editar prendas, fotos, tallas, colores y precios.", icon: LayoutGrid, k: "prenda foto precio talla color crear editar" },
+  { id: "stock", g: "inventario", t: "Stock", d: "Ver cuánto hay por sede, corregir y ver el historial de cada prenda.", icon: Package, k: "inventario cantidad ajuste merma historial" },
+  { id: "transfers", g: "inventario", t: "Traslados entre sedes", d: "Enviar y recibir prendas entre Larco y el Almacén con guía.", icon: ArrowLeftRight, k: "guia traspaso almacen larco enviar recibir" },
+  { id: "customers", g: "clientes", t: "Clientas (Club Fly)", d: "Datos, puntos y permiso de publicidad de cada clienta.", icon: Users, k: "club puntos cliente publicidad whatsapp" },
+  { id: "promocodes", g: "clientes", t: "Códigos promocionales", d: "Crear cupones de descuento para la web y la caja.", icon: BadgePercent, k: "cupon descuento promocion codigo", only: "superadmin" },
+  { id: "complaints", g: "clientes", t: "Libro de Reclamaciones", d: "Ver y responder reclamos y quejas (plazo legal 15 días hábiles).", icon: BookOpenCheck, k: "reclamo queja indecopi" },
+  { id: "banners", g: "tienda", t: "Banners", d: "Las imágenes o videos grandes que rotan en la portada de la tienda.", icon: Images, k: "portada imagen video inicio" },
+  { id: "collections", g: "tienda", t: "Colecciones", d: "Agrupar prendas (ej. «Oficina») para mostrarlas juntas en la web.", icon: Layers, k: "coleccion look agrupar" },
+  { id: "manual", g: "equipo", t: "Manual del equipo", d: "Cómo se hace cada cosa, paso a paso, con imágenes.", icon: BookOpen, k: "ayuda guia como se hace" },
+  { id: "reports", g: "equipo", t: "Reportes", d: "Ventas por día, vendedora, sede y prenda; rentabilidad y gastos.", icon: BarChart3, k: "reporte venta ganancia margen gasto vendedor" },
+  { id: "users", g: "equipo", t: "Usuarios y permisos", d: "Crear cuentas del staff, cambiar su rol o contraseña.", icon: UserCog, k: "usuario rol contraseña cajero acceso", only: "superadmin" },
+  { id: "sellers", g: "equipo", t: "Vendedores (códigos)", d: "El código de cada vendedora (ej. MA01) para saber quién vendió.", icon: Contact, k: "vendedora codigo ma01 comision" },
+  { id: "docapi", g: "seguridad", t: "Consulta DNI / RUC", d: "Token del proveedor para que la caja complete nombres solos.", icon: Scan, k: "dni ruc reniec sunat decolecta token", only: "superadmin" },
+  { id: "fotoscopia", g: "seguridad", t: "Copia de las fotos", d: "Descargar todas las fotos y videos en ZIP (una vez al mes).", icon: FolderArchive, k: "respaldo backup fotos zip", only: "superadmin" },
+  { id: "backup", g: "seguridad", t: "Copia de seguridad (datos)", d: "Descargar ventas, clientas y catálogo (una vez por semana).", icon: HardDriveDownload, k: "respaldo backup datos json", only: "superadmin" },
+];
+const MORE_RECENT_KEY = "flyboutique:mas-recientes:v1";
+const normTxt = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const AdminMoreScreen = ({ setScreen, role, catalog }) => {
+  const [q, setQ] = useState("");
+  const [recent, setRecent] = useState(() => { try { return JSON.parse(localStorage.getItem(MORE_RECENT_KEY) || "[]"); } catch (e) { return []; } });
+  const items = MORE_ITEMS.filter((it) => !it.only || it.only === role);
+  const ordersPending = (catalog?.sales || []).filter((x) => x.channel === "online" && x.source === "web" && x.status !== "anulado" && x.paymentStatus !== "confirmado").length;
+  const badgeOf = (it) => (it.badge === "orders" && ordersPending > 0 ? ordersPending : 0);
+  const open = (it) => {
+    const next = [it.id, ...recent.filter((x) => x !== it.id)].slice(0, 4);
+    setRecent(next); try { localStorage.setItem(MORE_RECENT_KEY, JSON.stringify(next)); } catch (e) { /* sin guardado */ }
+    if (it.id === "backup") downloadBackup(); else setScreen(it.id);
+  };
+  const nq = normTxt(q.trim());
+  const found = nq ? items.filter((it) => normTxt(`${it.t} ${it.d} ${it.k}`).includes(nq)) : null;
+  const tile = (it, i) => {
+    const Icon = it.icon; const n = badgeOf(it);
+    return (
+      <button key={it.id} className="more-tile" onClick={() => open(it)} style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}>
+        <span className="more-ico"><Icon size={19} color={C.paper} strokeWidth={1.8} />{n > 0 && <span className="more-badge">{n}</span>}</span>
+        <span style={{ minWidth: 0, flex: 1, textAlign: "left" }}>
+          <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: C.ink }}>{it.t}</span>
+          <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, lineHeight: 1.4, marginTop: 2 }}>{it.d}</span>
+        </span>
+        <ChevronRight className="more-chev" size={16} color={C.stone} />
+      </button>
+    );
+  };
+  const recentItems = recent.map((id) => items.find((it) => it.id === id)).filter(Boolean);
+  let idx = 0;
+  return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 980 }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Más</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 12 }}>Todo lo del negocio, ordenado por tema. Escribe lo que necesitas y aparece.</div>
+      <div style={{ position: "relative", marginBottom: 16 }}>
+        <Search size={16} color={C.stone} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="¿Qué necesitas hacer? (ej. devolución, boleta, vale)" aria-label="Buscar en Más" style={{ ...inputStyle, paddingLeft: 40 }} />
+        {q && <button onClick={() => setQ("")} aria-label="Borrar búsqueda" style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }}><X size={16} color={C.stone} /></button>}
+      </div>
+      {found ? (
+        found.length ? <div className="more-grid">{found.map((it, i) => tile(it, i))}</div>
+          : <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>No encontramos «{q}». Prueba con otra palabra o abre el Manual del equipo.</div>
+      ) : (
+        <>
+          {recentItems.length > 0 && (
+            <>
+              <div className="more-head">Lo último que usaste</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+                {recentItems.map((it) => { const Icon = it.icon; return <button key={it.id} className="more-chip" onClick={() => open(it)}><Icon size={14} /> {it.t}</button>; })}
+              </div>
+            </>
+          )}
+          {MORE_GROUPS.map(([g, title]) => {
+            const list = items.filter((it) => it.g === g).sort((a, b) => a.t.localeCompare(b.t, "es"));
+            if (!list.length) return null;
+            return (
+              <section key={g} style={{ marginBottom: 18 }}>
+                <div className="more-head">{title}</div>
+                <div className="more-grid">{list.map((it) => tile(it, idx++))}</div>
+              </section>
+            );
+          })}
+        </>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 // Gestión del staff (solo Super Admin). Crear cuentas, cambiar rol, desactivar,
 // cambiar contraseña y reiniciar la verificación en dos pasos si alguien perdió el celular.
@@ -8554,8 +8625,8 @@ const CashReport = ({ s, storeName }) => (
 
 // Botón grande con ícono (pantallas de caja: fáciles de tocar en el mostrador)
 const BigAction = ({ icon: Icon, title, hint, onClick, dark = false, disabled = false }) => (
-  <button onClick={onClick} disabled={disabled} title={hint ? `${title}: ${hint}` : title} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, padding: "16px 14px", borderRadius: 14, border: `1.5px solid ${C.ink}`, background: dark ? C.ink : C.paper, color: dark ? C.paper : C.ink, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, textAlign: "left", minHeight: 108 }}>
-    <span style={{ width: 40, height: 40, borderRadius: 12, background: dark ? "rgba(255,255,255,0.12)" : C.paperDeep, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon size={21} /></span>
+  <button className={`big-action${dark ? " big-main" : ""}`} onClick={onClick} disabled={disabled} title={hint ? `${title}: ${hint}` : title} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8, padding: "16px 14px", borderRadius: 14, border: `1.5px solid ${C.ink}`, background: dark ? C.ink : C.paper, color: dark ? C.paper : C.ink, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, textAlign: "left", minHeight: 108 }}>
+    <span className="big-ico" style={{ width: 40, height: 40, borderRadius: 12, background: dark ? "rgba(255,255,255,0.12)" : C.paperDeep, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon size={21} /></span>
     <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14.5, fontWeight: 800 }}>{title}</span>
     {hint && <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.75, lineHeight: 1.4 }}>{hint}</span>}
   </button>
@@ -9442,7 +9513,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {(role === "administrador" || role === "superadmin") && screen === "collectionEditor" && <AdminCollectionEditor collection={catalog.collections.find((c) => c.id === editingCollectionId) || null} products={catalog.products} onSave={saveCollection} onCancel={() => setScreen("collections")} />}
         {(role === "administrador" || role === "superadmin") && screen === "invoices" && <AdminInvoicesScreen storesSettings={catalog.settings} sales={catalog.sales} onVoid={voidSale} onReturn={(sale) => { setReturnSale(sale); setScreen("returns"); }} />}
         {(role === "administrador" || role === "superadmin") && screen === "reports" && <AdminReportsScreen catalog={catalog} />}
-        {(role === "administrador" || role === "superadmin") && screen === "more" && <AdminMoreScreen setScreen={setScreen} role={role} />}
+        {(role === "administrador" || role === "superadmin") && screen === "more" && <AdminMoreScreen setScreen={setScreen} role={role} catalog={catalog} />}
         {role === "superadmin" && screen === "users" && <AdminUsersScreen currentUserId={currentUserId} />}
         {(role === "administrador" || role === "superadmin") && screen === "complaints" && <AdminComplaintsScreen staffName={staffName} />}
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
@@ -10008,6 +10079,27 @@ export default function FlyBoutiqueApp() {
         .gift-wiggle { animation: wiggle 2.6s ease .6s infinite; }
         @keyframes nudgeX { 0%, 70%, 100% { transform: translateX(0); } 85% { transform: translateX(5px); } }
         .nudge-x { animation: nudgeX 2.4s ease infinite; }
+        /* Más (panel): tarjetas con ícono que entran una tras otra y responden al tocar */
+        .more-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        @media (min-width: 760px) { .more-grid { grid-template-columns: 1fr 1fr; } }
+        .more-head { font-family: ${FONT_BODY}; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; color: ${C.stone}; margin: 0 0 8px; }
+        .more-tile { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid ${C.line}; background: ${C.paper}; cursor: pointer; animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both; transition: transform .15s ease, box-shadow .2s ease, border-color .2s ease; }
+        .more-tile:hover { border-color: ${C.ink}; box-shadow: 0 6px 18px rgba(0,0,0,.08); transform: translateY(-1px); }
+        .more-tile:hover .more-chev { transform: translateX(3px); }
+        .more-chev { transition: transform .2s ease; flex-shrink: 0; }
+        .more-ico { position: relative; width: 42px; height: 42px; border-radius: 12px; background: ${C.ink}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: transform .2s ease; }
+        .more-tile:hover .more-ico, .more-tile:active .more-ico { transform: rotate(-6deg) scale(1.06); }
+        .more-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: ${C.accent}; color: #fff; font-family: ${FONT_BODY}; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; animation: bump .5s ease 2; }
+        .more-chip { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid ${C.line}; background: ${C.paperDeep}; font-family: ${FONT_BODY}; font-size: 12.5px; color: ${C.ink}; cursor: pointer; }
+        /* Caja: botones grandes que entran uno tras otro; «Vender» late suave para guiar */
+        .big-action { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both; transition: transform .15s ease, box-shadow .2s ease; }
+        .big-action:nth-child(2) { animation-delay: 40ms; } .big-action:nth-child(3) { animation-delay: 80ms; } .big-action:nth-child(4) { animation-delay: 120ms; }
+        .big-action:nth-child(5) { animation-delay: 160ms; } .big-action:nth-child(6) { animation-delay: 200ms; } .big-action:nth-child(7) { animation-delay: 240ms; }
+        .big-action:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,.10); }
+        .big-ico { transition: transform .2s ease; }
+        .big-action:hover .big-ico, .big-action:active .big-ico { transform: rotate(-6deg) scale(1.08); }
+        @keyframes mainGlow { 0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(17,17,17,0); } 85% { box-shadow: 0 0 0 7px rgba(17,17,17,.12); } }
+        .big-main { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both, mainGlow 3s ease 1s infinite; }
         /* Cesta: el número salta cuando se añade algo */
         @keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.5); } 100% { transform: scale(1); } }
         .badge-bump { animation: bump .45s ease; }
