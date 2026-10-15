@@ -5823,6 +5823,8 @@ const EInvoiceScreen = ({ catalog, role }) => {
   const isSuper = role === "superadmin";
   const [st, setSt] = useState(null); // null cargando | "no" falta SQL 25 | estado
   const [rows, setRows] = useState([]);
+  const [notes, setNotes] = useState(null); // null = falta el SQL 26
+  const [ncForm, setNcForm] = useState({ b: "", f: "" });
   const [form, setForm] = useState({ ruta: "", token: "", sb: "", sf: "", nb: "", nf: "" });
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
@@ -5833,6 +5835,15 @@ const EInvoiceScreen = ({ catalog, role }) => {
     setSt(data); setForm((f) => ({ ...f, ruta: data.ruta || "", sb: data.serieBoleta, sf: data.serieFactura, nb: "", nf: "" }));
     const r = await supabase.from("einvoices").select("*").order("updated_at", { ascending: false }).limit(200);
     setRows(r.data || []);
+    const nr = await supabase.from("einvoice_notes").select("*").order("updated_at", { ascending: false }).limit(100);
+    setNotes(nr.error ? null : nr.data || []);
+  };
+  const saveNcSeries = async () => {
+    setBusy("nc"); setMsg("");
+    const { data, error } = await supabase.rpc("set_credit_note_series", { p_boleta: ncForm.b.trim() || null, p_factura: ncForm.f.trim() || null });
+    setBusy("");
+    if (error) { setMsg(error.message.includes("SERIE_INVALIDA") ? "Series de notas: 4 caracteres; para boletas empieza con B (ej. BC01) y para facturas con F (ej. FC01)." : error.message); return; }
+    setNcForm({ b: "", f: "" }); setMsg(`✓ Series de notas: ${data.boleta} y ${data.factura}`);
   };
   useEffect(() => { load(); }, []);
   if (st === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 25 (facturación electrónica) en Supabase.</div>;
@@ -5900,6 +5911,31 @@ const EInvoiceScreen = ({ catalog, role }) => {
           <span style={labelStyle}>Ventas de los últimos 7 días sin enviar ({pending.length})</span>
           {pending.slice(0, 8).map((x) => <div key={x.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5 }}><span>{x.serie}-{String(x.numero).padStart(6, "0")} · {x.customerName || "Cliente varios"}</span><strong>{money2(x.total)}</strong></div>)}
           <PrimaryButton style={{ marginTop: 10 }} disabled={!!busy} onClick={sendAll}>{busy === "all" ? "Enviando…" : `Enviar ${pending.length} a SUNAT`}</PrimaryButton>
+        </AdminCard>
+      )}
+      {notes && (notes.length > 0 || isSuper) && (
+        <AdminCard style={{ marginBottom: 14 }}>
+          <span style={labelStyle}>Notas de crédito (devoluciones)</span>
+          <div style={{ ...hint, marginBottom: 8 }}>Al registrar una devolución de una venta que ya está en SUNAT, la nota de crédito se envía sola.</div>
+          {notes.map((n) => (
+            <div key={n.sale_id + n.return_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, flexWrap: "wrap" }}>
+              <span>Nota {n.serie}-{n.numero} → {n.ref_serie}-{n.ref_numero} · {money2(n.total)}{n.last_error ? <span style={{ display: "block", fontSize: 11.5, color: C.accent }}>{n.last_error}</span> : null}</span>
+              <span style={{ display: "flex", gap: 6, alignItems: "center" }}>{chip(n.status)}
+                {["preparado", "rechazado", "error"].includes(n.status) && <button disabled={!!busy} onClick={() => act("emit_credit_note", { p_sale_id: n.sale_id, p_return_id: n.return_id }, n.sale_id + n.return_id)} style={smallBtn}>Reintentar</button>}
+                {n.pdf_url && <a href={n.pdf_url} target="_blank" rel="noreferrer" style={{ ...smallBtn, textDecoration: "none" }}>PDF</a>}
+              </span>
+            </div>
+          ))}
+          {isSuper && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ ...hint, cursor: "pointer" }}>Series de las notas (por defecto BC01 y FC01; usa las que tengas creadas en Nubefact)</summary>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+                <input style={{ ...inputStyle, flex: "1 1 110px" }} maxLength={4} placeholder="Para boletas (BC01)" value={ncForm.b} onChange={(e) => setNcForm({ ...ncForm, b: e.target.value.toUpperCase() })} />
+                <input style={{ ...inputStyle, flex: "1 1 110px" }} maxLength={4} placeholder="Para facturas (FC01)" value={ncForm.f} onChange={(e) => setNcForm({ ...ncForm, f: e.target.value.toUpperCase() })} />
+                <button disabled={busy === "nc" || (!ncForm.b && !ncForm.f)} onClick={saveNcSeries} style={{ ...smallBtn, padding: "0 14px" }}>Guardar</button>
+              </div>
+            </details>
+          )}
         </AdminCard>
       )}
       <span style={labelStyle}>Comprobantes</span>
@@ -6616,7 +6652,7 @@ const docTypeOf = (doc) => { const d = String(doc || ""); return /^\d{11}$/.test
 
 // ---- Comprobante electrónico (SQL 25 / Nubefact) ----
 const EINV_LABEL = { preparado: "Preparando", enviado: "Registrado · SUNAT pendiente", aceptado: "Aceptado por SUNAT", rechazado: "Rechazado", error: "Sin respuesta (reintentar)", anulacion_pendiente: "Anulación en trámite", anulado: "Anulado en SUNAT" };
-const EINV_ERRORS = { NO_CONFIGURADO: "Falta configurar Nubefact (Más → Facturación electrónica).", FACTURA_SIN_RUC: "La factura necesita un RUC válido.", BOLETA_700_SIN_DOCUMENTO: "Desde S/ 700 SUNAT pide el DNI del cliente.", PEDIDO_SIN_PAGO: "El pedido web aún no tiene el pago confirmado.", VENTA_ANULADA: "La venta está anulada.", REGIMEN_NRUS: "Con Nuevo RUS no se emiten boletas con IGV desde aquí.", SIN_PERMISO: "Tu usuario no puede hacer esto.", MOTIVO_REQUERIDO: "Escribe el motivo." };
+const EINV_ERRORS = { DEVOLUCION_SIN_IMPORTE: "La devolución no tiene importe para la nota de crédito.", NO_CONFIGURADO: "Falta configurar Nubefact (Más → Facturación electrónica).", FACTURA_SIN_RUC: "La factura necesita un RUC válido.", BOLETA_700_SIN_DOCUMENTO: "Desde S/ 700 SUNAT pide el DNI del cliente.", PEDIDO_SIN_PAGO: "El pedido web aún no tiene el pago confirmado.", VENTA_ANULADA: "La venta está anulada.", REGIMEN_NRUS: "Con Nuevo RUS no se emiten boletas con IGV desde aquí.", SIN_PERMISO: "Tu usuario no puede hacer esto.", MOTIVO_REQUERIDO: "Escribe el motivo." };
 const einvErr = (m = "") => { const k = Object.keys(EINV_ERRORS).find((x) => m.includes(x)); return k ? EINV_ERRORS[k] : m.replace(/^.*?(ANULACION_RECHAZADA|NO_SE_PUEDE_ANULAR):?/, "No se pudo: "); };
 const einvOfficial = (e) => e && ["enviado", "aceptado", "anulacion_pendiente", "anulado"].includes(e.status);
 let einvConfigCache = null; // { configured, auto } — se consulta una vez por sesión
@@ -7534,6 +7570,20 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
   const [msg, setMsg] = useState("");
   const [done, setDone] = useState(null);
   const reqId = useRef(genId("dev"));
+  // Nota de crédito electrónica (SQL 26): sale sola si la venta ya tenía boleta/factura electrónica
+  const [note, setNote] = useState(null);
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteMsg, setNoteMsg] = useState("");
+  const emitNote = async (saleId, returnId) => {
+    setNoteBusy(true); setNoteMsg("");
+    try {
+      const { data, error } = await supabase.rpc("emit_credit_note", { p_sale_id: saleId, p_return_id: returnId });
+      if (error) setNoteMsg(error.code === "PGRST202" ? "" : einvErr(error.message));
+      else if (data?.reason) setNoteMsg(data.reason === "NO_CONFIGURADO" || data.reason === "VENTA_SIN_COMPROBANTE" ? "" : einvErr(data.reason));
+      else setNote(data);
+    } catch (e) { setNoteMsg("Sin conexión: vuelve a intentar."); }
+    setNoteBusy(false);
+  };
   const locs = stockLocations(catalog.settings);
   const reset = () => { setRet({}); setNewItems([]); setReason(""); setMsg(""); setDone(null); reqId.current = genId("dev"); };
   const find = async () => {
@@ -7568,9 +7618,19 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
             {r.valeCode && <div style={{ border: `2px dashed ${C.ink}`, borderRadius: 10, padding: "10px 12px", marginTop: 10, textAlign: "center" }}><div style={{ ...txt, fontSize: 11 }}>VALE DE COMPRA</div><div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 900, letterSpacing: "0.08em", color: C.ink }}>{r.valeCode}</div><div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>Saldo {moneyExact(r.difference)} · úsalo en la tienda Fly</div>{creditMonthsOf(catalog.settings) > 0 && <div style={{ ...txt, fontSize: 11 }}>Vence el {(() => { const d = new Date(r.at); d.setMonth(d.getMonth() + creditMonthsOf(catalog.settings)); return d.toLocaleDateString("es-PE"); })()}</div>}</div>}
             {r.method === "Vale" && r.difference > 0 && !r.valeCode && <div style={{ ...txt, color: C.accent, marginTop: 8 }}>El vale se crea cuando se corra el SQL 22 en Supabase.</div>}
             <div style={{ ...txt, marginTop: 4 }}>Motivo: {r.reason}{r.pointsRemoved ? ` · Se quitaron ${r.pointsRemoved} puntos del Club` : ""}</div>
-            <div style={{ ...txt, marginTop: 8, fontSize: 10.5 }}>Documento interno. No es nota de crédito electrónica (SUNAT).</div>
+            {note && ["enviado", "aceptado"].includes(note.status)
+              ? <div style={{ ...txt, marginTop: 8, fontWeight: 600, color: C.ink }}>Nota de crédito electrónica {note.serie}-{note.numero} por {moneyExact(note.total)} · {EINV_LABEL[note.status]}{note.pdf_url ? <> · <a href={note.pdf_url} target="_blank" rel="noreferrer" style={{ color: C.ink }}>PDF</a></> : null}</div>
+              : <div style={{ ...txt, marginTop: 8, fontSize: 10.5 }}>Documento interno. No es nota de crédito electrónica (SUNAT).</div>}
           </AdminCard>
         </div>
+        {(noteBusy || noteMsg || (note && !["enviado", "aceptado"].includes(note.status))) && (
+          <div role="status" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: `1px solid ${noteMsg || note ? C.accent : C.line}`, borderRadius: 12, padding: "10px 14px", marginTop: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+            {noteBusy && <Loader2 size={15} className="spin" />}
+            <span style={{ flex: 1, minWidth: 180 }}><strong>Nota de crédito:</strong> {noteBusy ? "enviando a Nubefact…" : note ? `${EINV_LABEL[note.status] || note.status} · ${note.serie}-${note.numero}` : ""}
+              {(noteMsg || note?.last_error) && <span style={{ display: "block", color: C.accent }}>{noteMsg || note.last_error}</span>}</span>
+            {!noteBusy && <button onClick={() => emitNote(done.id, r.id)} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Reintentar</button>}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <button onClick={() => window.print()} style={{ ...quickLinkStyle, flex: 1, justifyContent: "center" }}><Receipt size={15} /> Imprimir</button>
           <button onClick={() => { setSale(null); setDoc(""); reset(); }} style={{ ...quickLinkStyle, flex: 1, justifyContent: "center" }}>Otra devolución</button>
@@ -7601,8 +7661,10 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
     });
     setBusy(false);
     if (error || !data) { setMsg(returnErrorText(error)); return; }
-    setDone(data); setSale(data);
+    setDone(data); setSale(data); setNote(null); setNoteMsg("");
     onSaved && onSaved(data);
+    const last = (data.returns || [])[data.returns.length - 1];
+    if (last && data.einvoice && ["enviado", "aceptado"].includes(data.einvoice.status)) emitNote(data.id, last.id);
   };
 
   return (
