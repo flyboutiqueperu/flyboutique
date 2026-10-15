@@ -34,7 +34,9 @@ const run = async (b, role, fn) => {
   await run(b, "almacen", async (p) => {
     await p.getByText("Traslados", { exact: true }).last().click(); await p.waitForTimeout(500);
     await p.click("text=Nueva guía"); await p.waitForTimeout(300);
-    const t0 = await p.innerText("body"); console.log("A1) Desde Almacén hacia Larco por defecto:", /Desde[\s\S]*Almacén/.test(t0));
+    // Se lee la opción elegida en cada lista (las etiquetas salen en MAYÚSCULAS por CSS)
+    const sel = await p.$$eval("select", (ss) => ss.map((s) => s.options[s.selectedIndex]?.text || ""));
+    console.log("A1) Desde Almacén hacia Larco por defecto:", sel.includes("Almacén") && sel.includes("Larco") && sel.indexOf("Almacén") < sel.indexOf("Larco"), JSON.stringify(sel));
     await p.fill('input[placeholder^="Escanea"]', "BS-M-NE"); await p.press('input[placeholder^="Escanea"]', "Enter"); await p.waitForTimeout(300);
     await p.fill('input[aria-label="Cantidad de Blusa Seda"]', "7"); await p.waitForTimeout(200);
     console.log("A2) Más de lo que hay bloquea:", await p.isDisabled("text=/Emitir guía/"));
@@ -46,14 +48,14 @@ const run = async (b, role, fn) => {
   });
   await run(b, "cajero", async (p) => {
     await p.getByText("Traslados", { exact: true }).last().click(); await p.waitForTimeout(600);
-    console.log("C1) Cajero ve guía en camino:", (await p.innerText("body")).includes("En camino (1)"));
+    console.log("C1) Cajero ve guía en camino:", /En camino \(1\)/i.test(await p.innerText("body")));
     await p.click("text=T001-000001 · Almacén → Larco"); await p.waitForTimeout(300);
     await p.click("text=Recibir en Larco"); await p.waitForTimeout(300);
     await p.fill('input[aria-label="Recibidas de Blusa Seda"]', "2"); await p.waitForTimeout(200);
     console.log("C2) Faltante pide motivo (botón bloqueado):", await p.isDisabled("text=Confirmar recepción"));
     await p.fill('input[placeholder^="Ej. llegó"]', "Una con mancha"); await p.click("text=Confirmar recepción"); await p.waitForTimeout(700);
     const t = await p.innerText("body");
-    console.log("C3) Recibida:", t.includes("RECIBIDA") || t.includes("Recibida"), "| faltan:", t.includes("Faltaron 1 prendas"), "| enviado al servidor:", JSON.stringify(calls[1][1]));
+    console.log("C3) Recibida:", t.includes("RECIBIDA") || t.includes("Recibida"), "| faltan:", t.includes("Faltó 1 prenda."), "| enviado al servidor:", JSON.stringify(calls[1][1]));
     await p.screenshot({ path: `${out}/guia-recibida.png`, fullPage: true });
   });
   await b.close(); srv.close();

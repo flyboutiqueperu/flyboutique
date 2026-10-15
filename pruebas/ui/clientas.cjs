@@ -20,7 +20,7 @@ const calls = [];
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, acceptDownloads: true });
-  await ctx.addInitScript(() => { localStorage.setItem("flyboutique:cookieconsent:v1", "none"); window.turnstile = { render: (el, o) => { setTimeout(() => o.callback("tok"), 50); return "w1"; }, remove() {}, reset() {} }; });
+  await ctx.addInitScript(() => { localStorage.setItem("flyboutique:cookieconsent:v1", "none"); window.turnstile = { render: (el, o) => { window.__tsRendered = true; setTimeout(() => o.callback("tok"), 50); return "w1"; }, remove() {}, reset() {} }; });
   const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));
   await p.route("http://fake.supabase.test/**", async (rt) => {
     const u = rt.request().url();
@@ -56,9 +56,12 @@ const calls = [];
   const p2 = await ctx.newPage(); p2.on("pageerror", (e) => console.log("ERROR TIENDA:", e.message));
   const reg = [];
   await p2.route("http://fake.supabase.test/**", (rt) => { const u = rt.request().url(); if (u.includes("store_data")) return rt.fulfill({ json: { data: catalog } }); if (u.includes("register_customer")) { const bd = rt.request().postDataJSON(); reg.push(bd); return "p_marketing" in bd && reg.length === 1 ? rt.fulfill({ status: 404, json: { code: "PGRST202", message: "not found" } }) : rt.fulfill({ json: { name: "Nueva", phone: bd.p_phone, email: "", points: 0, existing: false } }); } return rt.fulfill({ json: [] }); });
+  // La app trae una llave pública de Cloudflare Turnstile por defecto (la suma solo queda como respaldo sin llave).
+  // window.turnstile está simulado en addInitScript (entrega el token "tok").
   await p2.goto("http://localhost:4353/loyalty"); await p2.waitForTimeout(1500);
   t = await p2.innerText("body");
-  console.log("6) Texto neutro:", t.includes("no eres un robot"), "| casilla:", t.includes("Quiero recibir novedades"));
+  const captchaOk = t.includes("no eres un robot") || await p2.evaluate(() => !!window.__tsRendered);
+  console.log("6) Texto neutro:", !/\b(clienta|registrada|bienvenida a la|querida)\b/i.test(t), "| captcha visible:", captchaOk, "| casilla:", t.includes("Quiero recibir novedades"));
   await p2.fill('input[placeholder="Nombre completo *"]', "Nueva Persona");
   await p2.fill('input[placeholder="Celular (WhatsApp) *"]', "987654321");
   await p2.fill('input[placeholder="Correo *"]', "n@x.com");
@@ -66,7 +69,7 @@ const calls = [];
   await p2.check("input[type=checkbox] >> nth=-1");
   await p2.screenshot({ path: `${out}/registro.png`, fullPage: true });
   await p2.click("text=Registrarme"); await p2.waitForTimeout(1200);
-  console.log("7) llamadas registro:", JSON.stringify(reg.map((r) => r.p_marketing)));
+  console.log("7) llamadas registro:", JSON.stringify(reg.map((r) => r.p_marketing)), "| token captcha enviado:", reg.length > 0 && reg.every((r) => r.p_captcha === (sum ? null : "tok")));
   console.log("8) cuadro publicidad sin confirmar:", (await p2.innerText("body")).includes("Para cambiarlo aquí, confirma tu cuenta"));
   await p2.screenshot({ path: `${out}/club-dentro.png`, fullPage: true });
   await b.close(); srv.close();

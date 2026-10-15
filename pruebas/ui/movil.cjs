@@ -30,7 +30,7 @@ const hist = [
     if (u.includes("store_data")) return rt.fulfill({ json: { data: catalog } });
     if (u.includes("staff_profiles")) return rt.fulfill({ json: { user_id: "u1", username: "ana", name: "Ana Admin", role, active: true } });
     if (u.includes("stock_movements")) return rt.fulfill({ json: hist });
-    if (u.includes("/rpc/move_stock")) { const bd = rt.request().postDataJSON(); return bd.p_type === "ajuste" ? rt.fulfill({ status: 400, json: { code: "P0001", message: "STOCK_CAMBIO:4" } }) : rt.fulfill({ json: 9 }); }
+    if (u.includes("/rpc/move_stock")) { const bd = rt.request().postDataJSON(); return bd.p_type === "ajuste" ? rt.fulfill({ status: 400, json: { code: "P0001", message: "STOCK_CAMBIO:4" } }) : (catalog.products.forEach((pr) => pr.variants.forEach((v) => { if (v.id === bd.p_variant) v.stock = 9; })), rt.fulfill({ json: 9 })); } // tras moverlo, el servidor guarda 9 (la app vuelve a leer el catálogo)
     if (u.includes("/rpc/current_cash")) return rt.fulfill({ json: null });
     return rt.fulfill({ json: [] });
   });
@@ -59,7 +59,7 @@ const hist = [
     if (!(await p.$('button:has-text("Movimiento")'))) { await p.getByText("Blusa Seda Marfil", { exact: true }).click(); await p.waitForTimeout(300); }
     await p.getByRole("button", { name: "Movimiento", exact: true }).nth(2).click(); await p.waitForTimeout(300);
     await p.click("button:has-text('Regalo')"); await p.fill('input[inputmode="numeric"] >> nth=-1', "1");
-    console.log("4) Regalo sin motivo, botón activo?:", await p.isEnabled("text=Registrar"));
+    console.log("4) Regalo sin motivo, botón bloqueado:", await p.isDisabled("text=Registrar"));
     await p.fill('input[maxlength="140"]', "Regalo a @influencer"); console.log("4b) con motivo:", await p.isEnabled("text=Registrar"));
     await p.screenshot({ path: `${out}/m-movimiento.png` });
     await p.click("text=Registrar"); await p.waitForTimeout(500);

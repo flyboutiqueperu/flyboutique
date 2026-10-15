@@ -49,7 +49,7 @@ const route = async (rt) => {
   await p.click("button[title^='Cambio de turno']"); await p.waitForTimeout(300);
   await p.click("button[title='María Alvarado (MA01)'] >> nth=0"); await p.fill('input[inputmode="decimal"] >> nth=0', "583"); await p.waitForTimeout(200);
   await p.fill('input[placeholder="583.00"]', "200"); await p.click("button[title='Lucía Torres (LU01)'] >> nth=1");
-  await p.evaluate(() => window.scrollTo(0, 0)); await p.locator("text=Cierre y arqueo").scrollIntoViewIfNeeded();
+  await p.evaluate(() => window.scrollTo(0, 0)); await p.locator('text="Cerrar el día"').scrollIntoViewIfNeeded(); // en cambio de turno el formulario se titula «Cambio de turno»
   await shot("cambio-turno");
   await p.click("button[title^='Cerrar caja']"); await p.waitForTimeout(300);
   await p.click("button[title='Lucía Torres (LU01)'] >> nth=0"); await p.fill('input[inputmode="decimal"] >> nth=0', "580"); await p.fill('input[placeholder^="Motivo de la diferencia"]', "Vuelto mal dado en una venta");
@@ -60,7 +60,7 @@ const route = async (rt) => {
   const add = await p.$("text=/^Agregar/"); if (add) await add.click();
   await shot("venta");
   await p.click("text=/Cobrar/"); await p.waitForTimeout(400);
-  await p.fill('input[placeholder="DNI (8 dígitos)"]', "45678912"); await p.fill('input[placeholder="Nombres y apellidos"]', "Lucía Ramírez Vega"); await p.fill('input[type="email"]', "lucia@correo.com");
+  await p.fill('input[placeholder^="DNI (8 dígitos)"]', "45678912"); await p.fill('input[placeholder^="Nombres y apellidos"]', "Lucía Ramírez Vega"); await p.fill('input[type="email"]', "lucia@correo.com");
   await p.click("button[title='Atendió María Alvarado (MA01)']");
   await p.click("button:has-text('Efectivo')"); await p.waitForTimeout(200);
   await p.fill('input[placeholder="259.00"]', "300"); await p.waitForTimeout(200);
