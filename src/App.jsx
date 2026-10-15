@@ -4180,7 +4180,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["transfers", "purchases", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "purchases", "docapi", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -5818,6 +5818,73 @@ const TransfersScreen = ({ catalog, role, refreshData }) => {
   );
 };
 
+// ---- Consulta DNI/RUC (SQL 24): Super Admin guarda el token del proveedor. El token nunca vuelve a mostrarse. ----
+const DocApiScreen = () => {
+  const [st, setSt] = useState(null); // null cargando | "no" falta SQL 24 | {configured, dniUrl, rucUrl, cached}
+  const [token, setToken] = useState("");
+  const [dniUrl, setDniUrl] = useState("");
+  const [rucUrl, setRucUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [testNum, setTestNum] = useState("");
+  const [testRes, setTestRes] = useState("");
+  const load = async () => {
+    const { data, error } = await supabase.rpc("doc_lookup_status");
+    if (error) { setSt("no"); return; }
+    setSt(data); setDniUrl(data.dniUrl || ""); setRucUrl(data.rucUrl || "");
+  };
+  useEffect(() => { load(); }, []);
+  const msg = (m = "") => (m.includes("URL_INVALIDA") ? "La dirección debe empezar con https:// y tener {n} donde va el número." : m.includes("SIN_PERMISO") ? "Solo Super Admin puede cambiar esto." : m);
+  const save = async (tok) => {
+    setBusy(true);
+    const { data, error } = await supabase.rpc("set_doc_lookup_config", { p_token: tok, p_dni_url: dniUrl.trim(), p_ruc_url: rucUrl.trim() });
+    setBusy(false);
+    if (error) { alert("No se pudo guardar: " + msg(error.message)); return; }
+    setToken(""); setSt(data);
+  };
+  const test = async () => {
+    const n = testNum.replace(/\D/g, "");
+    const type = n.length === 11 ? "RUC" : "DNI";
+    setTestRes("Consultando…");
+    const { data, error } = await supabase.rpc("lookup_document", { p_type: type, p_number: n });
+    if (error) { setTestRes("Error: " + msg(error.message)); return; }
+    setTestRes(data.ok ? `✓ ${data.name}${data.address ? ` · ${data.address}` : ""}${data.estado ? ` · ${data.estado}` : ""}${data.condicion ? ` · ${data.condicion}` : ""}` : ({ NO_CONFIGURADO: "Falta guardar el token.", TOKEN_RECHAZADO: "El proveedor rechazó el token: revisa que esté bien copiado y vigente.", NO_ENCONTRADO: "No se encontró ese número.", SIN_CONEXION: "No se pudo conectar con el proveedor.", LIMITE: "Límite de consultas de esta hora.", RUC_INVALIDO: "Ese RUC no es válido.", NUMERO_INVALIDO: "Escribe un DNI de 8 dígitos o un RUC de 11." }[data.reason] || data.reason));
+  };
+  if (st === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 24 (consulta DNI/RUC) en Supabase.</div>;
+  if (!st) return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Cargando…</div>;
+  const hint = { fontFamily: FONT_BODY, fontSize: 12, color: C.stone, lineHeight: 1.55 };
+  return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 640 }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Consulta DNI / RUC</h1>
+      <div style={{ ...hint, marginBottom: 14 }}>En la caja, al escribir un DNI o RUC se completan solos el nombre o la razón social (y la dirección fiscal para factura). Cada número se consulta una sola vez: después sale de la memoria sin costo.</div>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Estado</span>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: st.configured ? C.ink : C.accent, marginBottom: 4 }}>{st.configured ? "✓ Activa" : "Apagada: falta el token del proveedor"}</div>
+        <div style={hint}>{st.cached} números guardados en memoria.</div>
+      </AdminCard>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>{st.configured ? "Cambiar token" : "Guardar token"}</span>
+        <div style={{ ...hint, marginBottom: 10 }}>1) Crea una cuenta en un proveedor de consultas RENIEC/SUNAT (por ejemplo Decolecta, antes apis.net.pe) y revisa su precio. 2) Copia tu token y pégalo aquí. Se guarda solo en el servidor y no se vuelve a mostrar.</div>
+        <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Pega aquí el token" style={{ ...inputStyle, marginBottom: 10 }} />
+        <details style={{ marginBottom: 10 }}>
+          <summary style={{ ...hint, cursor: "pointer" }}>Direcciones del proveedor (solo si usas otro proveedor)</summary>
+          <Field label="Consulta DNI ({n} = número)"><input style={inputStyle} value={dniUrl} onChange={(e) => setDniUrl(e.target.value)} placeholder="https://api.decolecta.com/v1/reniec/dni?numero={n}" /></Field>
+          <Field label="Consulta RUC ({n} = número)"><input style={inputStyle} value={rucUrl} onChange={(e) => setRucUrl(e.target.value)} placeholder="https://api.decolecta.com/v1/sunat/ruc?numero={n}" /></Field>
+        </details>
+        <PrimaryButton disabled={busy || (!token.trim() && dniUrl === (st.dniUrl || "") && rucUrl === (st.rucUrl || ""))} onClick={() => save(token.trim())}>{busy ? "Guardando…" : "Guardar"}</PrimaryButton>
+        {st.configured && <button onClick={() => { if (confirm("¿Apagar la consulta de DNI/RUC? Se borra el token guardado.")) save("-"); }} style={{ marginTop: 10, width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Apagar consulta (borrar token)</button>}
+      </AdminCard>
+      <AdminCard>
+        <span style={labelStyle}>Probar</span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input inputMode="numeric" value={testNum} onChange={(e) => setTestNum(e.target.value.replace(/\D/g, "").slice(0, 11))} placeholder="DNI (8) o RUC (11)" style={{ ...inputStyle, flex: 1 }} />
+          <button onClick={test} disabled={!(testNum.length === 8 || testNum.length === 11)} style={{ padding: "0 16px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: testNum.length === 8 || testNum.length === 11 ? 1 : 0.5 }}>Consultar</button>
+        </div>
+        {testRes && <div role="status" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginTop: 10 }}>{testRes}</div>}
+      </AdminCard>
+    </div>
+  );
+};
+
 // ---- Compras a proveedores (SQL 23): la mercadería que llega suma stock en la sede y actualiza el costo promedio ----
 const PURCHASE_ERRORS = { SIN_PERMISO: "Tu usuario no puede hacer esto.", PROVEEDOR_REPETIDO: "Ya existe un proveedor con ese nombre.", NOMBRE_REQUERIDO: "Escribe el nombre del proveedor.",
   PROVEEDOR_NO_EXISTE: "Elige un proveedor.", COMPRA_VACIA: "Agrega al menos una prenda.", CANTIDAD_INVALIDA: "Revisa las cantidades.", COSTO_INVALIDO: "Revisa los costos.",
@@ -6343,6 +6410,14 @@ const PosVariantPicker = ({ product, onClose, onAdd }) => {
 // COMPROBANTE (nota de venta interna) con todos los datos: empresa, RUC, cliente, detalle con
 // cantidades, operación gravada, IGV 18%, total en letras, pagos, vendedora y cajero.
 // Mientras no se conecte un proveedor SUNAT (ej. Nubefact) NO es boleta/factura electrónica y lo dice.
+// RUC válido: 11 dígitos, empieza en 10/15/16/17/20 y cuadra su dígito verificador (igual que ruc_valido del SQL 24)
+const rucValido = (r) => {
+  if (!/^(10|15|16|17|20)\d{9}$/.test(r || "")) return false;
+  const w = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+  let k = 11 - (w.reduce((a, x, i) => a + x * Number(r[i]), 0) % 11);
+  if (k === 10) k = 0; else if (k === 11) k = 1;
+  return k === Number(r[10]);
+};
 // Formatos: ticket 80 mm, ticket 58 mm o A4 (se recuerda por equipo, porque depende de la impresora).
 // ------------------------------------------------------------------
 const IGV_RATE = 0.18;
@@ -6632,6 +6707,42 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const [docTypeSel, setDocTypeSel] = useState("DNI");
   const docType = isFactura ? "RUC" : docTypeSel;
   const [customerAddress, setCustomerAddress] = useState("");
+  // Consulta DNI (RENIEC) / RUC (SUNAT) con el SQL 24: llena el nombre (y la dirección fiscal del RUC).
+  // Si falta el SQL o el token, no se muestra nada y la caja sigue igual que siempre.
+  const [lookup, setLookup] = useState(null); // { state: "loading" | "ok" | "nf" | "err", data, msg }
+  const lookupCache = useRef({});
+  const lookupOff = useRef(false);
+  const autoFill = useRef({ name: "", address: "" });
+  useEffect(() => {
+    if (anon || matched || !(docType === "DNI" || docType === "RUC")) { setLookup(null); return; }
+    // Si cambia el número, se borra lo que se había llenado solo con el número anterior (lo escrito a mano se respeta)
+    const prevName = autoFill.current.name, prevAddr = autoFill.current.address;
+    if (prevName) { setName((n) => (n === prevName ? "" : n)); autoFill.current.name = ""; }
+    if (prevAddr) { setCustomerAddress((x) => (x === prevAddr ? "" : x)); autoFill.current.address = ""; }
+    if (docType === "RUC" && doc.length === 11 && !rucValido(doc)) { setLookup({ state: "err", msg: "Este RUC no es válido: revisa los números." }); return; }
+    if (lookupOff.current) { setLookup(null); return; }
+    if (!(docType === "DNI" ? /^\d{8}$/.test(doc) : /^\d{11}$/.test(doc))) { setLookup(null); return; }
+    const apply = (r) => {
+      if (!r?.ok) return;
+      setName((n) => (!n.trim() || n === autoFill.current.name ? r.name : n)); autoFill.current.name = r.name;
+      if (docType === "RUC" && r.address) { setCustomerAddress((a) => (!a.trim() || a === autoFill.current.address ? r.address : a)); autoFill.current.address = r.address; }
+    };
+    const key = docType + doc;
+    if (lookupCache.current[key]) { setLookup(lookupCache.current[key].view); apply(lookupCache.current[key].res); return; }
+    let alive = true;
+    setLookup({ state: "loading" });
+    const tm = setTimeout(async () => {
+      let res = null;
+      try { const { data, error } = await supabase.rpc("lookup_document", { p_type: docType, p_number: doc }); res = error ? null : data; } catch (e) { res = null; }
+      if (!alive) return;
+      if (!res || res.reason === "NO_CONFIGURADO") { lookupOff.current = !res || res.reason === "NO_CONFIGURADO"; setLookup(null); return; }
+      const why = { LIMITE: "Se alcanzó el límite de consultas de esta hora: escribe el nombre a mano.", SIN_CONEXION: "No se pudo consultar ahora: escribe el nombre a mano.", TOKEN_RECHAZADO: "La consulta de DNI/RUC no está funcionando (token). Avisa a Administración.", RUC_INVALIDO: "Este RUC no es válido: revisa los números.", NUMERO_INVALIDO: "Revisa el número." };
+      const view = res.ok ? { state: "ok", data: res } : res.reason === "NO_ENCONTRADO" ? { state: "nf" } : { state: "err", msg: why[res.reason] || "No se pudo consultar: escribe el nombre a mano." };
+      lookupCache.current[key] = { view, res };
+      setLookup(view); apply(res);
+    }, 350);
+    return () => { alive = false; clearTimeout(tm); };
+  }, [doc, docType, anon, matched]);
   const onDoc = (v) => {
     const max = { DNI: 8, RUC: 11, CE: 12, PAS: 12 }[docType] || 12;
     const d = (docType === "DNI" || docType === "RUC" ? v.replace(/\D/g, "") : v.replace(/[^0-9A-Za-z]/g, "").toUpperCase()).slice(0, max);
@@ -6707,6 +6818,19 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input autoFocus value={anon ? GENERIC_DOC : doc} disabled={anon} onChange={(e) => onDoc(e.target.value)} inputMode={docType === "DNI" || docType === "RUC" ? "numeric" : "text"} placeholder={{ DNI: "DNI (8 dígitos) *", RUC: "RUC (11 dígitos) *", CE: "Carné de extranjería *", PAS: "Pasaporte *" }[docType]} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
           </div>
+          {lookup && !matched && (() => {
+            const src = docType === "RUC" ? "SUNAT" : "RENIEC";
+            const d = lookup.data || {};
+            const warn = lookup.state === "ok" && docType === "RUC" && ((d.estado && d.estado.toUpperCase() !== "ACTIVO") || (d.condicion && d.condicion.toUpperCase() !== "HABIDO"));
+            const txt = lookup.state === "loading" ? `Buscando en ${src}…` : lookup.state === "nf" ? `No aparece en ${src}: escribe el nombre a mano.` : lookup.state === "err" ? lookup.msg
+              : docType === "RUC" ? `${warn ? "⚠" : "✓"} ${src}${d.estado ? ` · ${d.estado}` : ""}${d.condicion ? ` · ${d.condicion}` : ""}${d.source === "memoria" ? " (consultado antes)" : ""}` : `✓ Datos de ${src}${d.source === "memoria" ? " (consultado antes)" : ""}`;
+            return (
+              <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, background: C.paperDeep, borderRadius: 9, padding: "8px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: lookup.state === "err" || warn ? C.accent : C.ink }}>
+                {lookup.state === "loading" && <Loader2 size={14} className="spin" />}
+                <span>{txt}{warn ? " · Ojo: para factura SUNAT pide RUC activo y habido." : ""}</span>
+              </div>
+            );
+          })()}
           {matched && <div style={{ background: C.paperDeep, borderRadius: 9, padding: "9px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>✓ Cliente registrado: <strong>{matched.name}</strong> · {matched.points || 0} puntos</div>}
           <div style={{ position: "relative", marginBottom: 8 }}>
             <input value={name} disabled={anon} onChange={(e) => { setName(e.target.value); setMatched(null); setShowSug(true); }} onFocus={() => setShowSug(true)} placeholder={isFactura || docType === "RUC" ? "Razón social *" : "Nombres y apellidos *"} style={{ ...inputStyle, fontSize: 15 }} />
@@ -7822,6 +7946,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       {role === "superadmin" && <button onClick={downloadBackup} style={quickLinkStyle}><DatabaseBackup size={16} color={C.ink} /> Descargar copia de seguridad <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("promocodes")} style={quickLinkStyle}><Gift size={16} color={C.ink} /> Códigos promocionales <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
+      {role === "superadmin" && <button onClick={() => setScreen("docapi")} style={quickLinkStyle}><Scan size={16} color={C.ink} /> Consulta DNI / RUC (autocompletar en caja) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("users")} style={quickLinkStyle}><User size={16} color={C.ink} /> Usuarios y permisos <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       <button onClick={onExit} style={{ ...quickLinkStyle, color: C.accent, borderColor: C.accent }}><LogOut size={16} color={C.accent} /> Cerrar sesión</button>
     </div>
@@ -8757,7 +8882,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -8973,6 +9098,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {isAdminRole && screen === "customers" && <CustomersScreen catalog={catalog} refreshData={refreshData} />}
         {screen === "manual" && <StaffManual role={role} />}
+        {canOpenScreen(role, "docapi") && screen === "docapi" && <DocApiScreen />}
         {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
