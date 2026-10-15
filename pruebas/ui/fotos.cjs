@@ -1,7 +1,7 @@
 // Prueba de Más → Copia de las fotos y de la copia de datos completa (más de 1000 filas). Uso: node pruebas/ui/fotos.cjs <carpeta>
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
 const types = { ".js": "text/javascript", ".png": "image/png", ".css": "text/css", ".webmanifest": "application/manifest+json" };
 const srv = http.createServer((q, r) => { if (q.url.startsWith("/media/")) { if (q.url.includes("roto")) { r.writeHead(404); return r.end(); } r.writeHead(200, { "content-type": "image/jpeg", "access-control-allow-origin": "*" }); return r.end(Buffer.alloc(40 * 1024, 9)); } let f = path.join(dist, q.url.split("?")[0].split("#")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": types[path.extname(f)] || "text/html" }); r.end(fs.readFileSync(f)); }).listen(4368);
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");

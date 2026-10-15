@@ -2,7 +2,7 @@
 // botón que guía a la talla, botón que brilla y cesta que salta. Uso: node pruebas/ui/fluidez.cjs <carpeta-capturas>
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
 const types = { ".js": "text/javascript", ".css": "text/css" };
 const colors = { a: "#2b2b2b", b: "#7a5c43", c: "#9aa4b1" };
 const srv = http.createServer((q, r) => {

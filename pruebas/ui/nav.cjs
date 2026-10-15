@@ -1,6 +1,6 @@
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist"), out = process.argv[2];
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2];
 let fakeNew = false;
 const types = { ".js": "text/javascript", ".css": "text/css", ".webmanifest": "application/manifest+json", ".png": "image/png" };
 const srv = http.createServer((q, r) => {

@@ -4481,7 +4481,7 @@ const SalesBoard = ({ catalog }) => {
   const days = Math.max(1, Math.round((Math.min(rb.getTime(), Date.now()) - ra.getTime()) / 86400000));
   // Por hora del día (solo el tramo con ventas, mínimo de 9 a 21)
   const hours = Array.from({ length: 24 }, () => ({ v: 0, n: 0 }));
-  valid.forEach((s) => { const h = new Date(s.createdAt).getHours(); hours[h].v += s.total || 0; hours[h].n++; });
+  valid.forEach((s) => { const h = new Date(s.createdAt).getHours(); if (!hours[h]) return; hours[h].v += s.total || 0; hours[h].n++; }); // venta sin fecha válida: no se cuenta por hora
   const withSales = hours.map((h, i) => (h.n ? i : null)).filter((x) => x !== null);
   const h0 = Math.min(9, ...withSales), h1 = Math.max(21, ...withSales);
   const hourData = []; for (let h = h0; h <= h1; h++) hourData.push({ label: `${h}:00`, full: `${h}:00 – ${h + 1}:00`, value: hours[h].v, sub: `${hours[h].n} ${hours[h].n === 1 ? "venta" : "ventas"}`, tick: h % 3 === 0 ? `${h}h` : "" });
@@ -4496,7 +4496,7 @@ const SalesBoard = ({ catalog }) => {
   }
   // Por día de la semana (promedio), útil para saber qué día reforzar personal
   const WD = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-  const wd = WD.map(() => 0); valid.forEach((s) => { wd[new Date(s.createdAt).getDay()] += s.total || 0; });
+  const wd = WD.map(() => 0); valid.forEach((s) => { const d = new Date(s.createdAt).getDay(); if (d >= 0) wd[d] += s.total || 0; });
   const pays = {}; valid.forEach((s) => (s.payments && s.payments.length ? s.payments : [{ method: s.paymentMethod || "—", amount: s.total }]).forEach((p) => { pays[p.method] = (pays[p.method] || 0) + Number(p.amount || 0); }));
   const payRows = Object.entries(pays).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
   const payTotal = payRows.reduce((a, r) => a + r.value, 0);

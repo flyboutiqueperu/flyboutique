@@ -1,6 +1,6 @@
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist"), out = process.argv[2];
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2];
 const types = { ".js": "text/javascript", ".css": "text/css" };
 const srv = http.createServer((q, r) => { const u = q.url.split("?")[0]; if (u.startsWith("/img/")) { r.writeHead(200, { "content-type": "image/svg+xml" }); return r.end('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="#8a3b12"/></svg>'); } let f = path.join(dist, u); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": types[path.extname(f)] || "text/html" }); r.end(fs.readFileSync(f)); }).listen(4360);
 const mk = (id, name, cat, tag, extra = {}) => ({ id, name, category: cat, price: 129, compareAtPrice: tag === "Oferta" ? 159 : null, tag, status: "active", showOnline: true, description: "Vestido de lino suave.", images: [{ id: "i", url: "http://localhost:4360/img/a.svg" }], variants: [{ id: id + "s", size: "S", colorName: "Negro", colorHex: "#111", stock: 3 }, { id: id + "m", size: "M", colorName: "Rojo", colorHex: "#b11", stock: 1 }], ...extra });

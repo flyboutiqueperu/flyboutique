@@ -1,6 +1,6 @@
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist"), out = process.argv[2];
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2];
 const types = { ".js": "text/javascript", ".png": "image/png", ".css": "text/css", ".webmanifest": "application/manifest+json" };
 const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?")[0].split("#")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": types[path.extname(f)] || "text/html" }); r.end(fs.readFileSync(f)); }).listen(4342);
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");

@@ -1,7 +1,7 @@
 // Prueba de la boleta electrónica tras la venta (SQL 25). MODO=activa|falla|apagada|sin-sql  Uso: node pruebas/ui/einv.cjs <carpeta>
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist"), out = process.argv[2];
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2];
 const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?")[0].split("#")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": f.endsWith(".js") ? "text/javascript" : "text/html" }); r.end(fs.readFileSync(f)); }).listen(4369);
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 const exp = Math.floor(Date.now() / 1000) + 3600;

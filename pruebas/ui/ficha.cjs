@@ -1,6 +1,6 @@
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
-const dist = path.join(__dirname, "dist"), out = process.argv[2];
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2];
 const types = { ".js": "text/javascript", ".png": "image/png", ".css": "text/css", ".svg": "image/svg+xml" };
 const svg = (c) => `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="${c}"/><circle cx="200" cy="250" r="80" fill="#fff"/></svg>`;
 const srv = http.createServer((q, r) => { const u = q.url.split("?")[0]; if (u.startsWith("/img/")) { r.writeHead(200, { "content-type": "image/svg+xml" }); return r.end(svg(u.includes("a") ? "#8a3b12" : "#123b8a")); } let f = path.join(dist, u); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": types[path.extname(f)] || "text/html" }); r.end(fs.readFileSync(f)); }).listen(4355);
