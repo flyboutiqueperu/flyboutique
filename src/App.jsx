@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { supabase, setStaffSessionMode, clearStaffSessionMode } from "./supabaseClient.js";
 import { t, getLang, setLang, setStaffMode } from "./i18n.js";
+import { parseTumiSoft, isTumiSoft, matchPhoto } from "./importar-tumisoft.js";
 
 /* ------------------------------------------------------------------ */
 /*  DESIGN TOKENS — monochrome editorial, one burgundy accent          */
@@ -97,8 +98,8 @@ const STORE_EMAIL = "flyboutiqueperu@gmail.com";
 //             ctaType:'category'|'collection'|'none', ctaValue, active, order }
 // Collection{ id, name, slug, description, cover, productIds:[], featured, order }
 
-const CATEGORY_OPTIONS = ["Vestidos", "Blusas", "Pantalones", "Faldas", "Abrigos", "Accesorios", "Calzado"];
-const CATEGORY_GROUPS = [["Ropa", ["Vestidos", "Blusas", "Pantalones", "Faldas", "Abrigos"]], ["Calzado", ["Calzado"]], ["Accesorios", ["Accesorios"]]];
+const CATEGORY_OPTIONS = ["Vestidos", "Blusas", "Tops", "Pantalones", "Jeans", "Faldas", "Shorts", "Enterizos", "Bodies", "Abrigos", "Teen Life", "Accesorios", "Joyería", "Carteras", "Belleza", "Calzado"];
+const CATEGORY_GROUPS = [["Ropa", ["Vestidos", "Blusas", "Tops", "Pantalones", "Jeans", "Faldas", "Shorts", "Enterizos", "Bodies", "Abrigos", "Teen Life"]], ["Calzado", ["Calzado"]], ["Accesorios", ["Accesorios", "Joyería", "Carteras", "Belleza"]]];
 const groupOfCategory = (cat) => (CATEGORY_GROUPS.find(([, cats]) => cats.includes(cat)) || ["Ropa"])[0];
 const genId = (p = "id") => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 const slugify = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -495,6 +496,7 @@ const computeDiscount = (promo, subtotal) => !promo ? 0 : promo.type === "percen
 /* ------------------------------------------------------------------ */
 /*  BULK IMPORT — Excel/CSV template → product records                 */
 /* ------------------------------------------------------------------ */
+const codeIs = (v, val) => [v?.sku, v?.barcode].some((c) => c && String(c).toLowerCase() === String(val).toLowerCase());
 const normalizeCode = (s) => String(s || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
 
 // Encabezados del Excel → claves simples: "Código de barras" → codigo_barras, "Stock mínimo" → stock_minimo
@@ -542,12 +544,20 @@ function parseImportRows(rawRows) {
   return { toUpsert: [...grouped.values()], toDelete: [...deleteSlugs], movements };
 }
 
-async function parseImportFile(file) {
+// Lee la primera hoja buscando la fila de títulos (en el Excel de TumiSoft está en la fila 2)
+async function readSheetRows(file) {
   const buf = await file.arrayBuffer();
   const XLSX = await loadXLSX();
   const wb = XLSX.read(buf, { type: "array" });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+  const hi = Math.max(0, grid.slice(0, 10).findIndex((r) => r.some((c) => /^(nombre|producto)$/i.test(String(c).trim()))));
+  const headers = (grid[hi] || []).map((h, i) => String(h).trim() || `col${i}`);
+  const rows = grid.slice(hi + 1).filter((r) => r.some((c) => String(c).trim() !== "")).map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ""])));
+  return { headers, rows };
+}
+async function parseImportFile(file) {
+  const { rows } = await readSheetRows(file);
   return parseImportRows(rows);
 }
 
@@ -4832,7 +4842,7 @@ const TranslateTool = ({ products, onPatch }) => {
 
 // Buscar y ordenar prendas en el panel (Productos y Stock): por nombre, código, categoría o color; sin acentos.
 const normQ = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-const productMatches = (p, q) => { const n = normQ(q).trim(); if (!n) return true; const hay = normQ(`${p.name} ${p.nameEn || ""} ${p.category} ${(p.variants || []).map((v) => `${v.sku || ""} ${v.colorName || ""} ${v.size || ""}`).join(" ")}`); return n.split(/\s+/).every((w) => hay.includes(w)); };
+const productMatches = (p, q) => { const n = normQ(q).trim(); if (!n) return true; const hay = normQ(`${p.name} ${p.nameEn || ""} ${p.category} ${(p.variants || []).map((v) => `${v.sku || ""} ${v.barcode || ""} ${v.colorName || ""} ${v.size || ""}`).join(" ")}`); return n.split(/\s+/).every((w) => hay.includes(w)); };
 const PROD_FILTERS = [["todos", "Todos"], ["agotados", "Agotados"], ["bajo", "Stock bajo"], ["sinfoto", "Sin fotos"], ["borrador", "Borradores"], ["outlet", "Outlet"]];
 const PROD_SORTS = [["nuevos", "Más nuevos primero"], ["antiguos", "Más antiguos primero"], ["nombre", "Nombre (A-Z)"], ["menosstock", "Menos stock primero"]];
 const filterSortProducts = (products, q, filter, sort) => {
@@ -4872,7 +4882,7 @@ const useProdFilters = (key) => {
   return { q, setQ, filter, setFilter, sort, setSort };
 };
 
-const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulkPhotos, onAddThumbs, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate, onPatchProduct }) => {
+const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImportTumi, onBulkPhotos, onAddThumbs, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate, onPatchProduct }) => {
   const [q, setQ] = useState("");
   const [importing, setImporting] = useState(false);
   const [matchingPhotos, setMatchingPhotos] = useState(false);
@@ -4887,7 +4897,16 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
     const file = e.target.files?.[0]; if (!file) return;
     setImporting(true);
     try {
-      const { toUpsert, toDelete, movements } = await parseImportFile(file);
+      const sheet = await readSheetRows(file);
+      if (isTumiSoft(sheet.headers) && onImportTumi) {
+        const r = parseTumiSoft(sheet.rows, catalog.products, { genId, slugify });
+        const sm = r.summary;
+        const ejemplos = r.samples.slice(0, 6).map((x) => `• ${x.nombre} → ${x.prenda} · ${x.color} · ${x.talla}`).join("\n");
+        const msg = `Excel de TumiSoft: ${sm.filas} filas → ${r.products.length} prendas (${sm.nuevas} nuevas, ${sm.actualizadas} ya existían) con ${sm.combinaciones} combinaciones (talla y color).\n\nAsí se separan:\n${ejemplos}\n\nCategorías: ${sm.categorias.join(", ")}.${sm.conStock ? `\nStock: ${sm.conStock} combinaciones con cantidad.` : "\nEl stock no viene en este archivo: las prendas nuevas quedan en 0 y las que ya existían conservan su stock."}${sm.precioDistinto.length ? `\nOjo, precios distintos dentro de una prenda (se usa el más común): ${sm.precioDistinto.slice(0, 3).join("; ")}${sm.precioDistinto.length > 3 ? "…" : ""}` : ""}\n\nNo se borra nada. ¿Importar?`;
+        if (confirm(msg)) { await onImportTumi(r.products, r.costs); alert(`Listo: ${sm.nuevas} prendas nuevas y ${sm.actualizadas} actualizadas.${r.costs.length ? ` Costos guardados: ${r.costs.length}.` : ""}\nAhora puedes subir las fotos en lote (nombradas con el código interno o con el nombre y el color).`); }
+        setImporting(false); if (fileRef.current) fileRef.current.value = ""; return;
+      }
+      const { toUpsert, toDelete, movements } = parseImportRows(sheet.rows);
       if (toUpsert.length === 0 && toDelete.length === 0) alert("No se encontraron filas válidas. Revisa que la columna 'producto' tenga datos.");
       else {
         onImport(toUpsert, toDelete, movements);
@@ -4902,10 +4921,15 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
     const files = [...(e.target.files || [])]; if (!files.length) return;
     setMatchingPhotos(true);
     const matches = []; const unmatched = [];
+    // Código interno o de barras («9LRJC28.jpg», «9LRJC28-2.jpg») o nombre + color + número («ALDANA DRESS NEGRO 1.jpg»)
+    const planned = [];
     for (const file of files) {
-      const baseNorm = normalizeCode(file.name.replace(/\.[^.]+$/, ""));
-      const match = findProductMatch(catalog.products, baseNorm);
+      const match = matchPhoto(file.name, catalog.products) || findProductMatch(catalog.products, normalizeCode(file.name.replace(/\.[^.]+$/, "")));
       if (!match) { unmatched.push(file.name); continue; }
+      planned.push({ file, match, order: match.order || 0 });
+    }
+    planned.sort((a, b) => a.match.product.id.localeCompare(b.match.product.id) || String(a.match.colorName || "").localeCompare(String(b.match.colorName || "")) || a.order - b.order || a.file.name.localeCompare(b.file.name, "es", { numeric: true }));
+    for (const { file, match } of planned) {
       try { const m = await uploadMedia(file, "productos"); matches.push({ productId: match.product.id, url: m.url, type: m.type, thumb: m.thumb || null, colorName: match.colorName }); }
       catch (err) { console.error(err); unmatched.push(file.name); }
     }
@@ -4913,14 +4937,14 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
     setMatchingPhotos(false);
     if (photoRef.current) photoRef.current.value = "";
     const withColor = matches.filter((m) => m.colorName).length;
-    alert(`${matches.length} foto(s) asignadas automáticamente${withColor ? ` (${withColor} identificadas por color exacto vía código de barras)` : ""}.${unmatched.length ? `\nSin coincidencia (${unmatched.length}): ${unmatched.join(", ")}` : ""}`);
+    alert(`${matches.length} foto(s) asignadas automáticamente${withColor ? ` (${withColor} con su color)` : ""}.${unmatched.length ? `\nSin coincidencia (${unmatched.length}): ${unmatched.join(", ")}` : ""}`);
   };
 
   const handleSearchKeyDown = (e) => {
     if (e.key !== "Enter") return;
     const val = q.trim().toLowerCase();
     if (!val) return;
-    const exact = catalog.products.find((p) => p.variants.some((v) => v.sku && v.sku.toLowerCase() === val));
+    const exact = catalog.products.find((p) => p.variants.some((v) => codeIs(v, val)));
     if (exact) { openEditor(exact.id); setQ(""); }
   };
 
@@ -4944,7 +4968,8 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onBulk
       {onPatchProduct && <TranslateTool products={catalog.products} onPatch={onPatchProduct} />}
 
       <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginBottom: 16, textAlign: "center", lineHeight: 1.5 }}>
-        Nombra cada foto con el código de barras o el nombre de la prenda (ej. <em>7501234567890.jpg</em>) y se asigna sola. Importar de nuevo actualiza por nombre en vez de duplicar.
+        <strong>Importar:</strong> sirve el Excel que descarga TumiSoft (Listado de productos) tal cual, o la plantilla. Importar de nuevo actualiza, no duplica ni borra.<br />
+        <strong>Fotos:</strong> nombra cada foto con el <em>código interno</em> (ej. <em>9LRJC28.jpg</em>, <em>9LRJC28-2.jpg</em> para la 2.ª) o con <em>nombre + color + número</em> (ej. <em>ALDANA DRESS NEGRO 1.jpg</em>). Se asigna sola a la prenda y a su color, en ese orden. Puedes elegir muchas a la vez.
       </div>
 
       <ProductFilterBar q={q} setQ={setQ} filter={pf.filter} setFilter={pf.setFilter} sort={pf.sort} setSort={pf.setSort} count={filtered.length} total={catalog.products.length} onKeyDown={handleSearchKeyDown} placeholder="Nombre, código, color… (o escanea + Enter)" />
@@ -5110,7 +5135,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
       <AdminCard style={{ marginBottom: 14 }}>
         <Field label="Nombre del producto"><input style={inputStyle} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Ej. Vestido Midi Coralina" /></Field>
         <Field label="Categoría">
-          <select style={inputStyle} value={form.category} onChange={(e) => set("category", e.target.value)}>{CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+          <select style={inputStyle} value={form.category} onChange={(e) => set("category", e.target.value)}>{[...new Set([...CATEGORY_OPTIONS, form.category].filter(Boolean))].map((c) => <option key={c} value={c}>{c}</option>)}</select>
         </Field>
         <Field label="Descripción"><textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Detalles, tela, cuidado…" /></Field>
         <Field label="Nombre en inglés (opcional)"><input style={inputStyle} value={form.nameEn} onChange={(e) => set("nameEn", e.target.value)} placeholder={form.name ? `Automático: ${autoNameEn(form.name)}` : "Ej. Coralina Midi Dress"} /></Field>
@@ -5971,10 +5996,10 @@ const TransfersScreen = ({ catalog, role, refreshData }) => {
   // --- nueva guía
   if (mode === "new") {
     const nq = q.trim().toLowerCase();
-    const options = nq.length < 2 ? [] : catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq)).slice(0, 12);
+    const options = nq.length < 2 ? [] : catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => `${p.name} ${v.sku || ""} ${v.barcode || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq)).slice(0, 12);
     const availAt = (v) => Number(variantStockBy(v)[from]) || 0;
     const add = (p, v) => { setLines((ls) => ls.some((l) => l.v.id === v.id) ? ls : [...ls, { p, v, qty: "1" }]); setQ(""); };
-    const onScan = (e) => { if (e.key !== "Enter") return; const code = q.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { add(p, v); return; } } };
+    const onScan = (e) => { if (e.key !== "Enter") return; const code = q.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => codeIs(x, code)); if (v) { add(p, v); return; } } };
     const bad = lines.find((l) => !(parseInt(l.qty, 10) > 0) || parseInt(l.qty, 10) > availAt(l.v));
     return (
       <div style={{ padding: "18px 18px 90px" }}>
@@ -6565,9 +6590,9 @@ const PurchasesScreen = ({ catalog, refreshData }) => {
   if (mode === "new") {
     const active = suppliers.filter((s) => s.active !== false);
     const nq = q.trim().toLowerCase();
-    const options = nq.length < 2 ? [] : catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq)).slice(0, 12);
+    const options = nq.length < 2 ? [] : catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => `${p.name} ${v.sku || ""} ${v.barcode || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq)).slice(0, 12);
     const add = (p, v) => { setLines((ls) => ls.some((l) => l.v.id === v.id) ? ls : [...ls, { p, v, qty: "1", cost: costs[p.id] != null ? String(costs[p.id]) : (ls.find((l) => l.p.id === p.id)?.cost || "") }]); setQ(""); };
-    const onScan = (e) => { if (e.key !== "Enter") return; const code = q.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { add(p, v); return; } } };
+    const onScan = (e) => { if (e.key !== "Enter") return; const code = q.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => codeIs(x, code)); if (v) { add(p, v); return; } } };
     const setLine = (id, k, val) => setLines((ls) => ls.map((x) => x.v.id === id ? { ...x, [k]: val } : x));
     const bad = lines.find((l) => !(parseInt(l.qty, 10) > 0) || l.cost === "" || !(Number(l.cost) >= 0));
     const units = lines.reduce((a, l) => a + (parseInt(l.qty, 10) || 0), 0);
@@ -6771,13 +6796,13 @@ const LabelsScreen = ({ catalog, onBack }) => {
   const [showPrice, setShowPrice] = useState(true);
   const F = LABEL_FORMATS[fmt];
   const nq = q.trim().toLowerCase();
-  const rows = catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => !nq || `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq));
+  const rows = catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => !nq || `${p.name} ${v.sku || ""} ${v.barcode || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq));
   const labels = catalog.products.flatMap((p) => p.variants.flatMap((v) => Array.from({ length: Math.min(500, parseInt(qty[v.id] || "0", 10) || 0) }, (_, k) => ({ key: `${v.id}-${k}`, p, v }))));
   const setN = (id, n) => setQty((x) => ({ ...x, [id]: String(n) }));
   const onScan = (e) => {
     if (e.key !== "Enter") return;
     const code = q.trim().toLowerCase();
-    for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { setN(v.id, (parseInt(qty[v.id] || "0", 10) || 0) + 1); setQ(""); return; } }
+    for (const p of catalog.products) { const v = p.variants.find((x) => codeIs(x, code)); if (v) { setN(v.id, (parseInt(qty[v.id] || "0", 10) || 0) + 1); setQ(""); return; } }
   };
   const label = ({ key, p, v }) => (
     <div key={key} className="fly-label" style={{ width: F.w, height: F.h, boxSizing: "border-box", padding: "1.5mm 2mm", background: "#fff", color: "#000", fontFamily: "'Jost', Arial, sans-serif", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden", border: "1px dashed #bbb" }}>
@@ -6843,7 +6868,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, 
     if (e.key !== "Enter") return;
     const val = q.trim().toLowerCase();
     if (!val) return;
-    const found = catalog.products.find((p) => p.variants.some((v) => v.sku && v.sku.toLowerCase() === val));
+    const found = catalog.products.find((p) => p.variants.some((v) => codeIs(v, val)));
     if (found) { setExpanded(found.id); setQ(""); }
   };
 
@@ -7679,7 +7704,7 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
   const requestIdRef = useRef(null);
   useEffect(() => { requestIdRef.current = null; }, [saleItems]);
 
-  const suggestions = q.trim() ? catalog.products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()) || p.variants.some((v) => v.sku?.toLowerCase().includes(q.toLowerCase()))).slice(0, 6) : [];
+  const suggestions = q.trim() ? catalog.products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()) || p.variants.some((v) => v.sku?.toLowerCase().includes(q.toLowerCase()) || v.barcode?.toLowerCase().includes(q.toLowerCase()))).slice(0, 6) : [];
 
   // Lector de códigos: al leer, muestra la prenda encontrada para confirmar con Enter o un toque
   const [scanned, setScanned] = useState(null);
@@ -7688,7 +7713,7 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
     const val = q.trim().toLowerCase();
     if (!val) return;
     for (const p of catalog.products) {
-      const v = p.variants.find((vv) => vv.sku && vv.sku.toLowerCase() === val);
+      const v = p.variants.find((vv) => codeIs(vv, val));
       if (v) { setScanned({ p, v }); setQ(""); return; }
     }
     alert(`No se encontró ningún producto con el código "${q.trim()}".`); setQ("");
@@ -8018,7 +8043,7 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
   const anyRet = retLines.some((l) => l.q > 0);
   const hasOutlet = sale && retLines.some((l) => l.q > 0 && isOutlet(catalog.products.find((p) => p.id === l.it.productId)));
   const nq = pq.trim().toLowerCase();
-  const results = nq.length >= 2 ? catalog.products.flatMap((p) => p.variants.filter((v) => v.stock > 0 && (`${p.name} ${v.sku || ""}`.toLowerCase().includes(nq))).map((v) => ({ p, v }))).slice(0, 12) : [];
+  const results = nq.length >= 2 ? catalog.products.flatMap((p) => p.variants.filter((v) => v.stock > 0 && (`${p.name} ${v.sku || ""} ${v.barcode || ""}`.toLowerCase().includes(nq))).map((v) => ({ p, v }))).slice(0, 12) : [];
   const addNew = (p, v) => { setNewItems((xs) => xs.some((x) => x.variantId === v.id) ? xs.map((x) => (x.variantId === v.id && x.qty < v.stock ? { ...x, qty: x.qty + 1 } : x)) : [...xs, { variantId: v.id, name: p.name, size: v.size, colorName: v.colorName, price: Number(p.price) || 0, qty: 1, max: v.stock }]); setPq(""); };
   const save = async () => {
     if (!anyRet) { setMsg(RETURN_ERRORS.NADA_PARA_DEVOLVER); return; }
@@ -8068,7 +8093,7 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
           {hasOutlet && <div style={{ ...txt, color: C.accent, marginTop: 8 }}>Prenda Outlet: sin cambios ni devoluciones, salvo falla de fábrica. Anótalo en el motivo.</div>}
 
           {head("2. ¿Se lleva otra prenda? (cambio, opcional)")}
-          <input value={pq} onChange={(e) => setPq(e.target.value)} onKeyDown={(e) => { if (e.key !== "Enter") return; const code = pq.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v && v.stock > 0) { addNew(p, v); return; } } }} placeholder="Busca por nombre o escanea el código" style={inputStyle} />
+          <input value={pq} onChange={(e) => setPq(e.target.value)} onKeyDown={(e) => { if (e.key !== "Enter") return; const code = pq.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => codeIs(x, code)); if (v && v.stock > 0) { addNew(p, v); return; } } }} placeholder="Busca por nombre o escanea el código" style={inputStyle} />
           {results.length > 0 && (
             <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, marginTop: 6, maxHeight: 220, overflowY: "auto" }}>
               {results.map(({ p, v }) => (
@@ -9903,6 +9928,16 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
       };
     });
   };
+  // Importación del Excel de TumiSoft: actualiza por id (sin mover las que ya existían) y agrega las nuevas al principio
+  const importTumi = async (list, costs = []) => {
+    updateCatalog((c) => {
+      const byId = new Map(list.map((p) => [p.id, p]));
+      const kept = c.products.map((p) => byId.get(p.id) || p);
+      const known = new Set(c.products.map((p) => p.id));
+      return { ...c, products: [...list.filter((p) => !known.has(p.id)), ...kept] };
+    });
+    for (const x of costs) { try { await supabase.from("product_costs").upsert({ product_id: x.productId, cost: x.cost }); } catch (e) { /* sin permiso o sin SQL 18: se omite */ } }
+  };
   const addThumbs = (made) => updateCatalog((c) => ({
     ...c,
     products: c.products.map((p) => ((p.images || []).some((m) => made[m.url] && !m.thumb) ? { ...p, images: p.images.map((m) => (made[m.url] && !m.thumb ? { ...m, thumb: made[m.url] } : m)) } : p)),
@@ -9964,7 +9999,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
-        {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList onPatchProduct={patchProduct} catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onBulkPhotos={attachBulkImages} onAddThumbs={addThumbs} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
+        {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList onPatchProduct={patchProduct} catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onImportTumi={importTumi} onBulkPhotos={attachBulkImages} onAddThumbs={addThumbs} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
         {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => setScreen("products")} />}
         {(role === "administrador" || role === "superadmin") && screen === "banners" && <AdminBannerList banners={catalog.banners} openEditor={(id) => { setEditingBannerId(id); setScreen("bannerEditor"); }} toggleActive={toggleBannerActive} deleteBanner={deleteBanner} />}
         {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}

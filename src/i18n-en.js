@@ -1,5 +1,9 @@
 // Traducciones de la tienda al inglés (español → inglés). Si falta una, se muestra en español.
 const EN = {
+ "Bodies": "Bodysuits",
+ "Teen Life": "Teen Life",
+ "Carteras": "Bags",
+ "Belleza": "Beauty",
  "Piezas con carácter, hechas para volar": "Pieces with character, made to fly",
  "Colección primavera": "Spring collection",
  "Nueva temporada": "New season",

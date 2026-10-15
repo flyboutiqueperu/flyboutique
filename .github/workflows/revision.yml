@@ -44,11 +44,14 @@ jobs:
           npx playwright-core install --with-deps chromium
           echo "CHROME_PATH=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
 
+      - name: Pruebas sin navegador (lector del Excel de TumiSoft)
+        run: node pruebas/importar.test.mjs
+
       - name: Pruebas de navegador
         run: |
           mkdir -p /tmp/capturas
           fallas=""
-          for t in apps instalar cookies banner-en faltan cierre captcha actividad prendas; do
+          for t in apps instalar cookies banner-en faltan cierre captcha actividad prendas importar; do
             echo "::group::$t"
             if ! node "pruebas/ui/$t.cjs" /tmp/capturas; then fallas="$fallas $t"; fi
             echo "::endgroup::"
