@@ -4180,7 +4180,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["transfers", "purchases", "docapi", "fotoscopia", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "purchases", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -5818,6 +5818,110 @@ const TransfersScreen = ({ catalog, role, refreshData }) => {
   );
 };
 
+// ---- Facturación electrónica (SQL 25): configuración de Nubefact y estado de cada comprobante ----
+const EInvoiceScreen = ({ catalog, role }) => {
+  const isSuper = role === "superadmin";
+  const [st, setSt] = useState(null); // null cargando | "no" falta SQL 25 | estado
+  const [rows, setRows] = useState([]);
+  const [form, setForm] = useState({ ruta: "", token: "", sb: "", sf: "", nb: "", nf: "" });
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const load = async () => {
+    const { data, error } = await supabase.rpc("einvoice_status");
+    if (error) { setSt("no"); return; }
+    einvConfigCache = data;
+    setSt(data); setForm((f) => ({ ...f, ruta: data.ruta || "", sb: data.serieBoleta, sf: data.serieFactura, nb: "", nf: "" }));
+    const r = await supabase.from("einvoices").select("*").order("updated_at", { ascending: false }).limit(200);
+    setRows(r.data || []);
+  };
+  useEffect(() => { load(); }, []);
+  if (st === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 25 (facturación electrónica) en Supabase.</div>;
+  if (!st) return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Cargando…</div>;
+  const hint = { fontFamily: FONT_BODY, fontSize: 12, color: C.stone, lineHeight: 1.55 };
+  const saveCfg = async (tokenValue) => {
+    setBusy("cfg"); setMsg("");
+    const { data, error } = await supabase.rpc("set_einvoice_config", { p_ruta: form.ruta.trim() || null, p_token: tokenValue, p_serie_boleta: form.sb.trim() || null, p_serie_factura: form.sf.trim() || null,
+      p_auto: null, p_next_boleta: form.nb ? Number(form.nb) : null, p_next_factura: form.nf ? Number(form.nf) : null });
+    setBusy("");
+    if (error) { setMsg(({ RUTA_INVALIDA: "La RUTA debe empezar con https://", SERIE_INVALIDA: "Serie: 4 caracteres; boletas empiezan con B y facturas con F (ej. B001, F001).", NUMERO_INVALIDO: "El siguiente número no puede ser menor a uno ya usado.", SIN_PERMISO: "Solo Super Admin." })[Object.keys({ RUTA_INVALIDA: 1, SERIE_INVALIDA: 1, NUMERO_INVALIDO: 1, SIN_PERMISO: 1 }).find((k) => error.message.includes(k))] || error.message); return; }
+    einvConfigCache = data; setSt(data); setForm((f) => ({ ...f, token: "", nb: "", nf: "" })); setMsg("✓ Guardado");
+  };
+  const toggleAuto = async () => { const { data, error } = await supabase.rpc("set_einvoice_config", { p_ruta: null, p_token: null, p_auto: !st.auto }); if (!error) { einvConfigCache = data; setSt(data); } };
+  const act = async (fn, args, key) => {
+    setBusy(key); setMsg("");
+    const { data, error } = await supabase.rpc(fn, args);
+    setBusy("");
+    if (error) { setMsg(einvErr(error.message)); return null; }
+    if (data?.reason) { setMsg(einvErr(data.reason)); return null; }
+    await load(); return data;
+  };
+  const sentIds = new Set(rows.map((r) => r.sale_id));
+  const weekAgo = Date.now() - 7 * 86400000;
+  const pending = (catalog.sales || []).filter((x) => x.status !== "anulado" && (x.createdAt || 0) >= weekAgo && !sentIds.has(x.id) && !x.einvoice && (x.source !== "web" || x.paymentStatus === "confirmado")).slice(0, 50);
+  const sendAll = async () => { for (const x of pending) { if (!(await act("emit_einvoice", { p_sale_id: x.id }, "all"))) break; } };
+  const counts = st.counts || {};
+  const chip = (status) => <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap", color: ["rechazado", "error"].includes(status) ? C.accent : C.ink }}>{EINV_LABEL[status] || status}</span>;
+  const smallBtn = { padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer", color: C.ink };
+  return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 760 }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Facturación electrónica</h1>
+      <div style={{ ...hint, marginBottom: 14 }}>Boletas y facturas oficiales con Nubefact. Cada venta se envía sola al terminar el cobro. Nada se marca «aceptado» sin la respuesta de SUNAT, y si se corta la conexión al reintentar no se duplica.</div>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Estado</span>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: st.configured ? C.ink : C.accent }}>{st.configured ? `✓ Conectado a Nubefact · series ${st.serieBoleta} y ${st.serieFactura}` : "Apagado: falta la RUTA y el TOKEN de Nubefact"}</div>
+        {st.configured && <div style={{ ...hint, marginTop: 4 }}>Siguiente boleta: {st.serieBoleta}-{st.nextBoleta} · siguiente factura: {st.serieFactura}-{st.nextFactura}</div>}
+        {Object.keys(counts).length > 0 && <div style={{ ...hint, marginTop: 4 }}>{Object.entries(counts).map(([k, n]) => `${EINV_LABEL[k] || k}: ${n}`).join(" · ")}</div>}
+        {st.configured && isSuper && <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginTop: 10 }}><input type="checkbox" checked={st.auto} onChange={toggleAuto} /> Enviar solo al terminar cada venta en caja</label>}
+      </AdminCard>
+      {isSuper && (
+        <AdminCard style={{ marginBottom: 14 }}>
+          <span style={labelStyle}>Datos de Nubefact</span>
+          <div style={{ ...hint, marginBottom: 10 }}>En Nubefact: menú <strong>API (Integración)</strong>. Copia la <strong>RUTA</strong> y el <strong>TOKEN</strong> y pégalos aquí. El token se guarda solo en el servidor y no se vuelve a mostrar. Usa las mismas series que tienes creadas en Nubefact.</div>
+          <Field label="RUTA"><input style={inputStyle} value={form.ruta} onChange={(e) => setForm({ ...form, ruta: e.target.value })} placeholder="https://api.nubefact.com/api/v1/…" /></Field>
+          <Field label={st.configured ? "TOKEN (déjalo vacío para no cambiarlo)" : "TOKEN"}><input type="password" autoComplete="off" style={inputStyle} value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} placeholder="Pega aquí el token" /></Field>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 120px" }}><Field label="Serie boletas"><input style={inputStyle} value={form.sb} maxLength={4} onChange={(e) => setForm({ ...form, sb: e.target.value.toUpperCase() })} /></Field></div>
+            <div style={{ flex: "1 1 120px" }}><Field label="Serie facturas"><input style={inputStyle} value={form.sf} maxLength={4} onChange={(e) => setForm({ ...form, sf: e.target.value.toUpperCase() })} /></Field></div>
+          </div>
+          <details style={{ marginBottom: 10 }}>
+            <summary style={{ ...hint, cursor: "pointer" }}>¿Ya emitiste comprobantes desde la web de Nubefact? Cambia el siguiente número</summary>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+              <div style={{ flex: "1 1 120px" }}><Field label={`Siguiente boleta (hoy ${st.nextBoleta})`}><input inputMode="numeric" style={inputStyle} value={form.nb} onChange={(e) => setForm({ ...form, nb: e.target.value.replace(/\D/g, "") })} /></Field></div>
+              <div style={{ flex: "1 1 120px" }}><Field label={`Siguiente factura (hoy ${st.nextFactura})`}><input inputMode="numeric" style={inputStyle} value={form.nf} onChange={(e) => setForm({ ...form, nf: e.target.value.replace(/\D/g, "") })} /></Field></div>
+            </div>
+          </details>
+          <PrimaryButton disabled={busy === "cfg" || (!st.configured && (!form.ruta.trim() || !form.token.trim()))} onClick={() => saveCfg(form.token.trim() || null)}>{busy === "cfg" ? "Guardando…" : "Guardar"}</PrimaryButton>
+          {st.configured && <button onClick={() => { if (confirm("¿Apagar la facturación electrónica? Se borra el token guardado. Los comprobantes ya emitidos no cambian.")) saveCfg("-"); }} style={{ marginTop: 10, width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Apagar (borrar token)</button>}
+        </AdminCard>
+      )}
+      {msg && <div role="status" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: msg.startsWith("✓") ? C.ink : C.accent, marginBottom: 12 }}>{msg}</div>}
+      {st.configured && pending.length > 0 && (
+        <AdminCard style={{ marginBottom: 14 }}>
+          <span style={labelStyle}>Ventas de los últimos 7 días sin enviar ({pending.length})</span>
+          {pending.slice(0, 8).map((x) => <div key={x.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5 }}><span>{x.serie}-{String(x.numero).padStart(6, "0")} · {x.customerName || "Cliente varios"}</span><strong>{money2(x.total)}</strong></div>)}
+          <PrimaryButton style={{ marginTop: 10 }} disabled={!!busy} onClick={sendAll}>{busy === "all" ? "Enviando…" : `Enviar ${pending.length} a SUNAT`}</PrimaryButton>
+        </AdminCard>
+      )}
+      <span style={labelStyle}>Comprobantes</span>
+      {rows.length === 0 ? <div style={hint}>Aún no hay comprobantes electrónicos.</div> : rows.map((r) => (
+        <div key={r.sale_id} style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+            <strong>{r.tipo === 1 ? "Factura" : "Boleta"} {r.serie}-{r.numero}</strong>{chip(r.status)}
+          </div>
+          <div style={{ ...hint, fontSize: 11.5 }}>{fmtDT(r.updated_at)} · {r.created_by || ""}{r.attempts > 1 ? ` · ${r.attempts} intentos` : ""}{r.void_reason ? ` · anulada: ${r.void_reason}` : ""}</div>
+          {r.last_error && <div style={{ fontSize: 11.5, color: C.accent, marginTop: 2 }}>{r.last_error}</div>}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+            {["preparado", "rechazado", "error"].includes(r.status) && <button disabled={!!busy} onClick={() => act("emit_einvoice", { p_sale_id: r.sale_id }, r.sale_id)} style={smallBtn}>{busy === r.sale_id ? "…" : "Reintentar"}</button>}
+            {["enviado", "anulacion_pendiente", "aceptado"].includes(r.status) && <button disabled={!!busy} onClick={() => act("refresh_einvoice", { p_sale_id: r.sale_id }, r.sale_id)} style={smallBtn}>{busy === r.sale_id ? "…" : "Actualizar estado"}</button>}
+            {r.pdf_url && <a href={r.pdf_url} target="_blank" rel="noreferrer" style={{ ...smallBtn, textDecoration: "none" }}>PDF</a>}
+            {["aceptado", "enviado"].includes(r.status) && <button disabled={!!busy} onClick={() => { const why = prompt(`¿Por qué anulas ${r.serie}-${r.numero} en SUNAT? (máx. 100 letras)`, "Error en los datos del comprobante"); if (why && why.trim()) act("void_einvoice", { p_sale_id: r.sale_id, p_reason: why.trim() }, r.sale_id); }} style={{ ...smallBtn, borderColor: C.accent, color: C.accent }}>Anular en SUNAT</button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ---- Copia de las fotos y videos (Storage no entra en la copia de datos) ----
 const PhotoBackupScreen = ({ catalog }) => {
   const [items, setItems] = useState(null);
@@ -6510,7 +6614,30 @@ const amountInWords = (amount) => {
 };
 const docTypeOf = (doc) => { const d = String(doc || ""); return /^\d{11}$/.test(d) ? "RUC" : /^\d{8}$/.test(d) ? "DNI" : d ? "Doc." : ""; };
 
-const ReceiptDocument = ({ sale, settings, format = "80" }) => {
+// ---- Comprobante electrónico (SQL 25 / Nubefact) ----
+const EINV_LABEL = { preparado: "Preparando", enviado: "Registrado · SUNAT pendiente", aceptado: "Aceptado por SUNAT", rechazado: "Rechazado", error: "Sin respuesta (reintentar)", anulacion_pendiente: "Anulación en trámite", anulado: "Anulado en SUNAT" };
+const EINV_ERRORS = { NO_CONFIGURADO: "Falta configurar Nubefact (Más → Facturación electrónica).", FACTURA_SIN_RUC: "La factura necesita un RUC válido.", BOLETA_700_SIN_DOCUMENTO: "Desde S/ 700 SUNAT pide el DNI del cliente.", PEDIDO_SIN_PAGO: "El pedido web aún no tiene el pago confirmado.", VENTA_ANULADA: "La venta está anulada.", REGIMEN_NRUS: "Con Nuevo RUS no se emiten boletas con IGV desde aquí.", SIN_PERMISO: "Tu usuario no puede hacer esto.", MOTIVO_REQUERIDO: "Escribe el motivo." };
+const einvErr = (m = "") => { const k = Object.keys(EINV_ERRORS).find((x) => m.includes(x)); return k ? EINV_ERRORS[k] : m.replace(/^.*?(ANULACION_RECHAZADA|NO_SE_PUEDE_ANULAR):?/, "No se pudo: "); };
+const einvOfficial = (e) => e && ["enviado", "aceptado", "anulacion_pendiente", "anulado"].includes(e.status);
+let einvConfigCache = null; // { configured, auto } — se consulta una vez por sesión
+const einvConfig = async () => {
+  if (einvConfigCache) return einvConfigCache;
+  const { data, error } = await supabase.rpc("einvoice_status");
+  einvConfigCache = error ? { configured: false, missing: true } : data;
+  return einvConfigCache;
+};
+// QR del comprobante (cadena que entrega Nubefact)
+const EinvQR = ({ text }) => {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    let alive = true;
+    if (text) import("qrcode").then((m) => (m.default || m).toDataURL(text, { margin: 0, width: 200, errorCorrectionLevel: "M" })).then((d) => { if (alive) setSrc(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [text]);
+  return src ? <img src={src} alt="Código QR del comprobante" style={{ width: 96, height: 96, display: "block", margin: "6px auto" }} /> : null;
+};
+
+const ReceiptDocument = ({ sale, settings, format = "80", einv }) => {
   const company = companyOf(settings);
   const fmt = RECEIPT_FORMATS[format] || RECEIPT_FORMATS["80"];
   const withIgv = company.taxRegime !== "nrus";
@@ -6536,8 +6663,19 @@ const ReceiptDocument = ({ sale, settings, format = "80" }) => {
         <div style={small}>{store.address || company.address}</div>
         <div style={small}>{company.phone ? `Tel. +${company.phone}` : ""}{company.email ? ` · ${company.email}` : ""}</div>
         {line}
-        <div style={{ fontWeight: 800 }}>NOTA DE VENTA{sale.tipo === "factura" ? " (DATOS PARA FACTURA)" : ""}</div>
-        <div style={{ fontWeight: 700 }}>{label}</div>
+        {einvOfficial(einv) ? (
+          <>
+            <div style={{ fontWeight: 800 }}>{einv.tipo === 1 ? "FACTURA ELECTRÓNICA" : "BOLETA DE VENTA ELECTRÓNICA"}</div>
+            <div style={{ fontWeight: 700 }}>{einv.serie}-{String(einv.numero).padStart(8, "0")}</div>
+            <div style={small}>Ref. interna {label}</div>
+            {einv.status === "anulado" && <div style={{ fontWeight: 800 }}>*** ANULADO EN SUNAT ***</div>}
+          </>
+        ) : (
+          <>
+            <div style={{ fontWeight: 800 }}>NOTA DE VENTA{sale.tipo === "factura" ? " (DATOS PARA FACTURA)" : ""}</div>
+            <div style={{ fontWeight: 700 }}>{label}</div>
+          </>
+        )}
         {sale.status === "anulado" && <div style={{ fontWeight: 800 }}>*** ANULADA ***{sale.voidReason ? ` (${sale.voidReason})` : ""}</div>}
       </div>
       {line}
@@ -6576,15 +6714,55 @@ const ReceiptDocument = ({ sale, settings, format = "80" }) => {
       {line}
       <div style={{ ...small, textAlign: "center" }}>Cambios de talla o color hasta 7 días con etiquetas y este documento.</div>
       <div style={{ ...small, textAlign: "center" }}>Libro de Reclamaciones virtual disponible en nuestra web.</div>
-      <div style={{ ...small, textAlign: "center", fontWeight: 700, marginTop: 4 }}>Documento interno de control. No es boleta ni factura electrónica (SUNAT).</div>
+      {einvOfficial(einv) ? (
+        <div style={{ ...small, textAlign: "center", marginTop: 4 }}>
+          <EinvQR text={einv.qr} />
+          <div style={{ fontWeight: 700 }}>Representación impresa de la {einv.tipo === 1 ? "factura" : "boleta de venta"} electrónica.</div>
+          {einv.hash && <div>Resumen: {einv.hash}</div>}
+          {einv.link && <div style={{ wordBreak: "break-all" }}>Consulta en: {einv.link}</div>}
+        </div>
+      ) : <div style={{ ...small, textAlign: "center", fontWeight: 700, marginTop: 4 }}>Documento interno de control. No es boleta ni factura electrónica (SUNAT).</div>}
       <div style={{ textAlign: "center", marginTop: 6 }}>¡Gracias por tu compra!</div>
     </div>
   );
 };
 
-const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp }) => {
+const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp, autoEmit = false }) => {
   const [format, setFormat] = useState(() => { try { return localStorage.getItem(RECEIPT_FORMAT_KEY) || "80"; } catch (e) { return "80"; } });
   const choose = (f) => { setFormat(f); try { localStorage.setItem(RECEIPT_FORMAT_KEY, f); } catch (e) { /* nada */ } };
+  // Comprobante electrónico: se busca el que ya exista; justo después de vender se envía solo (si está activado)
+  const [einv, setEinv] = useState(null);
+  const [cfg, setCfg] = useState(null);
+  const [eBusy, setEBusy] = useState(false);
+  const [eMsg, setEMsg] = useState("");
+  const emit = async () => {
+    setEBusy(true); setEMsg("");
+    try {
+      const { data, error } = await supabase.rpc("emit_einvoice", { p_sale_id: sale.id });
+      if (error) setEMsg(einvErr(error.message));
+      else if (data?.reason) setEMsg(einvErr(data.reason));
+      else setEinv(data);
+    } catch (e) { setEMsg("Sin conexión: vuelve a intentar."); }
+    setEBusy(false);
+  };
+  const refresh = async () => {
+    setEBusy(true);
+    const { data, error } = await supabase.rpc("refresh_einvoice", { p_sale_id: sale.id });
+    if (error) setEMsg(einvErr(error.message)); else setEinv(data);
+    setEBusy(false);
+  };
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const c = await einvConfig(); if (!alive) return; setCfg(c);
+      if (c.missing) return;
+      const { data } = await supabase.from("einvoices").select("*").eq("sale_id", sale.id).maybeSingle();
+      if (!alive) return;
+      if (data) setEinv(data);
+      else if (autoEmit && c.configured && c.auto && sale.status !== "anulado") emit();
+    })().catch(() => {});
+    return () => { alive = false; };
+  }, [sale.id]);
   return (
     <div style={{ padding: "18px 18px 90px", maxWidth: 720, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: C.paperDeep, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
@@ -6595,8 +6773,22 @@ const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp }) => {
         {Object.entries(RECEIPT_FORMATS).map(([k, f]) => <Chip key={k} active={format === k} onClick={() => choose(k)}>{f.label}</Chip>)}
       </div>
       <div style={{ background: "#e9e9e9", borderRadius: 12, padding: "16px 8px", marginBottom: 16, overflowX: "auto" }}>
-        <div style={{ boxShadow: "0 4px 18px rgba(0,0,0,0.12)", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}><ReceiptDocument sale={sale} settings={settings} format={format} /></div>
+        <div style={{ boxShadow: "0 4px 18px rgba(0,0,0,0.12)", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}><ReceiptDocument sale={sale} settings={settings} format={format} einv={einv} /></div>
       </div>
+      {cfg && !cfg.missing && (cfg.configured || einv) && (
+        <div role="status" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: `1px solid ${einv?.status === "rechazado" || einv?.status === "error" || eMsg ? C.accent : C.line}`, borderRadius: 12, padding: "10px 14px", marginBottom: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+          {eBusy && <Loader2 size={15} className="spin" />}
+          <span style={{ flex: 1, minWidth: 180 }}>
+            <strong>SUNAT:</strong>{" "}
+            {eBusy ? "enviando a Nubefact…" : einv ? `${EINV_LABEL[einv.status] || einv.status} · ${einv.serie}-${einv.numero}` : "aún no se envió"}
+            {einv?.last_error && <span style={{ display: "block", color: C.accent }}>{einv.last_error}</span>}
+            {eMsg && <span style={{ display: "block", color: C.accent }}>{eMsg}</span>}
+          </span>
+          {!eBusy && (!einv || ["preparado", "rechazado", "error"].includes(einv.status)) && cfg.configured && <button onClick={emit} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{einv ? "Reintentar" : "Enviar a SUNAT"}</button>}
+          {!eBusy && einv && ["enviado", "anulacion_pendiente"].includes(einv.status) && <button onClick={refresh} style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Actualizar estado</button>}
+          {einv?.pdf_url && <a href={einv.pdf_url} target="_blank" rel="noreferrer" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>PDF oficial</a>}
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
         <button onClick={() => window.print()} style={{ ...quickLinkStyle, justifyContent: "center", fontWeight: 600 }}><Receipt size={16} /> Imprimir</button>
         <button onClick={onSendWhatsApp} style={{ ...quickLinkStyle, justifyContent: "center", background: "#25D366", color: C.ink, border: "none", fontWeight: 600 }}><MessageCircle size={15} /> WhatsApp</button>
@@ -7158,7 +7350,7 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
     window.open(`https://wa.me/?text=${encodeURIComponent(lines.join("\n"))}`, "_blank");
   };
 
-  if (lastSale) return <ReceiptView sale={lastSale} settings={catalog.settings} onNewSale={() => setLastSale(null)} onSendWhatsApp={sendReceiptWhatsApp} />;
+  if (lastSale) return <ReceiptView sale={lastSale} settings={catalog.settings} onNewSale={() => setLastSale(null)} onSendWhatsApp={sendReceiptWhatsApp} autoEmit />;
 
   const posCategories = ["Todo", ...new Set(catalog.products.map((p) => p.category))];
   const tiles = (q.trim() ? suggestions : catalog.products.filter((p) => posCategory === "Todo" || p.category === posCategory)).filter((p) => p.status !== "inactivo");
@@ -8007,6 +8199,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("banners")} style={quickLinkStyle}><ImageIcon size={16} color={C.ink} /> Banners <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("collections")} style={quickLinkStyle}><Layers size={16} color={C.ink} /> Colecciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("invoices")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Comprobantes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("facturacion")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Facturación electrónica (SUNAT · Nubefact) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("reports")} style={quickLinkStyle}><BarChart3 size={16} color={C.ink} /> Reportes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("purchases")} style={quickLinkStyle}><Package size={16} color={C.ink} /> Compras a proveedores (entrada de mercadería) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("transfers")} style={quickLinkStyle}><Navigation size={16} color={C.ink} /> Traslados entre sedes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -8957,7 +9150,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], facturacion: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -9175,6 +9368,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "manual" && <StaffManual role={role} />}
         {canOpenScreen(role, "docapi") && screen === "docapi" && <DocApiScreen />}
         {canOpenScreen(role, "fotoscopia") && screen === "fotoscopia" && <PhotoBackupScreen catalog={catalog} />}
+        {canOpenScreen(role, "facturacion") && screen === "facturacion" && <EInvoiceScreen catalog={catalog} role={role} />}
         {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
