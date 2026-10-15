@@ -32,7 +32,10 @@ const loggedIn = async (p) => { try { await p.waitForSelector("text=/Caja/", { t
     console.log(`[${remember ? "con" : "sin"} "mantener"] dentro:`, await loggedIn(p));
     if (!remember) {
       await p.waitForTimeout(500);
-      console.log("  guía aparece sola:", (await p.innerText("body")).includes("Cómo usar la caja"));
+      // La guía ya no aparece sola: solo al tocar «Ayuda».
+      console.log("  guía NO aparece sola:", !(await p.innerText("body")).includes("Cómo usar la caja"));
+      await p.click(".staff-help-btn"); await p.waitForTimeout(400);
+      console.log("  «Ayuda» abre la guía de la caja:", (await p.innerText("body")).includes("Cómo usar la caja"));
       await p.screenshot({ path: `${out}/guia-caja.png` });
       await p.click("text=Entendido");
     }
