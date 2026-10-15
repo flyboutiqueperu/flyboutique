@@ -4310,7 +4310,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["transfers", "purchases", "activity", "diagnostico", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -6347,6 +6347,82 @@ const DiagnosticScreen = () => {
   );
 };
 
+// Promociones en caja: reglas que se aplican solas al cobrar (las revisa el servidor con el SQL 27)
+const ProductPick = ({ products, value = [], onChange, label }) => {
+  const [q, setQ] = useState("");
+  const chosen = value.map((id) => products.find((p) => p.id === id)).filter(Boolean);
+  const opts = q.trim().length >= 2 ? products.filter((p) => !value.includes(p.id) && productMatches(p, q)).slice(0, 6) : [];
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <span style={labelStyle}>{label}</span>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+        {chosen.map((p) => <button type="button" key={p.id} onClick={() => onChange(value.filter((x) => x !== p.id))} style={{ padding: "6px 10px", borderRadius: 999, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{p.name} · {money(p.price)} ✕</button>)}
+      </div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Busca la prenda por nombre o código" style={inputStyle} />
+      {opts.map((p) => <button type="button" key={p.id} onClick={() => { onChange([...value, p.id]); setQ(""); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 6px", background: "none", border: "none", borderBottom: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>{p.name} <span style={{ color: C.stone }}>· {money(p.price)}</span></button>)}
+    </div>
+  );
+};
+const PosPromosScreen = ({ catalog, updateCatalog }) => {
+  const list = catalog.settings?.posPromos || [];
+  const [edit, setEdit] = useState(null);
+  const save = (pr) => { updateCatalog((c) => { const cur = c.settings?.posPromos || []; const next = cur.some((x) => x.id === pr.id) ? cur.map((x) => (x.id === pr.id ? pr : x)) : [...cur, pr]; return { ...c, settings: { ...c.settings, posPromos: next } }; }); setEdit(null); };
+  const remove = (id) => { if (confirm("¿Borrar esta promoción? Las ventas ya hechas no cambian.")) updateCatalog((c) => ({ ...c, settings: { ...c.settings, posPromos: (c.settings?.posPromos || []).filter((x) => x.id !== id) } })); };
+  const toggle = (pr) => save({ ...pr, active: pr.active === false });
+  const nameOf = (ids) => (ids || []).map((id) => catalog.products.find((p) => p.id === id)?.name).filter(Boolean).join(", ") || "—";
+  const missing = edit ? [!edit.name?.trim() && "escribe un nombre", !(edit.targetProductIds || []).length && "elige la prenda en promoción", !(Number(edit.price) >= 0 && edit.price !== "") && "escribe el precio de promoción", edit.kind === "monto" && !(Number(edit.minAmount) > 0) && "escribe el monto mínimo", edit.kind === "producto" && !(edit.triggerProductIds || []).length && "elige la prenda que activa la promo"] : [];
+  if (edit) return (
+    <div style={{ padding: "18px 18px 40px", maxWidth: 720, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 14px" }}>{list.some((x) => x.id === edit.id) ? "Editar promoción" : "Nueva promoción"}</h1>
+      <AdminCard>
+        <span style={labelStyle}>Nombre (lo ve la cajera)</span>
+        <input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Ej. Lleva un labial por S/ 5" style={{ ...inputStyle, marginBottom: 10 }} />
+        <span style={labelStyle}>¿Cuándo se activa?</span>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          <Chip active={edit.kind === "monto"} onClick={() => setEdit({ ...edit, kind: "monto" })}>Si la compra llega a un monto</Chip>
+          <Chip active={edit.kind === "producto"} onClick={() => setEdit({ ...edit, kind: "producto" })}>Si lleva cierta prenda</Chip>
+        </div>
+        {edit.kind === "monto" ? (
+          <><span style={labelStyle}>Monto mínimo de lo demás (S/)</span><input inputMode="decimal" value={edit.minAmount ?? ""} onChange={(e) => setEdit({ ...edit, minAmount: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="Ej. 150" style={{ ...inputStyle, marginBottom: 10, maxWidth: 160 }} /></>
+        ) : <ProductPick products={catalog.products} value={edit.triggerProductIds} onChange={(v) => setEdit({ ...edit, triggerProductIds: v })} label="Prenda que activa la promoción" />}
+        <ProductPick products={catalog.products} value={edit.targetProductIds} onChange={(v) => setEdit({ ...edit, targetProductIds: v })} label="Prenda en promoción (una unidad por venta)" />
+        <span style={labelStyle}>Precio de promoción (S/)</span>
+        <input inputMode="decimal" value={edit.price ?? ""} onChange={(e) => setEdit({ ...edit, price: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="Ej. 5" style={{ ...inputStyle, marginBottom: 10, maxWidth: 160 }} />
+        <Faltan center items={missing} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setEdit(null)} style={{ flex: 1, padding: 12, borderRadius: 9, border: `1px solid ${C.line}`, background: C.paper, fontFamily: FONT_BODY, cursor: "pointer" }}>Cancelar</button>
+          <button disabled={missing.some(Boolean)} onClick={() => save({ ...edit, name: edit.name.trim(), price: Number(edit.price), minAmount: Number(edit.minAmount) || 0, active: edit.active !== false })} style={{ flex: 2, padding: 12, borderRadius: 9, border: "none", background: missing.some(Boolean) ? C.line : C.ink, color: C.paper, fontFamily: FONT_BODY, fontWeight: 600, cursor: "pointer" }}>Guardar promoción</button>
+        </div>
+      </AdminCard>
+    </div>
+  );
+  return (
+    <div style={{ padding: "18px 18px 40px", maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: 0 }}>Promociones en caja</h1>
+        <button onClick={() => setEdit({ id: genId("promo"), name: "", kind: "monto", minAmount: "", price: "", triggerProductIds: [], targetProductIds: [], active: true })} style={{ display: "flex", alignItems: "center", gap: 6, background: C.ink, color: C.paper, border: "none", borderRadius: 8, padding: "9px 13px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Nueva</button>
+      </div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, lineHeight: 1.5, marginBottom: 14 }}>Se aplican solas al cobrar en caja: por ejemplo «si la compra llega a S/ 150, un labial por S/ 5» o «con un jean, un top por S/ 30». La cajera ve el aviso y, si falta la prenda, una sugerencia para ofrecerla. Necesita el SQL 27.</div>
+      {!list.length && <AdminCard><div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Aún no hay promociones.</div></AdminCard>}
+      {list.map((pr) => (
+        <AdminCard key={pr.id} style={{ marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.ink }}>{pr.name}</div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginTop: 3, lineHeight: 1.5 }}>{pr.kind === "monto" ? `Si lo demás suma ${money(pr.minAmount)} o más` : `Si lleva: ${nameOf(pr.triggerProductIds)}`} → {nameOf(pr.targetProductIds)} a {money(pr.price)}</div>
+            </div>
+            <Switch on={pr.active !== false} onClick={() => toggle(pr)} label={pr.active !== false ? "Activa" : "Pausada"} />
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={() => setEdit({ ...pr })} style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Editar</button>
+            <button onClick={() => remove(pr.id)} style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper, color: C.accent, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Borrar</button>
+          </div>
+        </AdminCard>
+      ))}
+    </div>
+  );
+};
+
 const PhotoBackupScreen = ({ catalog }) => {
   const [items, setItems] = useState(null);
   const [prog, setProg] = useState(null);
@@ -7122,7 +7198,7 @@ const ReceiptDocument = ({ sale, settings, format = "80", einv }) => {
       {(sale.items || []).map((it, i) => (
         <div key={i} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", columnGap: 6, marginTop: 3 }}>
           <span>{it.qty}</span>
-          <span>{it.name}<br /><span style={small}>{[it.size, it.colorName].filter(Boolean).join(" / ")} · P.U. {money2(it.unitPrice)}</span></span>
+          <span>{it.name}<br /><span style={small}>{[it.size, it.colorName].filter(Boolean).join(" / ")} · P.U. {money2(it.unitPrice)}</span>{Number(it.lineDiscount) > 0 && <><br /><span style={small}>Desc. -{money2(it.lineDiscount)}{it.discountReason ? ` (${it.discountReason})` : ""}</span></>}</span>
           <span style={{ textAlign: "right" }}>{money2(it.unitPrice * it.qty)}</span>
         </div>
       ))}
@@ -7130,6 +7206,7 @@ const ReceiptDocument = ({ sale, settings, format = "80", einv }) => {
       <R l={`Total de prendas`} v={units} />
       <R l="Subtotal" v={money2(subtotal)} />
       {Number(sale.discount) > 0 && <R l={`Descuentos${sale.promoCode ? ` (${sale.promoCode})` : ""}${sale.pointsDiscount ? " incl. puntos" : ""}`} v={`-${money2(sale.discount)}`} />}
+      {(sale.autoPromos || []).map((a) => <div key={a.id} style={small}>Promoción: {a.name} (-{money2(a.discount)})</div>)}
       {Number(sale.shipping) > 0 && <R l="Envío" v={money2(sale.shipping)} />}
       {withIgv ? (<><R l="Op. gravada" v={money2(gravada)} /><R l="IGV (18%)" v={money2(igv)} /></>) : <R l="Op. no gravada (Nuevo RUS)" v={money2(total)} />}
       <div style={{ fontSize: fmt.font + 2 }}><R l="IMPORTE TOTAL" v={money2(total)} b /></div>
@@ -7334,6 +7411,35 @@ const GENERIC_DOC = "00000000";
 // Tope del descuento manual para vendedoras (Panel → ajustes). Si no se configuró: 20%. Igual que en el servidor.
 const posDiscountCap = (settings) => { const v = settings?.posMaxDiscountPct; return v === undefined || v === null || v === "" || isNaN(Number(v)) ? 20 : Number(v); };
 
+// Promociones automáticas de caja (Más → Promociones en caja). Mismo cálculo que el servidor (SQL 27, auto_promo_discount).
+//   monto:    si lo demás de la venta suma al menos «minAmount», UNA prenda elegida se cobra a «price».
+//   producto: si la venta lleva una prenda «disparadora», UNA prenda elegida se cobra a «price».
+const posPromosOf = (settings) => (settings?.posPromos || []).filter((p) => p.active !== false);
+const autoPromoCalc = (settings, products, items) => {
+  const priceOf = (pid) => products.find((p) => p.id === pid)?.price;
+  const used = new Set(); const applied = []; const tips = [];
+  const sub = items.reduce((a, i) => a + i.unitPrice * i.qty, 0);
+  for (const pr of posPromosOf(settings)) {
+    const targets = pr.targetProductIds || []; const price = Math.max(0, Number(pr.price) || 0);
+    let best = 0, bestItem = null;
+    for (const it of items) {
+      if (!targets.includes(it.productId) || used.has(it.variantId)) continue;
+      const cat = Number(priceOf(it.productId)); if (!Number.isFinite(cat)) continue;
+      const ok = pr.kind === "monto" ? sub - cat + 0.001 >= (Number(pr.minAmount) || 0)
+        : items.some((y) => (pr.triggerProductIds || []).includes(y.productId) && (y.variantId !== it.variantId || y.qty > 1));
+      if (ok && cat - price > best) { best = cat - price; bestItem = it; }
+    }
+    const tName = targets.map((id) => products.find((p) => p.id === id)?.name).filter(Boolean).slice(0, 2).join(" o ");
+    if (bestItem) { used.add(bestItem.variantId); applied.push({ id: pr.id, name: pr.name || "Promoción", discount: round2(best), item: bestItem.name }); continue; }
+    if (!tName) continue;
+    if (pr.kind === "monto") {
+      const falta = (Number(pr.minAmount) || 0) - sub;
+      tips.push(falta > 0 ? `«${pr.name || "Promoción"}»: faltan ${money(falta)} para llevar ${tName} por ${money(price)}.` : `«${pr.name || "Promoción"}»: puede llevar ${tName} por solo ${money(price)}. Agrégala a la venta.`);
+    } else if (items.some((y) => (pr.triggerProductIds || []).includes(y.productId))) tips.push(`«${pr.name || "Promoción"}»: con esta compra puede llevar ${tName} por ${money(price)}. Agrégala a la venta.`);
+  }
+  return { applied, total: round2(applied.reduce((a, x) => a + x.discount, 0)), tips };
+};
+
 const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprobanteTipo, onSaveCustomer, onConfirm, onClose, busy, staffName, role, channel = "tienda" }) => {
   const [sellers, setSellers] = useState([]);
   const [seller, setSeller] = useState(staffName || "");
@@ -7368,7 +7474,14 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const regularSubtotal = saleItems.reduce((s, i) => s + (outletIds.has(i.productId) ? 0 : i.unitPrice * i.qty), 0);
   const hasOutletItems = regularSubtotal < subtotal;
   const promoDiscount = promo ? computeDiscount(promo, regularSubtotal) : 0;
-  const manualDiscount = discType === "percent" ? round2(subtotal * Math.min(100, Number(discValue) || 0) / 100) : discType === "monto" ? Math.min(Number(discValue) || 0, subtotal) : 0;
+  const totalDiscount0 = discType === "percent" ? round2(subtotal * Math.min(100, Number(discValue) || 0) / 100) : discType === "monto" ? Math.min(Number(discValue) || 0, subtotal) : 0;
+  // Descuento por prenda (ej. con falla), en S/ o %, con su motivo; cuenta como descuento manual (con el mismo tope)
+  const [lineDisc, setLineDisc] = useState({}); // variantId → { type: "monto"|"percent", value, reason }
+  const [lineEdit, setLineEdit] = useState(null);
+  const lineAmount = (it) => { const d = lineDisc[it.variantId]; if (!d) return 0; const base = it.unitPrice * it.qty; const v = Number(d.value) || 0; return round2(Math.min(base, d.type === "percent" ? base * Math.min(100, v) / 100 : v)); };
+  const itemsDiscount = round2(saleItems.reduce((a, it) => a + lineAmount(it), 0));
+  const manualDiscount = round2(totalDiscount0 + itemsDiscount);
+  const autoPromo = useMemo(() => autoPromoCalc(catalog.settings, catalog.products, saleItems), [catalog.settings, catalog.products, saleItems]);
   // Tope de descuento manual (Administración no tiene tope; el servidor también lo revisa)
   const isAdminRole = role === "superadmin" || role === "administrador";
   const discountCap = posDiscountCap(catalog.settings);
@@ -7381,7 +7494,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const pointsUsed = usePts ? ptsBlocks * loyalty.blockPoints : 0;
   const pointsDiscount = usePts ? ptsBlocks * loyalty.blockValue : 0;
   useEffect(() => { setUsePts(false); }, [matched?.phone, anon]);
-  const total = round2(Math.max(0, subtotal - promoDiscount - manualDiscount - pointsDiscount));
+  const total = round2(Math.max(0, subtotal - promoDiscount - autoPromo.total - manualDiscount - pointsDiscount));
   const paid = round2(payments.reduce((a, p) => a + (Number(p.amount) || 0), 0));
   const pending = round2(total - paid);
   const cash = payments.find((p) => p.method === "Efectivo");
@@ -7470,9 +7583,10 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
       payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount), ...(p.method === "Vale" ? { code: p.code } : {}) })),
       paymentMethod: payments.length > 1 ? "Mixto" : payments[0].method,
       amountReceived: cash && received ? Number(received) : null, vuelto: change && change > 0 ? change : 0,
-      promoCode: promo?.code || null, discount: round2(promoDiscount + manualDiscount + pointsDiscount), subtotal, total,
-      pointsUsed, pointsDiscount,
-      manualDiscountLabel: manualDiscount > 0 ? (discType === "percent" ? `${discValue}%` : money(Number(discValue))) : null,
+      promoCode: promo?.code || null, discount: round2(promoDiscount + autoPromo.total + manualDiscount + pointsDiscount), subtotal, total,
+      pointsUsed, pointsDiscount, autoPromoDiscount: autoPromo.total, autoPromos: autoPromo.applied,
+      manualDiscountLabel: totalDiscount0 > 0 ? (discType === "percent" ? `${discValue}%` : money(Number(discValue))) : null,
+      items: saleItems.map((it) => { const a = lineAmount(it); return a > 0 ? { ...it, lineDiscount: a, discountReason: lineDisc[it.variantId]?.reason || "" } : it; }),
       notaInterna: notaInterna.trim(), notaExterna: notaExterna.trim(), anonymous: anon,
       ...(useCodes ? { sellerCode: codeMatch.code, staffName: codeMatch.name } : { staffName: seller || staffName }),
     });
@@ -7543,7 +7657,29 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             </select>
             {discType !== "none" && <input inputMode="decimal" value={discValue} onChange={(e) => setDiscValue(e.target.value.replace(/[^0-9.]/g, ""))} placeholder={discType === "percent" ? "Ej. 10" : "Ej. 15.50"} style={{ ...inputStyle, flex: 1 }} />}
           </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+          {autoPromo.applied.map((a) => <div key={a.id} className="promo-applied" style={{ display: "flex", justifyContent: "space-between", gap: 8, background: C.ink, color: C.paper, borderRadius: 10, padding: "9px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12.5 }}><span>🎉 {a.name} · {a.item}</span><strong>-{money(a.discount)}</strong></div>)}
+          {autoPromo.tips.map((tip, i) => <div key={i} className="promo-tip" style={{ border: `1px dashed ${C.ink}`, borderRadius: 10, padding: "9px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12, color: C.ink, lineHeight: 1.45 }}>{tip}</div>)}
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "6px 0 6px" }}>Descuento por prenda (ej. tiene una falla):</div>
+          {saleItems.map((it) => { const a = lineAmount(it); const d = lineDisc[it.variantId]; const editing = lineEdit === it.variantId;
+            return (
+              <div key={it.variantId} style={{ border: `1px solid ${a > 0 ? C.ink : C.line}`, borderRadius: 10, padding: "8px 10px", marginBottom: 6, fontFamily: FONT_BODY, fontSize: 12.5 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>{it.name} <span style={{ color: C.stone }}>· {it.size} {it.colorName}{it.qty > 1 ? ` · x${it.qty}` : ""}</span>{a > 0 && <span style={{ display: "block", color: C.ink }}>-{money(a)}{d?.reason ? ` · ${d.reason}` : ""}</span>}</span>
+                  <button type="button" className="line-disc-btn" onClick={() => setLineEdit(editing ? null : it.variantId)} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.ink}`, background: a > 0 ? C.ink : C.paper, color: a > 0 ? C.paper : C.ink, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>{a > 0 ? "Cambiar" : "Descontar"}</button>
+                </div>
+                {editing && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                    <select aria-label="Tipo de descuento" value={d?.type || "monto"} onChange={(e) => setLineDisc((x) => ({ ...x, [it.variantId]: { ...(x[it.variantId] || {}), type: e.target.value } }))} style={{ ...inputStyle, width: "auto", padding: "8px" }}><option value="monto">S/</option><option value="percent">%</option></select>
+                    <input aria-label="Valor del descuento" inputMode="decimal" value={d?.value || ""} onChange={(e) => setLineDisc((x) => ({ ...x, [it.variantId]: { type: "monto", ...(x[it.variantId] || {}), value: e.target.value.replace(/[^0-9.]/g, "") } }))} placeholder={(d?.type || "monto") === "percent" ? "Ej. 20" : "Ej. 10"} style={{ ...inputStyle, width: 90, padding: "8px" }} />
+                    <select aria-label="Motivo" value={d?.reason || ""} onChange={(e) => setLineDisc((x) => ({ ...x, [it.variantId]: { type: "monto", ...(x[it.variantId] || {}), reason: e.target.value } }))} style={{ ...inputStyle, flex: 1, minWidth: 130, padding: "8px" }}>
+                      <option value="">Motivo…</option><option>Prenda con falla</option><option>Última unidad</option><option>Exhibición</option><option>Cliente frecuente</option><option>Otro</option>
+                    </select>
+                    {a > 0 && <button type="button" onClick={() => { setLineDisc((x) => { const n = { ...x }; delete n[it.variantId]; return n; }); setLineEdit(null); }} style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper, fontSize: 12, cursor: "pointer" }}>Quitar</button>}
+                  </div>
+                )}
+              </div>
+            ); })}
+          <div style={{ display: "flex", gap: 8, marginBottom: 4, marginTop: 8 }}>
             <input value={promoInput} disabled={!!promo} onChange={(e) => setPromoInput(e.target.value)} placeholder="Código promocional" style={inputStyle} />
             <button onClick={promo ? () => { setPromo(null); setPromoInput(""); setPromoMsg(""); } : applyPromo} style={{ padding: "0 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>{promo ? "Quitar" : "Aplicar"}</button>
           </div>
@@ -7577,7 +7713,9 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 8, paddingTop: 8 }}>
               <Row label="Subtotal" value={money(subtotal)} />
               {promoDiscount > 0 && <Row label={`Código ${promo.code}`} value={`-${money(promoDiscount)}`} />}
-              {manualDiscount > 0 && <Row label="Descuento manual" value={`-${money(manualDiscount)}`} />}
+              {autoPromo.total > 0 && <Row label="Promoción" value={`-${money(autoPromo.total)}`} />}
+              {itemsDiscount > 0 && <Row label="Descuento por prenda" value={`-${money(itemsDiscount)}`} />}
+              {totalDiscount0 > 0 && <Row label="Descuento manual" value={`-${money(totalDiscount0)}`} />}
               {pointsDiscount > 0 && <Row label={`Puntos Fly (${pointsUsed} pts)`} value={`-${money(pointsDiscount)}`} />}
               <Row label="Total a cobrar" value={money(total)} bold />
             </div>
@@ -8667,6 +8805,7 @@ const MORE_ITEMS = [
   { id: "stock", g: "inventario", t: "Stock", d: "Ver cuánto hay por sede, corregir y ver el historial de cada prenda.", icon: Package, k: "inventario cantidad ajuste merma historial" },
   { id: "transfers", g: "inventario", t: "Traslados entre sedes", d: "Enviar y recibir prendas entre Larco y el Almacén con guía.", icon: ArrowLeftRight, k: "guia traspaso almacen larco enviar recibir" },
   { id: "customers", g: "clientes", t: "Fly Lovers (Club Fly)", d: "Datos, puntos y permiso de publicidad de cada cliente.", icon: Users, k: "club puntos cliente publicidad whatsapp" },
+  { id: "cajapromos", g: "clientes", t: "Promociones en caja", d: "Se aplican solas al cobrar: «si llega a S/ 150, un labial por S/ 5», combos.", icon: Gift, k: "promocion oferta combo descuento caja regalo" },
   { id: "promocodes", g: "clientes", t: "Códigos promocionales", d: "Crear cupones de descuento para la web y la caja.", icon: BadgePercent, k: "cupon descuento promocion codigo", only: "superadmin" },
   { id: "complaints", g: "clientes", t: "Libro de Reclamaciones", d: "Ver y responder reclamos y quejas (plazo legal 15 días hábiles).", icon: BookOpenCheck, k: "reclamo queja indecopi" },
   { id: "banners", g: "tienda", t: "Banners", d: "Las imágenes o videos grandes que rotan en la portada de la tienda.", icon: Images, k: "portada imagen video inicio" },
@@ -9764,7 +9903,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], activity: STAFF_ADMIN, diagnostico: STAFF_ADMIN, facturacion: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], activity: STAFF_ADMIN, diagnostico: STAFF_ADMIN, cajapromos: STAFF_ADMIN, facturacion: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -9994,6 +10133,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canOpenScreen(role, "fotoscopia") && screen === "fotoscopia" && <PhotoBackupScreen catalog={catalog} />}
         {canOpenScreen(role, "activity") && screen === "activity" && <ActivityScreen />}
         {canOpenScreen(role, "diagnostico") && screen === "diagnostico" && <DiagnosticScreen />}
+        {canOpenScreen(role, "cajapromos") && screen === "cajapromos" && <PosPromosScreen catalog={catalog} updateCatalog={updateCatalog} />}
         {canOpenScreen(role, "facturacion") && screen === "facturacion" && <EInvoiceScreen catalog={catalog} role={role} />}
         {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
