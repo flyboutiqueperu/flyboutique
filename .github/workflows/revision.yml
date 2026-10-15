@@ -51,7 +51,7 @@ jobs:
         run: |
           mkdir -p /tmp/capturas
           fallas=""
-          for t in apps instalar cookies banner-en faltan cierre captcha actividad prendas importar promos; do
+          for t in apps instalar cookies banner-en faltan cierre captcha actividad prendas importar promos tablero; do
             echo "::group::$t"
             if ! node "pruebas/ui/$t.cjs" /tmp/capturas; then fallas="$fallas $t"; fi
             echo "::endgroup::"

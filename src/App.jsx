@@ -4310,23 +4310,155 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
+  // En PC ancha se listan también las opciones de «Más» que este rol puede abrir (sin repetir las de arriba)
+  const topIds = new Set(items.map((x) => x[0]));
+  const side = STAFF_ADMIN.includes(role) ? MORE_ITEMS.filter((it) => !topIds.has(it.id) && (it.id === "backup" ? role === "superadmin" : canOpenScreen(role, it.id)) && (!it.only || it.only === role)) : [];
+  const sideIds = new Set(side.map((it) => it.id));
   const moreScreens = ["transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
+      <div className="side-brand">FLY<span>Panel del staff</span></div>
       {items.map(([key, label, Icon]) => {
-        const active = screen === key || (key === "products" && screen === "productEditor") || (key === "more" && moreScreens.includes(screen));
+        const active = screen === key || (key === "products" && screen === "productEditor") || (key === "more" && moreScreens.includes(screen) && !sideIds.has(screen));
         return (
-          <button key={key} className={`nav-item${active ? " is-active" : ""}`} onClick={() => setScreen(key)} title={NAV_HINTS[key] || label} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
+          <button key={key} className={`nav-item${active ? " is-active" : ""}${key === "more" && side.length ? " side-hide" : ""}`} onClick={() => setScreen(key)} title={NAV_HINTS[key] || label} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
             <Icon size={19} strokeWidth={active ? 2.1 : 1.5} color={active ? C.ink : C.stone} />
             <span className="nav-label" style={{ fontFamily: FONT_BODY, fontSize: 9.5, color: active ? C.ink : C.stone, fontWeight: active ? 600 : 400 }}>{label}</span>
           </button>
         );
       })}
+      {/* Solo en PC ancha: el resto de opciones de «Más», por tema, siempre a la vista (como el menú de TumiSoft) */}
+      {side.length > 0 && (
+        <div className="side-more">
+          {MORE_GROUPS.map(([g, gl]) => {
+            const list = side.filter((it) => it.g === g);
+            if (!list.length) return null;
+            return (
+              <div key={g} className="side-group">
+                <div className="side-group-title">{gl}</div>
+                {list.map((it) => { const Icon = it.icon; const on = screen === it.id || (it.id === "banners" && screen === "bannerEditor") || (it.id === "collections" && screen === "collectionEditor");
+                  return <button key={it.id} className={`side-link${on ? " is-active" : ""}`} title={it.d} onClick={() => (it.id === "backup" ? downloadBackup() : setScreen(it.id))}><Icon size={15} strokeWidth={on ? 2.1 : 1.6} />{it.t}</button>; })}
+              </div>
+            );
+          })}
+          <button className="side-link" onClick={() => setScreen("more")}><Menu size={15} strokeWidth={1.6} />Buscar en «Más»</button>
+        </div>
+      )}
     </div>
   );
 };
 
 const quickLinkStyle = { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink };
+
+// ---- Tablero de ventas (como el de TumiSoft): por hora, por día, formas de pago y promedios. Todo sale de las ventas reales ----
+// Barras de un solo color (negro), sin colores inventados; al tocar o pasar el mouse por una barra se lee su detalle arriba.
+const BoardBars = ({ data, height = 130, label }) => {
+  const max = Math.max(...data.map((d) => d.value), 0);
+  const peak = data.reduce((b, d, i) => (d.value > (data[b]?.value ?? -1) ? i : b), 0);
+  const [sel, setSel] = useState(null);
+  const cur = data[sel ?? peak];
+  if (!max) return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, padding: "18px 0" }}>Sin ventas en este periodo.</div>;
+  return (
+    <div>
+      <div aria-live="polite" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, minHeight: 18, marginBottom: 8 }}>
+        <strong>{cur.full || cur.label}</strong> · {money(cur.value)}{cur.sub ? <span style={{ color: C.stone }}> · {cur.sub}</span> : null}{sel === null && <span style={{ color: C.stone }}> (lo más alto)</span>}
+      </div>
+      <div role="img" aria-label={label} style={{ display: "flex", alignItems: "flex-end", gap: 2, height, borderBottom: `1px solid ${C.line}` }} onMouseLeave={() => setSel(null)}>
+        {data.map((d, i) => (
+          <button key={i} className="board-bar" onMouseEnter={() => setSel(i)} onFocus={() => setSel(i)} onClick={() => setSel(i)} title={`${d.full || d.label}: ${money(d.value)}${d.sub ? ` · ${d.sub}` : ""}`}
+            style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "flex-end", background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+            <span style={{ display: "block", width: "100%", height: d.value ? `${Math.max(3, (d.value / max) * 100)}%` : 0, background: C.ink, opacity: (sel ?? peak) === i ? 1 : 0.55, borderRadius: "4px 4px 0 0", transition: "opacity .15s" }} />
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 2, marginTop: 4 }}>
+        {data.map((d, i) => <span key={i} style={{ flex: 1, minWidth: 0, textAlign: "center", fontFamily: FONT_BODY, fontSize: 9.5, color: C.stone, overflow: "hidden", whiteSpace: "nowrap" }}>{d.tick ?? ""}</span>)}
+      </div>
+    </div>
+  );
+};
+// Lista con barras horizontales (formas de pago, vendedoras, prendas): nombre, barra proporcional, monto y porcentaje
+const BoardRank = ({ rows, total, empty = "Sin datos en este periodo." }) => {
+  if (!rows.length) return <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{empty}</div>;
+  const max = Math.max(...rows.map((r) => r.value), 0) || 1;
+  return rows.map((r) => (
+    <div key={r.name} style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 4 }}>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}{r.sub && <span style={{ color: C.stone }}> · {r.sub}</span>}</span>
+        <span style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}><strong>{r.money === false ? r.value : money(r.value)}</strong>{total > 0 && <span style={{ color: C.stone }}> · {Math.round((r.value / total) * 100)}%</span>}</span>
+      </div>
+      <div style={{ height: 8, background: C.paperDeep, borderRadius: 4 }}><div style={{ height: "100%", width: `${(r.value / max) * 100}%`, background: C.ink, borderRadius: 4 }} /></div>
+    </div>
+  ));
+};
+const SalesBoard = ({ catalog }) => {
+  const [f, setF] = useState(() => ({ ...defaultSalesFilter(), period: "hoy" }));
+  const stores = storesOf(catalog.settings);
+  const sellers = [...new Set((catalog.sales || []).map((s) => s.staffName || "Sin asignar"))].sort();
+  const list = filterSales(catalog.sales || [], { ...f, estado: "emitido" });
+  const valid = list.map(netSale);
+  const voided = filterSales(catalog.sales || [], { ...f, estado: "anulado" }).length;
+  const total = valid.reduce((a, s) => a + (s.total || 0), 0);
+  const units = valid.reduce((a, s) => a + (s.items || []).reduce((x, i) => x + (i.qty || 0), 0), 0);
+  const discount = valid.reduce((a, s) => a + (Number(s.discount) || 0), 0);
+  const refunded = valid.reduce((a, s) => a + (Number(s.refundedTotal) || 0), 0);
+  const facturas = valid.filter((s) => s.tipo === "factura").length;
+  const [ra, rb] = periodRange(f);
+  const days = Math.max(1, Math.round((Math.min(rb.getTime(), Date.now()) - ra.getTime()) / 86400000));
+  // Por hora del día (solo el tramo con ventas, mínimo de 9 a 21)
+  const hours = Array.from({ length: 24 }, () => ({ v: 0, n: 0 }));
+  valid.forEach((s) => { const h = new Date(s.createdAt).getHours(); hours[h].v += s.total || 0; hours[h].n++; });
+  const withSales = hours.map((h, i) => (h.n ? i : null)).filter((x) => x !== null);
+  const h0 = Math.min(9, ...withSales), h1 = Math.max(21, ...withSales);
+  const hourData = []; for (let h = h0; h <= h1; h++) hourData.push({ label: `${h}:00`, full: `${h}:00 – ${h + 1}:00`, value: hours[h].v, sub: `${hours[h].n} ${hours[h].n === 1 ? "venta" : "ventas"}`, tick: h % 3 === 0 ? `${h}h` : "" });
+  // Por día (si el periodo tiene más de un día; hasta 62 días)
+  let dayData = null;
+  if (days > 1 && days <= 62) {
+    const map = new Map();
+    for (let t = new Date(ra); t < rb && t.getTime() <= Date.now(); t.setDate(t.getDate() + 1)) map.set(ymd(t), { d: new Date(t), v: 0, n: 0 });
+    valid.forEach((s) => { const k = ymd(s.createdAt); const x = map.get(k); if (x) { x.v += s.total || 0; x.n++; } });
+    const arr = [...map.values()];
+    dayData = arr.map((x, i) => ({ label: x.d.toLocaleDateString("es-PE", { day: "numeric", month: "short" }), full: x.d.toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long" }), value: x.v, sub: `${x.n} ${x.n === 1 ? "venta" : "ventas"}`, tick: arr.length <= 8 || i % Math.ceil(arr.length / 7) === 0 ? String(x.d.getDate()) : "" }));
+  }
+  // Por día de la semana (promedio), útil para saber qué día reforzar personal
+  const WD = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+  const wd = WD.map(() => 0); valid.forEach((s) => { wd[new Date(s.createdAt).getDay()] += s.total || 0; });
+  const pays = {}; valid.forEach((s) => (s.payments && s.payments.length ? s.payments : [{ method: s.paymentMethod || "—", amount: s.total }]).forEach((p) => { pays[p.method] = (pays[p.method] || 0) + Number(p.amount || 0); }));
+  const payRows = Object.entries(pays).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+  const payTotal = payRows.reduce((a, r) => a + r.value, 0);
+  const bySeller = {}; valid.forEach((s) => { const k = s.staffName || "Sin asignar"; bySeller[k] = bySeller[k] || { v: 0, n: 0 }; bySeller[k].v += s.total || 0; bySeller[k].n++; });
+  const sellerRows = Object.entries(bySeller).sort((a, b) => b[1].v - a[1].v).slice(0, 6).map(([name, x]) => ({ name, value: x.v, sub: `${x.n} ${x.n === 1 ? "venta" : "ventas"}` }));
+  const byProd = {}; valid.forEach((s) => (s.items || []).forEach((i) => { const k = i.name || "—"; byProd[k] = (byProd[k] || 0) + (i.qty || 0); }));
+  const prodRows = Object.entries(byProd).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, value]) => ({ name, value, money: false }));
+  const kpi = (label, value, sub) => (
+    <div style={{ background: C.paperDeep, borderRadius: 12, padding: "12px 14px", minWidth: 0 }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: C.stone }}>{label}</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {sub && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+  return (
+    <div className="sales-board" style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+      <span style={labelStyle}>Tablero de ventas</span>
+      <SalesFilterBar f={f} setF={setF} stores={stores} sellers={sellers} />
+      <div className="board-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8, marginBottom: 16 }}>
+        {kpi("Vendido", money(total), `${valid.length} ${valid.length === 1 ? "venta" : "ventas"}${voided ? ` · ${voided} anuladas` : ""}`)}
+        {kpi("Ticket promedio", money(valid.length ? total / valid.length : 0), "Por venta")}
+        {kpi("Prendas por venta", valid.length ? (units / valid.length).toFixed(1) : "0", `${units} prendas en total`)}
+        {kpi(days > 1 ? "Promedio por día" : "Descuentos", days > 1 ? money(total / days) : money(discount), days > 1 ? `${days} días · desc. ${money(discount)}` : refunded ? `Devuelto ${money(refunded)}` : "Promociones y rebajas")}
+        {kpi("Comprobantes", `${valid.length - facturas} / ${facturas}`, "Boletas / facturas")}
+      </div>
+      <div className="board-grid">
+        <div className="board-box"><div className="board-title">Ventas por hora</div><BoardBars data={hourData} label="Ventas por hora del día" /></div>
+        {dayData && <div className="board-box"><div className="board-title">Ventas por día</div><BoardBars data={dayData} label="Ventas por día" /></div>}
+        {days >= 7 && <div className="board-box"><div className="board-title">Por día de la semana</div><BoardBars data={WD.map((d, i) => ({ label: d, value: wd[i], tick: d }))} label="Ventas por día de la semana" height={100} /></div>}
+        <div className="board-box"><div className="board-title">Formas de pago</div><BoardRank rows={payRows} total={payTotal} /></div>
+        <div className="board-box"><div className="board-title">Por vendedora</div><BoardRank rows={sellerRows} total={total} /></div>
+        <div className="board-box"><div className="board-title">Prendas más vendidas (unidades)</div><BoardRank rows={prodRows} total={0} /></div>
+      </div>
+    </div>
+  );
+};
 
 // ---- Resumen del negocio (inicio del panel): todo sale de los registros reales ----
 const ACTION_LABELS = { compra_registrada: "Compra registrada", compra_anulada: "Compra anulada", venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
@@ -4412,6 +4544,7 @@ const BusinessSummary = ({ catalog, go }) => {
         {periods.map(([label, cur, prev, vsText]) => { const p = pct(tot(cur), tot(prev)); return tile(label, money(tot(cur)), `${cur.length} ventas${p !== null ? ` · ${p >= 0 ? "+" : ""}${p}% ${vsText}` : ""}`, () => go("reports")); })}
         {tile("Mes: tienda / web", <>{money(tot(shop))}<br />{money(tot(web))}</>, `${shop.length} en tienda · ${web.length} por la web`, () => go("reports"), false, true)}
       </div>
+      <SalesBoard catalog={catalog} />
       {extra.cash && (
         <AdminCard style={{ marginBottom: 14 }}>
           <span style={labelStyle}>Diferencias de caja (últimos cierres)</span>
@@ -4517,7 +4650,7 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
       <BusinessSummary catalog={catalog} go={setAdminScreen} />
       <FoldCard title="Yape, Plin y transferencia bancaria">
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6, marginBottom: 12 }}>
-          Esto se muestra a el cliente cuando elige pagar por Yape, Plin o transferencia, para que sepa a dónde enviar el dinero.
+          Esto se muestra al cliente cuando elige pagar por Yape, Plin o transferencia, para que sepa a dónde enviar el dinero.
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
           <input value={payAccounts.yapeNumber} onChange={(e) => setPayAccounts((f) => ({ ...f, yapeNumber: e.target.value }))} placeholder="Número Yape" style={inputStyle} />
@@ -4565,7 +4698,7 @@ const AdminDashboard = ({ catalog, updateCatalog, setAdminScreen, role }) => {
           }} />
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 4 }}>{catalog.products.filter(isOutlet).length} prendas marcadas como Outlet. Se marcan una por una en Productos → editar → «Outlet».</div>
         </div>
-        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6 }}>Ideal para liquidar a precio de costo sin mezclarlo con la colección: precio final, sin cupones ni puntos, envío a cargo de el cliente y sin cambios (salvo falla de fábrica).</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6 }}>Ideal para liquidar a precio de costo sin mezclarlo con la colección: precio final, sin cupones ni puntos, envío a cargo del cliente y sin cambios (salvo falla de fábrica).</div>
       </FoldCard>
       <FoldCard title="Programa de puntos (Club Fly)">
         <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
@@ -9703,7 +9836,7 @@ const STAFF_GUIDES = {
     ["Layers", "Agrega tallas (botones XS a XXL) y colores: cada combinación tiene su propio stock y su propio código de barras. El sistema no deja repetir códigos."],
     ["ImageIcon", "Sube fotos verticales (ideal 1080×1440) y asigna cada foto a su color. Puedes subir un video."],
     ["Eye", "Usa «Activo / Borrador» y «Mostrar en la web» para publicar u ocultar sin borrar."],
-    ["Gift", "Para liquidar: en la lista toca «Pasar al Outlet» y escribe el precio final (luego puedes cambiarlo o «Sacar del Outlet»). También desde editar → «Outlet». Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo de el cliente, sin cambios)."],
+    ["Gift", "Para liquidar: en la lista toca «Pasar al Outlet» y escribe el precio final (luego puedes cambiarlo o «Sacar del Outlet»). También desde editar → «Outlet». Sale del catálogo y aparece solo en la sección Outlet (sin cupones ni puntos, envío a cargo del cliente, sin cambios)."],
   ] },
   productEditor: { title: "Editar un producto", steps: [
     ["Pencil", "Cambia lo que necesites y toca «Guardar». El stock real no se pisa: las ventas hechas mientras editas se respetan."],
@@ -9823,7 +9956,7 @@ const MANUAL_SECTIONS = [
     { title: "8. Cerrar la caja (al final del día)", img: "/guia/cierre.png", steps: ["Caja → «Cerrar caja» → toca quién cierra.", "Cuenta todo el efectivo (incluido el fondo) y escríbelo.", "Si sobra o falta, escribe el motivo.", "«Cerrar caja» → imprime el informe y guárdalo con el dinero.", "Cierra la sesión."] },
   ] },
   { id: "online", roles: ["vendedora_online", "administrador", "superadmin"], icon: "Smartphone", title: "Vendedora online", items: [
-    { title: "Venta por WhatsApp o redes", steps: ["Venta Online → agrega las prendas.", "Datos de el cliente y forma de pago.", "Registrar: el stock se descuenta al instante.", "Pedidos Web: sigue el estado hasta entregado."] },
+    { title: "Venta por WhatsApp o redes", steps: ["Venta Online → agrega las prendas.", "Datos del cliente y forma de pago.", "Registrar: el stock se descuenta al instante.", "Pedidos Web: sigue el estado hasta entregado."] },
   ] },
   { id: "almacen", roles: ["almacen", "administrador", "superadmin"], icon: "Package", title: "Almacén", items: [
     { title: "Stock", steps: ["Stock → busca la prenda.", "Para un ingreso de mercadería, merma o corrección: cambia la cantidad y escribe el motivo.", "Queda registrado quién lo hizo y cuándo."] },
@@ -10112,7 +10245,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const deleteCollection = (id) => { if (confirm("¿Eliminar esta colección?")) updateCatalog((c) => ({ ...c, collections: c.collections.filter((col) => col.id !== id) })); };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", background: C.paper, minHeight: 0 }}>
+    <div className="staff-shell" style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", background: C.paper, minHeight: 0 }}>
       <div className="app-content staff-main" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
         {screen !== "productEditor" && screen !== "bannerEditor" && screen !== "collectionEditor" && <AdminTopBar title={`Fly · ${ROLE_LABELS[role] || role}`} onExit={onExit} onBack={screen !== homeScreen ? () => window.history.back() : null} onHome={screen !== homeScreen ? () => setScreen(homeScreen) : null} />}
         {screen === "productEditor" && <AdminTopBar title={editingProductId ? "Editar producto" : "Nuevo producto"} onBack={() => setScreen("products")} onExit={onExit} />}
@@ -11044,9 +11177,41 @@ export default function FlyBoutiqueApp() {
           .install-card { display: none !important; }
           .page-narrow { max-width: 760px; margin: 0 auto; }
         }
+        /* Tablero de ventas */
+        .board-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+        .board-box { border: 1px solid ${C.line}; border-radius: 12px; padding: 12px 14px; min-width: 0; }
+        .board-title { font-family: ${FONT_BODY}; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: ${C.stone}; margin-bottom: 8px; }
+        .board-bar:focus-visible { outline: 2px solid ${C.ink}; outline-offset: 1px; }
+        @media (min-width: 900px) { .board-grid { grid-template-columns: 1fr 1fr; } }
+        /* Menú lateral del staff: solo en PC ancha */
+        .side-brand, .side-more { display: none; }
+        @media (min-width: 1100px) {
+          .app-frame.is-staff { max-width: none !important; }
+          .staff-shell { flex-direction: row !important; align-items: flex-start; }
+          .staff-shell > .staff-main { flex: 1 1 auto; min-width: 0; }
+          .staff-nav {
+            order: -1; position: sticky !important; top: 0 !important; align-self: flex-start;
+            width: 236px !important; flex: 0 0 236px; height: 100vh; height: 100dvh; overflow-y: auto;
+            flex-direction: column !important; justify-content: flex-start !important; gap: 2px !important;
+            padding: 18px 12px 24px !important; border-bottom: none !important; border-right: 1px solid ${C.line} !important;
+            box-shadow: none !important; clip-path: none !important; background: ${C.paper} !important;
+          }
+          .staff-nav .nav-item { width: 100%; justify-content: flex-start !important; border-radius: 10px !important; padding: 9px 12px !important; }
+          .staff-nav .nav-item.side-hide { display: none !important; }
+          .side-brand { display: block; font-family: ${FONT_DISPLAY}; font-size: 26px; font-weight: 900; color: ${C.ink}; letter-spacing: .04em; padding: 0 12px 14px; }
+          .side-brand span { display: block; font-family: ${FONT_BODY}; font-size: 11px; font-weight: 400; letter-spacing: 0; color: ${C.stone}; }
+          .side-more { display: block; margin-top: 10px; border-top: 1px solid ${C.line}; padding-top: 6px; }
+          .side-group-title { font-family: ${FONT_BODY}; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: ${C.stone}; padding: 12px 12px 4px; }
+          .side-link { display: flex; align-items: center; gap: 9px; width: 100%; background: none; border: none; cursor: pointer; text-align: left; font-family: ${FONT_BODY}; font-size: 12.5px; color: ${C.inkSoft}; padding: 6px 12px; border-radius: 9px; }
+          .side-link:hover, .side-link.is-active { background: ${C.paperDeep}; color: ${C.ink}; }
+          .side-link.is-active { font-weight: 600; }
+          .admin-topbar { margin: 16px 24px 0 !important; }
+          .staff-main > div:not(.admin-topbar):not(.overlay-sheet):not([style*="position: fixed"]) { max-width: 1180px; }
+          .pos-right { top: 16px !important; max-height: calc(100vh - 32px) !important; }
+        }
       `}</style>
 
-      <div className={`app-frame${mode === "store" && selectedProduct ? " pdp-open" : ""}`} style={frameStyle}>
+      <div className={`app-frame${mode === "store" && selectedProduct ? " pdp-open" : ""}${mode === "staff" ? " is-staff" : ""}`} style={frameStyle}>
         {!catalog ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, background: C.paper }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 52, fontWeight: 900, color: C.ink, letterSpacing: "0.04em" }}>FLY</div>
