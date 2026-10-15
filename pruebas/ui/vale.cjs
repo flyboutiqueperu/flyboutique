@@ -33,7 +33,7 @@ let cash = { id: 's1', store_id: 'principal', status: 'abierta', opened_by_name:
   await p.fill('input[placeholder="Usuario"]', "caja"); await p.fill('input[placeholder="Contraseña"]', "clave1234");
   await p.click("text=Entrar");
   await p.waitForSelector("text=Caja abierta", { timeout: 15000 }); await p.waitForTimeout(400);
-  console.log("1) botón Vales en caja:", (await p.innerText("body")).includes("Ver saldo de un vale"));
+  console.log("1) botón Vales en caja:", (await p.innerText("body")).includes("Ver el saldo de un vale"));
   await p.click("text=Vender"); await p.waitForSelector("text=Blusa Seda"); await p.waitForTimeout(400);
   await p.fill('input[placeholder="Lector de códigos o buscar producto"]', "B-M"); await p.keyboard.press("Enter"); await p.waitForTimeout(300);
   const addBtn = await p.$("text=Agregar"); if (addBtn) await addBtn.click(); await p.waitForTimeout(300);

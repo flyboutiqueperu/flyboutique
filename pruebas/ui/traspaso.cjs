@@ -8,7 +8,7 @@ const exp = Math.floor(Date.now() / 1000) + 3600;
 const role = process.argv[3] || "administrador";
 const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: "u1", aal: "aal2", role: "authenticated", exp, email: "ana@staff.flyboutique.pe", amr: [{ method: "totp", timestamp: 1 }] })}.sig`;
 const user = { id: "u1", email: "ana@staff.flyboutique.pe", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, factors: [{ id: "f1", factor_type: "totp", status: "verified" }] };
-const mk = (id, name, price, sizes) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, images: [], variants: sizes.map((s, i) => ({ id: id + s, size: s, colorName: "Negro", colorHex: "#111", stock: 3 + i, sku: (id + "-" + s).toUpperCase(), ...(i === 0 ? { stockBy: { principal: 1, casa: 2 } } : {}) })) });
+const mk = (id, name, price, sizes) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, images: [], variants: sizes.map((s, i) => ({ id: id + s, size: s, colorName: "Negro", colorHex: "#111", stock: 3 + i, sku: (id + "-" + s).toUpperCase(), ...(i === 0 ? { stockBy: { principal: 1, almacen: 2 } } : {}) })) });
 const catalog = { products: [mk("p1", "Blusa Seda Marfil", 129, ["XS", "S", "M", "L"]), mk("p2", "Pantalón Sastre", 189, ["S", "M"]), mk("p3", "Vestido Midi", 219, ["M"]), mk("p4", "Top Lino", 79, ["S"])], collections: [], banners: [], settings: { cartHoldMinutes: 20 }, promoCodes: [] };
 const calls = [], saves = [];
 const hist = [
@@ -33,7 +33,7 @@ const hist = [
     if (u.includes("stock_movements")) return rt.fulfill({ json: hist });
     if (u.includes("/rpc/transfer_stock")) { const bd = rt.request().postDataJSON(); calls.push(bd); return rt.fulfill({ json: { principal: 1, casa: 2 } }); }
     if (u.includes("/rpc/save_catalog")) { saves.push(rt.request().postDataJSON()); return rt.fulfill({ status: 204, body: "" }); }
-    if (u.includes("/rpc/move_stock")) { const bd = rt.request().postDataJSON(); return bd.p_type === "ajuste" ? rt.fulfill({ status: 400, json: { code: "P0001", message: "STOCK_CAMBIO:4" } }) : rt.fulfill({ json: 9 }); }
+    if (u.includes("/rpc/move_stock")) { const bd = rt.request().postDataJSON(); calls.push(bd); return bd.p_type === "ajuste" ? rt.fulfill({ status: 400, json: { code: "P0001", message: "STOCK_CAMBIO:4" } }) : rt.fulfill({ json: 9 }); }
     if (u.includes("/rpc/current_cash")) return rt.fulfill({ json: null });
     return rt.fulfill({ json: [] });
   });
@@ -61,12 +61,18 @@ const hist = [
   await p.screenshot({ path: `${out}/m-outlet-lista.png` });
   await p.getByText("Stock", { exact: true }).last().click(); await p.waitForTimeout(600);
   await p.getByText("Blusa Seda Marfil", { exact: true }).click(); await p.waitForTimeout(300);
-  console.log("T1) Muestra lugares:", (await p.innerText("body")).includes("Larco 1 · Casa 2"));
-  await p.getByRole("button", { name: "Traspasar" }).first().click(); await p.waitForTimeout(300);
-  await p.fill('input[placeholder="0"]', "5"); await p.waitForTimeout(200);
-  console.log("T2) Avisa si no alcanza:", (await p.innerText("body")).match(/En \w+ solo hay \d+/)?.[0]);
+  // Stock por sede (SQL 19): Larco = principal, Almacén = almacen. El antiguo botón «Traspasar» (transfer_stock)
+  // se reemplazó por movimientos con «¿Dónde?» y por las guías de traslado (ver guias.cjs).
+  console.log("T1) Muestra lugares:", (await p.innerText("body")).includes("Larco 1 · Almacén 2"));
+  await p.getByRole("button", { name: "Movimiento", exact: true }).first().click(); await p.waitForTimeout(300);
+  await p.click("button:has-text('Regalo')"); await p.getByRole("button", { name: "Almacén (2)", exact: true }).click(); // «¿Dónde?» muestra cuántas hay en cada sede
+  await p.fill('input[placeholder="0"]', "5"); await p.fill('input[maxlength="140"]', "Sorteo de prueba"); await p.waitForTimeout(200);
+  console.log("T2) Avisa si no alcanza en esa sede:", (await p.innerText("body")).match(/En \S+ solo hay \d+/)?.[0], "| botón bloqueado:", await p.isDisabled("text=Registrar"));
   await p.fill('input[placeholder="0"]', "1"); await p.screenshot({ path: `${out}/m-traspaso.png` });
-  await p.getByRole("button", { name: "Traspasar" }).last().click(); await p.waitForTimeout(600);
-  console.log("T3) Enviado:", JSON.stringify(calls[0]));
+  await p.click("text=Registrar"); await p.waitForTimeout(600);
+  console.log("T3) Enviado (sale del Almacén):", JSON.stringify(calls[0]));
+  const tr = p.locator("button", { hasText: "Traslados entre sedes" });
+  console.log("T4) Botón «Traslados entre sedes» en Stock:", (await tr.count()) > 0);
+  if (await tr.count()) { await tr.first().click(); await p.waitForTimeout(600); console.log("T5) Abre Traslados (Nueva guía):", (await p.innerText("body")).includes("Nueva guía")); }
   await b.close(); srv.close();
 })().catch((e) => { console.log("FALLO:", e.message); process.exit(1); });
