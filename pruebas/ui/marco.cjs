@@ -8,7 +8,7 @@ const catalog = { products: [{ id: "p1", name: "Blusa", price: 99, status: "acti
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   for (const [w, h, mob, name] of [[390, 844, true, "movil"], [980, 1700, true, "movil-sin-medir"], [1280, 800, false, "pc"]]) {
-    const ctx = await b.newContext({ viewport: { width: w, height: h }, isMobile: mob, hasTouch: mob });
+    const ctx = await b.newContext({ locale: "es-PE", viewport: { width: w, height: h }, isMobile: mob, hasTouch: mob });
     await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
     const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));
     // catálogo lento: se ve la pantalla de carga

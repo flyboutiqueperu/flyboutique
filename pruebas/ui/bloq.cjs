@@ -20,7 +20,7 @@ const route = async (rt) => {
 const loggedIn = async (p) => { try { await p.waitForSelector("text=/Caja/", { timeout: 6000 }); return (await p.innerText("body")).includes("Cerrar sesión"); } catch (e) { return false; } };
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-  const ctx = await b.newContext({ viewport: { width: 1366, height: 700 } });
+  const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 1366, height: 700 } });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   await ctx.route("http://fake.supabase.test/**", route);
   const p = await ctx.newPage();

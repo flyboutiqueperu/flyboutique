@@ -1,0 +1,40 @@
+// Prueba de lo interactivo: secciones que aparecen al bajar, anuncio del Club (una sola vez), corazón que late,
+// cesta que sobrevive a recargar. Uso: node pruebas/ui/interactivo.cjs <carpeta-capturas>
+const { chromium } = require("playwright-core");
+const http = require("http"), fs = require("fs"), path = require("path");
+const dist = path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
+const srv = http.createServer((q, r) => { const u = q.url.split("?")[0]; if (u.startsWith("/img/")) { r.writeHead(200, { "content-type": "image/svg+xml" }); return r.end('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="#6b5a4a"/></svg>'); } let f = path.join(dist, u); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": u.endsWith(".js") ? "text/javascript" : u.endsWith(".css") ? "text/css" : "text/html" }); r.end(fs.readFileSync(f)); }).listen(4365);
+const img = "http://localhost:4365/img/a.svg";
+const mk = (id, name, extra = {}) => ({ id, name, category: "Vestidos", price: 129, status: "active", showOnline: true, featured: true, tag: "Bestseller", description: "Lino.", images: [{ id: "i" + id, url: img }], variants: [{ id: id + "s", size: "S", colorName: "Negro", colorHex: "#111", stock: 3 }], ...extra });
+const catalog = { products: Array.from({ length: 8 }, (_, i) => mk("p" + i, "Prenda " + i, i === 1 ? { compareAtPrice: 159 } : {})), collections: [], banners: [{ id: "b1", active: true, order: 1, title: "Nueva colección", image: img }], settings: {}, promoCodes: [] };
+(async () => {
+  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
+  const p = await ctx.newPage(); p.setDefaultTimeout(5000);
+  const errs = []; p.on("pageerror", (e) => errs.push(e.message));
+  await p.route("http://fake.supabase.test/**", (rt) => rt.request().url().includes("store_data") ? rt.fulfill({ json: { data: catalog } }) : rt.fulfill({ json: [] }));
+  await p.goto("http://localhost:4365/"); await p.waitForTimeout(1500);
+  const states = () => p.evaluate(() => [...document.querySelectorAll(".reveal")].map((e) => e.classList.contains("is-in") ? "visible" : "esperando"));
+  console.log("1) Secciones al abrir:", JSON.stringify(await states()));
+  await p.evaluate(() => document.querySelector(".app-content").scrollTo({ top: 99999 })); await p.waitForTimeout(1200);
+  console.log("1b) Tras bajar:", JSON.stringify(await states()));
+  await p.screenshot({ path: `${out}/inter-bajar.png` });
+  await p.evaluate(() => document.querySelector(".app-content").scrollTo({ top: 0 }));
+  await p.waitForTimeout(8000);
+  console.log("2) Anuncio del Club a los 9 s:", await p.locator(".club-invite").isVisible().catch(() => false));
+  await p.screenshot({ path: `${out}/inter-club.png` });
+  await p.locator(".club-invite button[aria-label='Cerrar']").click(); await p.waitForTimeout(200);
+  const heart = p.locator("button[aria-label='Guardar en favoritos']").first();
+  await heart.click(); await p.waitForTimeout(100);
+  console.log("3) Corazón late al marcar:", await p.evaluate(() => !!document.querySelector(".heart-pop")));
+  await p.evaluate(() => { history.pushState(null, "", "/p/p0"); window.dispatchEvent(new PopStateEvent("popstate")); }); await p.waitForTimeout(800);
+  await p.locator(".pdp-buybar button").click(); await p.waitForTimeout(500);
+  await p.reload(); await p.waitForTimeout(1800);
+  const bag = await p.evaluate(() => document.querySelector(".badge-bump")?.textContent || "");
+  console.log("4) Tras recargar, la cesta conserva:", bag, "prenda(s)");
+  await p.goto("http://localhost:4365/"); await p.waitForTimeout(10000);
+  console.log("5) El anuncio no vuelve a salir tras cerrarlo:", !(await p.locator(".club-invite").isVisible().catch(() => false)));
+  console.log("6) Errores:", errs.length ? errs : "ninguno");
+  await b.close(); srv.close();
+})().catch((e) => { console.log("FALLO:", e.message.split("\n")[0]); process.exit(1); });

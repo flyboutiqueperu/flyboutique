@@ -16,7 +16,7 @@ catalog0.products[0].images = [{ id: "i1", url: IMG }, { id: "i2", url: IMG.repl
 const catalog = catalog0; const saves = []; const ups = [];
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));
   await p.route("http://fake.supabase.test/**", async (rt) => {

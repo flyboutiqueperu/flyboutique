@@ -37,6 +37,7 @@ const CLUB_KEY = "flyboutique:clubmember:v1";
 const VIEWED_KEY = "flyboutique:viewed:v1";
 const MAX_VIEWED = 10;
 const SESSION_KEY = "flyboutique:session:v1";
+const CART_KEY = "flyboutique:cesta:v1"; // la cesta sobrevive a «Actualizar» y a recargar (se borra con lo personal tras 1 h sin uso)
 const COOKIE_CONSENT_KEY = "flyboutique:cookieconsent:v1";
 
 // Estadísticas: Google Analytics 4 (visitas, de dónde vienen, embudo de compra) y
@@ -597,12 +598,15 @@ const UpdateBanner = ({ staff }) => {
   );
 };
 
-const ProductImg = ({ src, alt, style, dim }) => {
+const ProductImg = ({ src, alt, style, dim, priority }) => {
   // Intentos: miniatura → foto original → un reintento (internet lento o cortado) → logo FLY
   const [cur, setCur] = useState(src);
   const [tries, setTries] = useState(0);
   const [broken, setBroken] = useState(false);
-  useEffect(() => { setCur(src); setTries(0); setBroken(false); }, [src]);
+  const [loaded, setLoaded] = useState(false); // mientras carga se ve un brillo gris; al llegar aparece suave
+  const ref = useRef(null);
+  useEffect(() => { setCur(src); setTries(0); setBroken(false); setLoaded(false); }, [src]);
+  useEffect(() => { if (ref.current?.complete && ref.current.naturalWidth) setLoaded(true); }, [cur]); // ya estaba en caché
   const onError = () => {
     const orig = THUMB_ORIGINAL.get(cur);
     if (orig && orig !== cur) { setCur(orig); return; }
@@ -612,7 +616,37 @@ const ProductImg = ({ src, alt, style, dim }) => {
   if (!cur || broken) {
     return <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center", background: C.paperDeep }}><BadgeLogo size={30} /></div>;
   }
-  return <img src={cur} alt={alt} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }} onError={onError} loading="lazy" decoding="async" />;
+  return <img ref={ref} src={cur} alt={alt} className={loaded ? "fimg is-loaded" : "fimg"} style={{ ...imgGrade, ...style, ...(dim ? { filter: "saturate(0) contrast(1.02)", opacity: 0.45 } : {}) }}
+    onLoad={() => setLoaded(true)} onError={onError} loading={priority ? "eager" : "lazy"} fetchpriority={priority ? "high" : "auto"} decoding="async" />;
+};
+
+// Video que solo se reproduce cuando está en pantalla (ahorra datos y batería). Con «ahorro de datos» espera a que lo toquen.
+const saveData = () => { try { return !!navigator.connection?.saveData; } catch { return false; } };
+const SmartVideo = ({ src, poster, style, active = true }) => {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [manual] = useState(saveData);
+  const [play, setPlay] = useState(!manual);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { threshold: 0.25 });
+    io.observe(el); return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    if (visible && active && play) el.play?.()?.catch?.(() => {}); else el.pause?.();
+  }, [visible, active, play]);
+  return (
+    <div className={ready ? "fvid is-loaded" : "fvid"} style={{ position: "relative", width: "100%", height: "100%", ...style }}>
+      <video ref={ref} src={src} poster={poster || undefined} muted loop playsInline preload={visible || !manual ? "metadata" : "none"} onLoadedData={() => setReady(true)}
+        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      {!play && <button onClick={() => setPlay(true)} aria-label={t("Reproducir video")} style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer" }}>
+        <span style={{ width: 54, height: 54, borderRadius: "50%", background: "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center" }}><Play size={22} color={C.ink} fill={C.ink} style={{ marginLeft: 3 }} /></span>
+      </button>}
+    </div>
+  );
 };
 
 /* ------------------------------------------------------------------ */
@@ -640,8 +674,8 @@ const Tag = ({ label }) => {
   if (!s) return null;
   return <span style={{ position: "absolute", top: 10, left: 10, background: s.bg, color: s.fg, border: `1px solid ${s.border}`, fontFamily: FONT_BODY, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", padding: "4px 8px", borderRadius: 3, fontWeight: 600, zIndex: 2 }}>{t(label)}</span>;
 };
-const PrimaryButton = ({ children, onClick, dark = true, style, disabled }) => (
-  <button onClick={onClick} disabled={disabled} style={{ fontFamily: FONT_BODY, fontSize: 12.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600,
+const PrimaryButton = ({ children, onClick, dark = true, style, disabled, className }) => (
+  <button onClick={onClick} disabled={disabled} className={className} style={{ fontFamily: FONT_BODY, fontSize: 12.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600,
     background: disabled ? C.line : dark ? C.ink : "transparent", color: disabled ? C.stone : dark ? C.paper : C.ink, border: dark ? "none" : `1px solid ${C.ink}`,
     padding: "14px 22px", borderRadius: 9, cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", ...style }}>{children}</button>
 );
@@ -721,7 +755,7 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
       <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
         <Tag label={label} />
         <button aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          <Heart size={14} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
+          <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={14} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
         </button>
         <ProductImg src={hovering && altImg ? altImg : baseImg} alt={pName(product)} dim={soldOut} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block", animation: "fadeIn .25s ease" }} />
         {!soldOut && onQuickAdd && (
@@ -791,7 +825,7 @@ const BottomNav = ({ screen, setScreen, cartCount, onSearch, cart = [], clubMemb
           <div style={{ position: "relative" }}>
             <Icon size={20} strokeWidth={active ? 2.1 : 1.5} color={active ? C.ink : C.stone} />
             {key === "favorites" && favCount > 0 && <span style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{favCount}</span>}
-            {key === "cart" && cartCount > 0 && <span style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{cartCount}</span>}
+            {key === "cart" && cartCount > 0 && <span key={cartCount} className="badge-bump" style={{ position: "absolute", top: -6, right: -9, background: C.ink, color: C.white, fontSize: 9, fontFamily: FONT_BODY, fontWeight: 600, borderRadius: 999, minWidth: 14, height: 14, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{cartCount}</span>}
           </div>
           <span className="nav-label" style={{ fontFamily: FONT_BODY, fontSize: 10, color: active ? C.ink : C.stone, fontWeight: active ? 600 : 400 }}>{t(label)}</span>
         </button>
@@ -1081,6 +1115,99 @@ const ViewedStrip = ({ items, onOpen, onQuickAdd, catalog, cartSessionId, onSeeA
   );
 };
 
+// Aparece subiendo suave la primera vez que entra en pantalla (si el teléfono pide «reducir movimiento», se ve directo)
+const Reveal = ({ children, style }) => {
+  const ref = useRef(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") { setInView(true); return; }
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setInView(true); io.disconnect(); } }, { rootMargin: "0px 0px -8% 0px" });
+    io.observe(el); return () => io.disconnect();
+  }, []);
+  return <div ref={ref} className={inView ? "reveal is-in" : "reveal"} style={style}>{children}</div>;
+};
+
+// Anuncio que sube desde abajo una sola vez (a los 9 s en el inicio) para invitar al Club Fly. Solo si el Club está activo y la persona no es socia.
+const CLUB_INVITE_KEY = "flyboutique:invitacion-club:v1";
+const ClubInvite = ({ onJoin }) => {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    let seen = false; try { seen = !!localStorage.getItem(CLUB_INVITE_KEY); } catch (e) { seen = true; }
+    if (seen) return;
+    const tm = setTimeout(() => setShow(true), 9000);
+    return () => clearTimeout(tm);
+  }, []);
+  const close = () => { setShow(false); try { localStorage.setItem(CLUB_INVITE_KEY, String(Date.now())); } catch (e) { /* sin guardado */ } };
+  if (!show) return null;
+  return (
+    <div role="dialog" aria-label={t("Club Fly")} className="club-invite" style={{ position: "fixed", left: 12, right: 12, bottom: "calc(86px + env(safe-area-inset-bottom))", zIndex: 80, maxWidth: 420, margin: "0 auto", background: C.ink, color: C.paper, borderRadius: 14, padding: "16px 16px 14px", boxShadow: "0 12px 32px rgba(0,0,0,.28)", fontFamily: FONT_BODY, animation: "slideUp .45s ease" }}>
+      <button onClick={close} aria-label={t("Cerrar")} style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", color: C.paper, cursor: "pointer", padding: 6 }}><X size={16} /></button>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, paddingRight: 24 }}>
+        <span className="gift-wiggle" style={{ width: 42, height: 42, borderRadius: "50%", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Gift size={20} color={C.ink} /></span>
+        <div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800 }}>{t("Únete al Club Fly gratis")}</div>
+          <div style={{ fontSize: 12.5, opacity: 0.8, lineHeight: 1.4 }}>{t("Gana puntos con cada compra y recibe novedades primero.")}</div>
+        </div>
+      </div>
+      <button className="btn-ready" onClick={() => { close(); onJoin(); }} style={{ width: "100%", marginTop: 12, padding: "11px", borderRadius: 9, border: "none", background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{t("Quiero unirme")}</button>
+    </div>
+  );
+};
+
+// Portada: los banners activos rotan solos con fundido (cada 6 s), se pueden deslizar con el dedo o tocar los puntitos.
+// Solo se cargan el banner visible y el siguiente; la rotación se pausa si la portada no se ve o la app está en segundo plano.
+const HeroCarousel = ({ banners, onCta }) => {
+  const [idx, setIdx] = useState(0);
+  const [seen, setSeen] = useState(() => new Set([0, 1]));
+  const [visible, setVisible] = useState(true);
+  const boxRef = useRef(null);
+  const touch = useRef(null);
+  const n = banners.length;
+  const go = (i) => { const k = (i + n) % n; setIdx(k); setSeen((s) => (s.has(k) && s.has((k + 1) % n) ? s : new Set([...s, k, (k + 1) % n]))); };
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { threshold: 0.3 });
+    io.observe(el); return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    if (n < 2 || !visible) return;
+    const tm = setTimeout(() => { if (!document.hidden) go(idx + 1); }, 6000);
+    return () => clearTimeout(tm);
+  }, [idx, n, visible]);
+  const cur = banners[idx] || banners[0];
+  return (
+    <div ref={boxRef} className="hero" style={{ position: "relative", marginBottom: 30, height: "min(60vh, 560px)", minHeight: 360, overflow: "hidden", background: C.paperDeep, touchAction: "pan-y" }}
+      onTouchStart={(e) => { touch.current = e.touches[0].clientX; }}
+      onTouchEnd={(e) => { if (touch.current == null || n < 2) return; const dx = e.changedTouches[0].clientX - touch.current; touch.current = null; if (Math.abs(dx) > 45) go(idx + (dx < 0 ? 1 : -1)); }}>
+      {banners.map((b, i) => seen.has(i) && (
+        <div key={b.id} aria-hidden={i !== idx} style={{ position: "absolute", inset: 0, opacity: i === idx ? 1 : 0, transition: "opacity .9s ease", zIndex: i === idx ? 1 : 0 }}>
+          <div className={i === idx ? "hero-zoom" : ""} style={{ position: "absolute", inset: 0 }}>
+            {b.videoUrl
+              ? <SmartVideo src={b.videoUrl} poster={b.image} active={i === idx && visible} />
+              : <ProductImg src={b.image} alt={b.title} priority={i === 0} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+          </div>
+        </div>
+      ))}
+      <div style={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none", background: `linear-gradient(0deg, ${C.scrim}CC 0%, ${C.scrim}10 42%, transparent 68%)` }} />
+      <div key={cur.id} style={{ position: "absolute", left: 20, right: 20, bottom: 28, zIndex: 3, animation: "slideUp .6s ease" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, color: C.white, fontWeight: 800, lineHeight: 1.02, letterSpacing: "-0.01em", marginBottom: 14 }}>{cur.title}</div>
+        <button className="cta-glow" onClick={() => onCta(cur)} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: C.white, border: `1px solid ${C.white}`, padding: "12px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>{cur.ctaLabel ? (getLang() === "en" && cur.ctaLabelEn) || cur.ctaLabel : t("Ver colección")} <ChevronRight size={14} /></button>
+      </div>
+      {n > 1 && (
+        <div style={{ position: "absolute", bottom: 6, right: 12, display: "flex", gap: 2, zIndex: 3 }}>
+          {banners.map((b, i) => (
+            <button key={b.id} onClick={() => go(i)} aria-label={`${t("Banner")} ${i + 1}`} style={{ padding: "8px 3px", background: "none", border: "none", cursor: "pointer", display: "flex" }}>
+              <span style={{ width: i === idx ? 18 : 6, height: 5, borderRadius: 999, background: i === idx ? C.white : `${C.white}77`, transition: "width .35s ease, background .35s ease" }} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCategory, points, notifyMe, viewedIds, onQuickAdd, cartSessionId, onOpenInfo }) => {
   const products = catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p));
   const outletCount = outletOn(catalog.settings) ? catalog.products.filter((p) => p.showOnline !== false && isOutlet(p) && !productSoldOut(p)).length : 0;
@@ -1099,51 +1226,39 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
   const hero = activeBanners[0];
   const featuredCollections = collections.filter((c) => c.featured).sort((a, b) => a.order - b.order);
 
-  const heroTarget = () => {
-    if (!hero) return setScreen("category");
-    if (hero.ctaType === "category" && hero.ctaValue && hero.ctaValue !== "Todo") { setActiveCategory(hero.ctaValue); setScreen("category"); }
+  const heroTarget = (b = hero) => {
+    if (!b) return setScreen("category");
+    if (b.ctaType === "category" && b.ctaValue && b.ctaValue !== "Todo") { setActiveCategory(b.ctaValue); setScreen("category"); }
     else setScreen("category");
   };
 
   return (
     <div style={{ paddingBottom: 12 }}>
       {hero ? (
-        <div className="hero" style={{ position: "relative", marginBottom: 30, height: "min(60vh, 560px)", minHeight: 360, overflow: "hidden" }}>
-          {hero.videoUrl ? (
-            <video src={hero.videoUrl} autoPlay muted loop playsInline style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-          ) : (
-            <ProductImg src={hero.image} alt={hero.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-          )}
-          <div style={{ position: "absolute", inset: 0, background: `linear-gradient(0deg, ${C.scrim}CC 0%, ${C.scrim}10 42%, transparent 68%)` }} />
-          <div style={{ position: "absolute", left: 20, right: 20, bottom: 28 }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, color: C.white, fontWeight: 800, lineHeight: 1.02, letterSpacing: "-0.01em", marginBottom: 14 }}>{hero.title}</div>
-            <button onClick={heroTarget} style={{ fontFamily: FONT_BODY, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", background: "transparent", color: C.white, border: `1px solid ${C.white}`, padding: "12px 22px", borderRadius: 9, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>{hero.ctaLabel ? (getLang() === "en" && hero.ctaLabelEn) || hero.ctaLabel : t("Ver colección")} <ChevronRight size={14} /></button>
-          </div>
-          {activeBanners.length > 1 && (
-            <div style={{ position: "absolute", bottom: 10, right: 20, display: "flex", gap: 5 }}>
-              {activeBanners.map((b, i) => <div key={b.id} style={{ width: i === 0 ? 14 : 5, height: 5, borderRadius: 999, background: i === 0 ? C.white : `${C.white}66` }} />)}
-            </div>
-          )}
-        </div>
+        <HeroCarousel banners={activeBanners} onCta={heroTarget} />
       ) : (
         <div style={{ margin: "0 20px 30px", padding: 30, textAlign: "center", border: `1px dashed ${C.line}`, borderRadius: 12 }}>
           <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{t("Aún no hay un banner activo. Agrégalo desde el panel admin.")}</div>
         </div>
       )}
 
+      <Reveal>
       <SectionTitle eyebrow="Recién llegado" title={t("Nueva colección")} action="Ver todo" onAction={() => setScreen("category")} />
       <div className="nuevos-row" style={{ display: "flex", gap: 14, overflowX: "auto", padding: "0 20px 6px", marginBottom: 32, scrollbarWidth: "none" }}>
         {nuevos.length ? nuevos.slice(0, 8).map((p) => <ProductCard key={p.id} product={p} onOpen={onOpen} fav={favs.has(p.id)} onToggleFav={onToggleFav} wide onQuickAdd={onQuickAdd} catalog={catalog} cartSessionId={cartSessionId} />)
           : <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, padding: "10px 0" }}>{t("Sin novedades por ahora.")}</div>}
       </div>
+      </Reveal>
 
+      <Reveal>
       <SectionTitle eyebrow="Lo más amado" title={t("Destacados")} />
       <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, padding: "0 20px", marginBottom: 32 }}>
         {destacados.map((p) => <ProductCard key={p.id} product={p} onOpen={onOpen} fav={favs.has(p.id)} onToggleFav={onToggleFav} onQuickAdd={onQuickAdd} catalog={catalog} cartSessionId={cartSessionId} />)}
       </div>
+      </Reveal>
 
       {ofertas.length > 0 && (
-        <div style={{ margin: "0 20px 32px", borderRadius: 14, border: `1px solid ${C.line}`, padding: "22px 20px" }}>
+        <Reveal><div style={{ margin: "0 20px 32px", borderRadius: 14, border: `1px solid ${C.line}`, padding: "22px 20px" }}>
           <Eyebrow color={C.accent}>{t("Ofertas")}</Eyebrow>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, marginBottom: 4 }}>{maxOff > 0 ? t("Hasta {n}% de descuento", { n: maxOff }) : t("En oferta")}</div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 16, maxWidth: 240 }}>{t("En piezas seleccionadas, hasta agotar stock.")}</div>
@@ -1155,7 +1270,7 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
               </div>
             ))}
           </div>
-        </div>
+        </div></Reveal>
       )}
 
       {outletCount > 0 && (
@@ -1164,7 +1279,7 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
             <span style={{ display: "block", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.ink }}>{t("OUTLET")}</span>
             <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 3 }}>{t(outletCount === 1 ? "Últimas unidades a precio final · {n} prenda" : "Últimas unidades a precio final · {n} prendas", { n: outletCount })}</span>
           </span>
-          <ChevronRight size={18} color={C.ink} />
+          <ChevronRight className="nudge-x" size={18} color={C.ink} />
         </button>
       )}
 
@@ -1649,10 +1764,10 @@ const ProductGallery = ({ items, alt, dim }) => {
           {items.map((m, i) => (
             <div key={m.id || i} className="pdp-slide" style={{ flex: "0 0 100%", width: "100%", scrollSnapAlign: "start", aspectRatio: "3/4", alignSelf: "flex-start", background: C.paperDeep, position: "relative", overflow: "hidden" }}>
               {m.type === "video" ? (
-                <video src={m.url} autoPlay muted loop playsInline style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", filter: dim ? "grayscale(1)" : "none", opacity: dim ? 0.5 : 1 }} />
+                <SmartVideo src={m.url} active={idx === i} style={{ position: "absolute", inset: 0, filter: dim ? "grayscale(1)" : "none", opacity: dim ? 0.5 : 1 }} />
               ) : (
                 <button onClick={() => !dim && setViewer(items.filter((x) => x.type !== "video").findIndex((x) => x.url === m.url))} aria-label={t("Ver foto en grande")} style={{ position: "absolute", inset: 0, padding: 0, border: "none", background: "none", cursor: dim ? "default" : "zoom-in" }}>
-                  <ProductImg src={m.url} alt={alt} dim={dim} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  <ProductImg src={m.url} alt={alt} dim={dim} priority={i === 0} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                   {!dim && <span style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "5px 10px", display: "flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY, fontSize: 10.5, color: C.ink }}><Search size={11} /> <span className="hint-touch">{t("Toca para ampliar")}</span><span className="hint-mouse">{t("Clic para ampliar")}</span></span>}
                 </button>
               )}
@@ -1845,7 +1960,13 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
   const lookItems = look ? look.productIds.filter((id) => id !== product.id).map((id) => allProducts.find((p) => p.id === id)).filter(Boolean) : [];
 
   const buyLabel = soldOut ? "Agotado" : canAdd ? t("Agregar a la cesta") : !size ? t("Elige una talla") : t("Sin stock en esta talla");
-  const addNow = () => { if (canAdd) onAdd(product, size, color, qty); };
+  const needSize = !soldOut && !size;
+  const sizesRef = useRef(null);
+  const [nudge, setNudge] = useState(0);
+  const addNow = () => {
+    if (canAdd) { onAdd(product, size, color, qty); return; }
+    if (needSize) { sizesRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); setNudge((x) => x + 1); }
+  };
 
   return (
     <div className="pdp-page">
@@ -1860,7 +1981,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           </span>
         </div>
         <button onClick={() => onToggleFav(product.id)} aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} style={{ width: 38, height: 38, borderRadius: "50%", background: "transparent", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          <Heart size={17} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
+          <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={17} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
         </button>
       </div>
 
@@ -1931,7 +2052,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                   <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{t("Talla:")} <strong style={{ fontWeight: 600 }}>{size || t("elige una")}</strong></div>
                   <button onClick={() => setShowSizeGuide(true)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, textDecoration: "underline", padding: 0 }}>{recSize ? t("Guía de tallas") : t("¿Dudas con la talla?")}</button>
                 </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div ref={sizesRef} key={nudge} className={nudge ? "size-nudge" : ""} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {sizes.map((s) => {
                     const sStock = effectiveVariantStock(s, color?.n);
                     const active = size === s;
@@ -1965,7 +2086,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           )}
 
           <div className="pdp-inline-buy" style={{ display: "none", marginBottom: 20 }}>
-            <PrimaryButton disabled={!canAdd} onClick={addNow}><ShoppingBag size={16} /> {canAdd ? `${buyLabel} · ${money(product.price * qty)}` : buyLabel}</PrimaryButton>
+            <PrimaryButton key={canAdd ? "ok" : "no"} className={canAdd ? "btn-ready" : ""} disabled={!canAdd && !needSize} onClick={addNow}><ShoppingBag size={16} /> {canAdd ? `${buyLabel} · ${money(product.price * qty)}` : buyLabel}</PrimaryButton>
           </div>
 
           {isOutlet(product) && <div style={{ marginBottom: 18 }}><OutletRules compact /></div>}
@@ -2045,7 +2166,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: 800, color: discountPct ? C.accent : C.ink }}>{money(product.price * qty)}</div>
           {!soldOut && size && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{t("Talla")} {size}{color ? `, ${t(color.n)}` : ""}</div>}
         </div>
-        <PrimaryButton disabled={!canAdd} onClick={addNow} style={{ flex: 1, width: "auto", padding: "14px 16px" }}><ShoppingBag size={16} /> {buyLabel}</PrimaryButton>
+        <PrimaryButton key={canAdd ? "ok" : "no"} className={canAdd ? "btn-ready" : ""} disabled={!canAdd && !needSize} onClick={addNow} style={{ flex: 1, width: "auto", padding: "14px 16px" }}><ShoppingBag size={16} /> {buyLabel}</PrimaryButton>
       </div>
 
       {showSizeGuide && createPortal(<SizeGuideModal category={t(product.category)} onClose={() => setShowSizeGuide(false)} onRecommend={(r) => { setRecSize(r); if (r && sizes.includes(r) && effectiveVariantStock(r, color?.n) > 0) pickSize(r); }} />, document.body)}
@@ -2552,7 +2673,7 @@ const CartScreen = ({ cart, onRenewHold, updateQty, removeItem, setScreen, culqi
       {paymentMethod === "Tarjeta" ? (
         <PrimaryButton onClick={payWithCulqi} disabled={culqiLoading}><CreditCard size={16} /> {culqiLoading ? t("Abriendo…") : t("Pagar con tarjeta (Culqi)")}</PrimaryButton>
       ) : (
-        <PrimaryButton onClick={confirmManualPayment} disabled={!canPlaceManual || placing}><MessageCircle size={16} /> {placing ? t("Registrando tu pedido…") : t("Confirmar pedido por WhatsApp")}</PrimaryButton>
+        <PrimaryButton key={canPlaceManual ? "ok" : "no"} className={canPlaceManual && !placing ? "btn-ready" : ""} onClick={confirmManualPayment} disabled={!canPlaceManual || placing}><MessageCircle size={16} /> {placing ? t("Registrando tu pedido…") : t("Confirmar pedido por WhatsApp")}</PrimaryButton>
       )}
       {!canPlaceManual && paymentMethod !== "Tarjeta" && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 8, textAlign: "center" }}>{t("Completa tu nombre, celular")}{deliveryMethod !== "recojo" ? t(", dirección") : ""}{needsOp ? t(" y el número de operación") : ""} {t("para continuar.")}</div>}
     </div>
@@ -4048,7 +4169,7 @@ const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
 );
 
 // Lo que hace cada sección (aparece al dejar el mouse encima)
-const NAV_HINTS = { transfers: "Guías para enviar y recibir prendas entre Larco y el Almacén", caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
+const NAV_HINTS = { purchases: "Mercadería que llega de los proveedores", transfers: "Guías para enviar y recibir prendas entre Larco y el Almacén", caja: "Abrir, mover y cerrar la caja del turno", pos: "Registrar una venta en tienda", mysales: "Ver tus ventas", onlineorders: "Pedidos de la web por preparar o enviar", stock: "Ver y corregir el stock", dashboard: "Resumen del negocio", products: "Crear y editar productos", more: "Caja, vendedores, comprobantes, reportes y configuración", onlinesales: "Registrar una venta hecha por WhatsApp o redes" };
 const AdminNav = ({ screen, setScreen, role }) => {
   const items = (role === "administrador" || role === "superadmin")
     ? [["dashboard", "Panel", LayoutDashboard], ["pos", "Ventas", ShoppingCart], ["stock", "Stock", Package], ["products", "Productos", LayoutGrid], ["more", "Más", Menu]]
@@ -4059,7 +4180,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["transfers", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "purchases", "docapi", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -4078,7 +4199,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
 const quickLinkStyle = { display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink };
 
 // ---- Resumen del negocio (inicio del panel): todo sale de los registros reales ----
-const ACTION_LABELS = { venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
+const ACTION_LABELS = { compra_registrada: "Compra registrada", compra_anulada: "Compra anulada", venta_anulada: "Venta anulada", pago_validado: "Pago validado", costo_cambiado: "Costo cambiado", gasto_anulado: "Gasto anulado", guia_emitida: "Guía emitida", guia_recibida: "Guía recibida", guia_anulada: "Guía anulada", traslado_stock: "Traspaso", usuario_renombrado: "Usuario renombrado", caja_abierta: "Caja abierta", caja_cerrada: "Caja cerrada" };
 const BusinessSummary = ({ catalog, go }) => {
   const [extra, setExtra] = useState({ transfers: null, cash: null, activity: null });
   useEffect(() => {
@@ -5697,8 +5818,286 @@ const TransfersScreen = ({ catalog, role, refreshData }) => {
   );
 };
 
+// ---- Consulta DNI/RUC (SQL 24): Super Admin guarda el token del proveedor. El token nunca vuelve a mostrarse. ----
+const DocApiScreen = () => {
+  const [st, setSt] = useState(null); // null cargando | "no" falta SQL 24 | {configured, dniUrl, rucUrl, cached}
+  const [token, setToken] = useState("");
+  const [dniUrl, setDniUrl] = useState("");
+  const [rucUrl, setRucUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [testNum, setTestNum] = useState("");
+  const [testRes, setTestRes] = useState("");
+  const load = async () => {
+    const { data, error } = await supabase.rpc("doc_lookup_status");
+    if (error) { setSt("no"); return; }
+    setSt(data); setDniUrl(data.dniUrl || ""); setRucUrl(data.rucUrl || "");
+  };
+  useEffect(() => { load(); }, []);
+  const msg = (m = "") => (m.includes("URL_INVALIDA") ? "La dirección debe empezar con https:// y tener {n} donde va el número." : m.includes("SIN_PERMISO") ? "Solo Super Admin puede cambiar esto." : m);
+  const save = async (tok) => {
+    setBusy(true);
+    const { data, error } = await supabase.rpc("set_doc_lookup_config", { p_token: tok, p_dni_url: dniUrl.trim(), p_ruc_url: rucUrl.trim() });
+    setBusy(false);
+    if (error) { alert("No se pudo guardar: " + msg(error.message)); return; }
+    setToken(""); setSt(data);
+  };
+  const test = async () => {
+    const n = testNum.replace(/\D/g, "");
+    const type = n.length === 11 ? "RUC" : "DNI";
+    setTestRes("Consultando…");
+    const { data, error } = await supabase.rpc("lookup_document", { p_type: type, p_number: n });
+    if (error) { setTestRes("Error: " + msg(error.message)); return; }
+    setTestRes(data.ok ? `✓ ${data.name}${data.address ? ` · ${data.address}` : ""}${data.estado ? ` · ${data.estado}` : ""}${data.condicion ? ` · ${data.condicion}` : ""}` : ({ NO_CONFIGURADO: "Falta guardar el token.", TOKEN_RECHAZADO: "El proveedor rechazó el token: revisa que esté bien copiado y vigente.", NO_ENCONTRADO: "No se encontró ese número.", SIN_CONEXION: "No se pudo conectar con el proveedor.", LIMITE: "Límite de consultas de esta hora.", RUC_INVALIDO: "Ese RUC no es válido.", NUMERO_INVALIDO: "Escribe un DNI de 8 dígitos o un RUC de 11." }[data.reason] || data.reason));
+  };
+  if (st === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 24 (consulta DNI/RUC) en Supabase.</div>;
+  if (!st) return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Cargando…</div>;
+  const hint = { fontFamily: FONT_BODY, fontSize: 12, color: C.stone, lineHeight: 1.55 };
+  return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 640 }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Consulta DNI / RUC</h1>
+      <div style={{ ...hint, marginBottom: 14 }}>En la caja, al escribir un DNI o RUC se completan solos el nombre o la razón social (y la dirección fiscal para factura). Cada número se consulta una sola vez: después sale de la memoria sin costo.</div>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>Estado</span>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, color: st.configured ? C.ink : C.accent, marginBottom: 4 }}>{st.configured ? "✓ Activa" : "Apagada: falta el token del proveedor"}</div>
+        <div style={hint}>{st.cached} números guardados en memoria.</div>
+      </AdminCard>
+      <AdminCard style={{ marginBottom: 14 }}>
+        <span style={labelStyle}>{st.configured ? "Cambiar token" : "Guardar token"}</span>
+        <div style={{ ...hint, marginBottom: 10 }}>1) Crea una cuenta en un proveedor de consultas RENIEC/SUNAT (por ejemplo Decolecta, antes apis.net.pe) y revisa su precio. 2) Copia tu token y pégalo aquí. Se guarda solo en el servidor y no se vuelve a mostrar.</div>
+        <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Pega aquí el token" style={{ ...inputStyle, marginBottom: 10 }} />
+        <details style={{ marginBottom: 10 }}>
+          <summary style={{ ...hint, cursor: "pointer" }}>Direcciones del proveedor (solo si usas otro proveedor)</summary>
+          <Field label="Consulta DNI ({n} = número)"><input style={inputStyle} value={dniUrl} onChange={(e) => setDniUrl(e.target.value)} placeholder="https://api.decolecta.com/v1/reniec/dni?numero={n}" /></Field>
+          <Field label="Consulta RUC ({n} = número)"><input style={inputStyle} value={rucUrl} onChange={(e) => setRucUrl(e.target.value)} placeholder="https://api.decolecta.com/v1/sunat/ruc?numero={n}" /></Field>
+        </details>
+        <PrimaryButton disabled={busy || (!token.trim() && dniUrl === (st.dniUrl || "") && rucUrl === (st.rucUrl || ""))} onClick={() => save(token.trim())}>{busy ? "Guardando…" : "Guardar"}</PrimaryButton>
+        {st.configured && <button onClick={() => { if (confirm("¿Apagar la consulta de DNI/RUC? Se borra el token guardado.")) save("-"); }} style={{ marginTop: 10, width: "100%", padding: "11px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Apagar consulta (borrar token)</button>}
+      </AdminCard>
+      <AdminCard>
+        <span style={labelStyle}>Probar</span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input inputMode="numeric" value={testNum} onChange={(e) => setTestNum(e.target.value.replace(/\D/g, "").slice(0, 11))} placeholder="DNI (8) o RUC (11)" style={{ ...inputStyle, flex: 1 }} />
+          <button onClick={test} disabled={!(testNum.length === 8 || testNum.length === 11)} style={{ padding: "0 16px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: testNum.length === 8 || testNum.length === 11 ? 1 : 0.5 }}>Consultar</button>
+        </div>
+        {testRes && <div role="status" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginTop: 10 }}>{testRes}</div>}
+      </AdminCard>
+    </div>
+  );
+};
+
+// ---- Compras a proveedores (SQL 23): la mercadería que llega suma stock en la sede y actualiza el costo promedio ----
+const PURCHASE_ERRORS = { SIN_PERMISO: "Tu usuario no puede hacer esto.", PROVEEDOR_REPETIDO: "Ya existe un proveedor con ese nombre.", NOMBRE_REQUERIDO: "Escribe el nombre del proveedor.",
+  PROVEEDOR_NO_EXISTE: "Elige un proveedor.", COMPRA_VACIA: "Agrega al menos una prenda.", CANTIDAD_INVALIDA: "Revisa las cantidades.", COSTO_INVALIDO: "Revisa los costos.",
+  UBICACION_INVALIDA: "Elige dónde entra la mercadería.", PRODUCTO_NO_EXISTE: "Una prenda ya no existe en el catálogo. Quítala y vuelve a agregarla.", MOTIVO_REQUERIDO: "Escribe el motivo.", COMPRA_NO_EXISTE: "La compra no existe." };
+const purchaseErr = (m = "") => {
+  if (m.includes("STOCK_INSUFICIENTE")) return `Ya no están todas en esa sede (se vendieron o trasladaron): ${(m.split("STOCK_INSUFICIENTE:")[1] || "").replace(/:(\d+)$/, " · quedan $1")}. Corrige con un ajuste de stock.`;
+  if (m.includes("suppliers_ruc_check")) return "El RUC o DNI debe tener solo números (8 a 11).";
+  const k = Object.keys(PURCHASE_ERRORS).find((x) => m.includes(x));
+  return k ? PURCHASE_ERRORS[k] : m;
+};
+const emptySupplier = () => ({ id: null, name: "", ruc: "", phone: "", contact: "", note: "", active: true });
+const PurchasesScreen = ({ catalog, refreshData }) => {
+  const settings = catalog.settings;
+  const locs = stockLocations(settings);
+  const [tab, setTab] = useState("compras"); // compras | proveedores
+  const [list, setList] = useState(null); // null cargando | "no" falta SQL 23 | []
+  const [suppliers, setSuppliers] = useState([]);
+  const [costs, setCosts] = useState({});
+  const [mode, setMode] = useState("list"); // list | new
+  const [view, setView] = useState(null);
+  const [sup, setSup] = useState(null); // proveedor en edición
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ supplierId: "", docRef: "", location: locs[0].id, note: "", updateCost: true });
+  const [lines, setLines] = useState([]); // {p, v, qty, cost}
+  const [q, setQ] = useState("");
+  const reqId = useRef(null);
+  const load = async () => {
+    const [pu, su, co] = await Promise.all([
+      supabase.from("purchases").select("*").order("id", { ascending: false }).limit(200),
+      supabase.from("suppliers").select("*").order("name"),
+      supabase.from("product_costs").select("product_id,cost"),
+    ]);
+    if (pu.error) { setList(pu.error.code === "42P01" || pu.error.code === "PGRST205" ? "no" : []); return; }
+    setList(pu.data || []); setSuppliers(su.data || []);
+    setCosts(Object.fromEntries((co.data || []).map((r) => [r.product_id, Number(r.cost)])));
+  };
+  useEffect(() => { load(); }, []);
+  const back = (label, fn) => <button onClick={fn} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", marginBottom: 14, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}><ArrowLeft size={15} /> {label}</button>;
+  const hint = (t) => <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 14, lineHeight: 1.5 }}>{t}</div>;
+  if (list === "no") return <div style={{ padding: "18px 18px 90px", fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Falta correr el SQL 23 (compras y proveedores) en Supabase.</div>;
+
+  // --- proveedor: crear / editar
+  if (sup) {
+    const set = (k, v) => setSup((s) => ({ ...s, [k]: v }));
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        {back("Volver", () => setSup(null))}
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 14px" }}>{sup.id ? "Editar proveedor" : "Nuevo proveedor"}</h1>
+        <AdminCard>
+          <Field label="Nombre o razón social *"><input style={inputStyle} maxLength={120} value={sup.name} onChange={(e) => set("name", e.target.value)} placeholder="Ej. Textiles Gamarra SAC" /></Field>
+          <Field label="RUC o DNI (opcional)"><input style={inputStyle} inputMode="numeric" value={sup.ruc || ""} onChange={(e) => set("ruc", e.target.value.replace(/\D/g, "").slice(0, 11))} /></Field>
+          <Field label="Celular (opcional)"><input style={inputStyle} inputMode="tel" maxLength={20} value={sup.phone || ""} onChange={(e) => set("phone", e.target.value)} /></Field>
+          <Field label="Persona de contacto (opcional)"><input style={inputStyle} maxLength={80} value={sup.contact || ""} onChange={(e) => set("contact", e.target.value)} /></Field>
+          <Field label="Nota (opcional)"><input style={inputStyle} maxLength={200} value={sup.note || ""} onChange={(e) => set("note", e.target.value)} placeholder="Ej. entrega los martes, pago a 30 días" /></Field>
+          {sup.id && <label style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, margin: "4px 0 12px" }}><input type="checkbox" checked={sup.active !== false} onChange={(e) => set("active", e.target.checked)} /> Activo (si lo desactivas ya no aparece al registrar compras)</label>}
+          <PrimaryButton disabled={busy || sup.name.trim().length < 2} onClick={async () => {
+            setBusy(true);
+            const { data, error } = await supabase.rpc("upsert_supplier", { p_id: sup.id, p_name: sup.name, p_ruc: sup.ruc || null, p_phone: sup.phone || null, p_contact: sup.contact || null, p_note: sup.note || null, p_active: sup.active !== false });
+            setBusy(false);
+            if (error) { alert("No se pudo guardar: " + purchaseErr(error.message)); return; }
+            if (mode === "new" && data?.id) setForm((f) => ({ ...f, supplierId: String(data.id) }));
+            setSup(null); load();
+          }}>{busy ? "Guardando…" : "Guardar proveedor"}</PrimaryButton>
+        </AdminCard>
+      </div>
+    );
+  }
+
+  // --- ver una compra
+  if (view) {
+    const pu = view;
+    const units = pu.items.reduce((a, i) => a + i.qty, 0);
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        {back("Volver a Compras", () => setView(null))}
+        <AdminCard>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+            <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: 0 }}>Compra {pu.code}</h1>
+            <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: pu.status === "anulada" ? C.accent : C.ink }}>{pu.status === "anulada" ? "Anulada" : "Recibida"}</span>
+          </div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, lineHeight: 1.7, margin: "8px 0 10px" }}>
+            Proveedor: <strong>{pu.supplier_name}</strong>{pu.doc_ref ? ` · Factura/guía: ${pu.doc_ref}` : ""}<br />
+            Entró en: {locationName(settings, pu.location)} · {fmtDT(pu.created_at)} · {pu.created_by}<br />
+            {pu.update_cost ? "Actualizó el costo promedio de las prendas" : "No cambió los costos"}{pu.note ? ` · ${pu.note}` : ""}
+            {pu.status === "anulada" && <><br /><span style={{ color: C.accent }}>Anulada por {pu.voided_by} ({fmtDT(pu.voided_at)}): {pu.void_reason}</span></>}
+          </div>
+          {pu.items.map((i) => (
+            <div key={i.variantId} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
+              <span style={{ minWidth: 0 }}>{i.name} · {i.size} {i.color}{i.sku ? <span style={{ color: C.stone }}> · {i.sku}</span> : null}</span>
+              <span style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{i.qty} × {money2(i.unitCost)} = <strong>{money2(i.qty * i.unitCost)}</strong></span>
+            </div>
+          ))}
+          <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 14, fontWeight: 800, color: C.ink, paddingTop: 10 }}><span>{units} prendas</span><span>{money2(pu.total)}</span></div>
+        </AdminCard>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+          {pu.status !== "anulada" && <button onClick={async () => {
+            const why = prompt(`¿Por qué anulas la compra ${pu.code}? Se restan ${units} prendas del stock de ${locationName(settings, pu.location)}.`, "Registrada por error");
+            if (!why || !why.trim()) return;
+            const { data, error } = await supabase.rpc("void_purchase", { p_id: pu.id, p_reason: why.trim() });
+            if (error) { alert("No se pudo anular: " + purchaseErr(error.message)); return; }
+            setView(data); load(); refreshData && refreshData();
+          }} style={{ padding: "11px 14px", borderRadius: 9, border: `1px solid ${C.accent}`, background: "transparent", color: C.accent, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>Anular compra</button>}
+        </div>
+      </div>
+    );
+  }
+
+  // --- nueva compra
+  if (mode === "new") {
+    const active = suppliers.filter((s) => s.active !== false);
+    const nq = q.trim().toLowerCase();
+    const options = nq.length < 2 ? [] : catalog.products.flatMap((p) => p.variants.map((v) => ({ p, v }))).filter(({ p, v }) => `${p.name} ${v.sku || ""} ${v.size} ${v.colorName}`.toLowerCase().includes(nq)).slice(0, 12);
+    const add = (p, v) => { setLines((ls) => ls.some((l) => l.v.id === v.id) ? ls : [...ls, { p, v, qty: "1", cost: costs[p.id] != null ? String(costs[p.id]) : (ls.find((l) => l.p.id === p.id)?.cost || "") }]); setQ(""); };
+    const onScan = (e) => { if (e.key !== "Enter") return; const code = q.trim().toLowerCase(); for (const p of catalog.products) { const v = p.variants.find((x) => (x.sku || "").toLowerCase() === code); if (v) { add(p, v); return; } } };
+    const setLine = (id, k, val) => setLines((ls) => ls.map((x) => x.v.id === id ? { ...x, [k]: val } : x));
+    const bad = lines.find((l) => !(parseInt(l.qty, 10) > 0) || l.cost === "" || !(Number(l.cost) >= 0));
+    const units = lines.reduce((a, l) => a + (parseInt(l.qty, 10) || 0), 0);
+    const total = lines.reduce((a, l) => a + (parseInt(l.qty, 10) || 0) * (Number(l.cost) || 0), 0);
+    return (
+      <div style={{ padding: "18px 18px 90px" }}>
+        {back("Volver", () => setMode("list"))}
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Registrar compra</h1>
+        {hint("Lo que llegó del proveedor. Suma el stock en la sede que elijas y queda en el historial. Si una prenda es nueva, primero créala en Productos con stock 0.")}
+        <Field label="Proveedor *">
+          <div style={{ display: "flex", gap: 8 }}>
+            <select style={{ ...inputStyle, flex: 1 }} value={form.supplierId} onChange={(e) => setForm({ ...form, supplierId: e.target.value })}>
+              <option value="">Elige…</option>{active.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <button onClick={() => setSup(emptySupplier())} style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 12px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink, whiteSpace: "nowrap" }}><Plus size={13} /> Nuevo</button>
+          </div>
+        </Field>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 150px" }}><Field label="N.° de factura o guía (opcional)"><input style={inputStyle} maxLength={60} value={form.docRef} onChange={(e) => setForm({ ...form, docRef: e.target.value })} placeholder="Ej. F001-2345" /></Field></div>
+          <div style={{ flex: "1 1 150px" }}><Field label="Entra en"><select style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}>{locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field></div>
+        </div>
+        <Field label="Agregar prendas"><input style={inputStyle} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onScan} placeholder="Escanea el código + Enter, o busca por nombre" /></Field>
+        {options.length > 0 && (
+          <AdminCard style={{ marginBottom: 12, padding: 8 }}>
+            {options.map(({ p, v }) => <button key={v.id} onClick={() => add(p, v)} style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 8, padding: "8px 6px", background: "none", border: "none", borderBottom: `1px solid ${C.paperDeep}`, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, textAlign: "left" }}><span>{p.name} · {v.size} {v.colorName}{v.sku ? ` · ${v.sku}` : ""}</span><span style={{ color: C.stone }}>stock {v.stock}</span></button>)}
+          </AdminCard>
+        )}
+        {lines.map((l) => (
+          <div key={l.v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, flexWrap: "wrap" }}>
+            <span style={{ flex: "1 1 160px", minWidth: 0 }}>{l.p.name} · {l.v.size} {l.v.colorName}<span style={{ display: "block", fontSize: 11, color: C.stone }}>Stock actual: {l.v.stock}{costs[l.p.id] != null ? ` · costo actual ${money2(costs[l.p.id])}` : " · sin costo aún"}</span></span>
+            <label style={{ display: "flex", flexDirection: "column", fontSize: 10, color: C.stone }}>Cant.<input inputMode="numeric" value={l.qty} onChange={(e) => setLine(l.v.id, "qty", e.target.value.replace(/\D/g, "").slice(0, 5))} style={{ ...inputStyle, width: 60, padding: "6px 8px", textAlign: "center" }} /></label>
+            <label style={{ display: "flex", flexDirection: "column", fontSize: 10, color: C.stone }}>Costo c/u S/<input inputMode="decimal" value={l.cost} onChange={(e) => setLine(l.v.id, "cost", e.target.value.replace(/[^0-9.]/g, "").slice(0, 8))} style={{ ...inputStyle, width: 82, padding: "6px 8px", textAlign: "center", borderColor: l.cost === "" ? C.accent : undefined }} /></label>
+            <button onClick={() => setLines((ls) => ls.filter((x) => x.v.id !== l.v.id))} aria-label="Quitar" style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={15} color={C.stone} /></button>
+          </div>
+        ))}
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, margin: "14px 0 6px", lineHeight: 1.5 }}><input type="checkbox" checked={form.updateCost} onChange={(e) => setForm({ ...form, updateCost: e.target.checked })} style={{ marginTop: 3 }} /> <span>Actualizar el costo de las prendas <span style={{ display: "block", fontSize: 11, color: C.stone }}>Promedio entre lo que ya había y lo que llegó. Se usa en Rentabilidad.</span></span></label>
+        <Field label="Nota (opcional)"><input style={inputStyle} maxLength={200} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Ej. pagado con transferencia" /></Field>
+        {lines.length > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 14, fontWeight: 800, color: C.ink, margin: "6px 0 12px" }}><span>{units} prendas</span><span>{money2(total)}</span></div>}
+        <PrimaryButton disabled={busy || !form.supplierId || !lines.length || !!bad} onClick={async () => {
+          if (!reqId.current) reqId.current = "pur_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+          setBusy(true);
+          const { data, error } = await supabase.rpc("register_purchase", { p_supplier_id: Number(form.supplierId), p_doc_ref: form.docRef.trim() || null, p_location: form.location,
+            p_items: lines.map((l) => ({ variantId: l.v.id, qty: parseInt(l.qty, 10), unitCost: Number(l.cost) })), p_note: form.note.trim() || null, p_update_cost: form.updateCost, p_request_id: reqId.current });
+          setBusy(false);
+          if (error) { alert("No se pudo registrar: " + purchaseErr(error.message)); return; }
+          reqId.current = null; setLines([]); setForm((f) => ({ ...f, docRef: "", note: "" })); setMode("list"); setView(data); load(); refreshData && refreshData();
+        }}>{busy ? "Registrando…" : `Registrar compra${lines.length ? ` (${units} prendas)` : ""}`}</PrimaryButton>
+        {!form.supplierId && lines.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 8, textAlign: "center" }}>Elige el proveedor para continuar.</div>}
+      </div>
+    );
+  }
+
+  // --- lista
+  const tabBtn = (k, label) => <button onClick={() => setTab(k)} style={{ padding: "8px 14px", borderRadius: 999, border: `1px solid ${tab === k ? C.ink : C.line}`, background: tab === k ? C.ink : "transparent", color: tab === k ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{label}</button>;
+  const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
+  const monthTotal = (list || []).filter((p) => p.status !== "anulada" && new Date(p.created_at) >= month).reduce((a, p) => a + Number(p.total), 0);
+  return (
+    <div style={{ padding: "18px 18px 90px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+        <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: 0 }}>Compras</h1>
+        {tab === "compras"
+          ? <button onClick={() => { reqId.current = null; setLines([]); setMode("new"); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Registrar compra</button>
+          : <button onClick={() => setSup(emptySupplier())} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Nuevo proveedor</button>}
+      </div>
+      {hint("Mercadería que llega de tus proveedores. Solo la ve Administración (los costos son privados).")}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>{tabBtn("compras", "Compras")}{tabBtn("proveedores", `Proveedores (${suppliers.length})`)}</div>
+      {list === null ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Cargando…</div> : tab === "compras" ? (
+        <>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, marginBottom: 12 }}>Comprado este mes: <strong>{money2(monthTotal)}</strong></div>
+          {list.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Aún no hay compras registradas.</div> : list.map((pu) => (
+            <button key={pu.id} onClick={() => setView(pu)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", marginBottom: 8, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, opacity: pu.status === "anulada" ? 0.6 : 1 }}>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{pu.code} · {pu.supplier_name}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: C.stone }}>{pu.items.reduce((a, i) => a + i.qty, 0)} prendas → {locationName(settings, pu.location)} · {fmtDT(pu.created_at)}{pu.status === "anulada" ? " · ANULADA" : ""}</span>
+              </span>
+              <strong style={{ fontSize: 13, color: C.ink, whiteSpace: "nowrap", textDecoration: pu.status === "anulada" ? "line-through" : "none" }}>{money2(pu.total)}</strong>
+            </button>
+          ))}
+        </>
+      ) : (
+        suppliers.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Aún no hay proveedores.</div> : suppliers.map((s) => {
+          const bought = (list || []).filter((p) => p.supplier_id === s.id && p.status !== "anulada").reduce((a, p) => a + Number(p.total), 0);
+          return (
+            <button key={s.id} onClick={() => setSup({ ...emptySupplier(), ...s })} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", marginBottom: 8, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", textAlign: "left", fontFamily: FONT_BODY, opacity: s.active === false ? 0.55 : 1 }}>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{s.name}{s.active === false ? " (inactivo)" : ""}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: C.stone }}>{[s.ruc && `RUC/DNI ${s.ruc}`, s.phone, s.contact].filter(Boolean).join(" · ") || "Sin datos de contacto"}</span>
+              </span>
+              <span style={{ fontSize: 11.5, color: C.stone, whiteSpace: "nowrap" }}>{money2(bought)}</span>
+            </button>
+          );
+        })
+      )}
+    </div>
+  );
+};
+
 // ---- Historial de una prenda (o de toda la tienda): lo anota la base de datos en cada cambio ----
-const MOVE_LABEL = (t) => ({ traslado: "Traspaso", entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
+const MOVE_LABEL = (t) => ({ compra: "Compra", "compra anulada": "Compra anulada", traslado: "Traspaso", entrada: "Entrada", devolucion: "Devolución", salida: "Salida", merma: "Dañada / no vendible", regalo: "Regalo", ajuste: "Ajuste", venta: "Venta" }[t] || t);
 const StockHistory = ({ product, catalog, onBack }) => {
   // (los traspasos no cambian el total: se muestran pero no suman en ingresadas/vendidas)
   const [rows, setRows] = useState(null);
@@ -6011,6 +6410,14 @@ const PosVariantPicker = ({ product, onClose, onAdd }) => {
 // COMPROBANTE (nota de venta interna) con todos los datos: empresa, RUC, cliente, detalle con
 // cantidades, operación gravada, IGV 18%, total en letras, pagos, vendedora y cajero.
 // Mientras no se conecte un proveedor SUNAT (ej. Nubefact) NO es boleta/factura electrónica y lo dice.
+// RUC válido: 11 dígitos, empieza en 10/15/16/17/20 y cuadra su dígito verificador (igual que ruc_valido del SQL 24)
+const rucValido = (r) => {
+  if (!/^(10|15|16|17|20)\d{9}$/.test(r || "")) return false;
+  const w = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+  let k = 11 - (w.reduce((a, x, i) => a + x * Number(r[i]), 0) % 11);
+  if (k === 10) k = 0; else if (k === 11) k = 1;
+  return k === Number(r[10]);
+};
 // Formatos: ticket 80 mm, ticket 58 mm o A4 (se recuerda por equipo, porque depende de la impresora).
 // ------------------------------------------------------------------
 const IGV_RATE = 0.18;
@@ -6300,6 +6707,42 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const [docTypeSel, setDocTypeSel] = useState("DNI");
   const docType = isFactura ? "RUC" : docTypeSel;
   const [customerAddress, setCustomerAddress] = useState("");
+  // Consulta DNI (RENIEC) / RUC (SUNAT) con el SQL 24: llena el nombre (y la dirección fiscal del RUC).
+  // Si falta el SQL o el token, no se muestra nada y la caja sigue igual que siempre.
+  const [lookup, setLookup] = useState(null); // { state: "loading" | "ok" | "nf" | "err", data, msg }
+  const lookupCache = useRef({});
+  const lookupOff = useRef(false);
+  const autoFill = useRef({ name: "", address: "" });
+  useEffect(() => {
+    if (anon || matched || !(docType === "DNI" || docType === "RUC")) { setLookup(null); return; }
+    // Si cambia el número, se borra lo que se había llenado solo con el número anterior (lo escrito a mano se respeta)
+    const prevName = autoFill.current.name, prevAddr = autoFill.current.address;
+    if (prevName) { setName((n) => (n === prevName ? "" : n)); autoFill.current.name = ""; }
+    if (prevAddr) { setCustomerAddress((x) => (x === prevAddr ? "" : x)); autoFill.current.address = ""; }
+    if (docType === "RUC" && doc.length === 11 && !rucValido(doc)) { setLookup({ state: "err", msg: "Este RUC no es válido: revisa los números." }); return; }
+    if (lookupOff.current) { setLookup(null); return; }
+    if (!(docType === "DNI" ? /^\d{8}$/.test(doc) : /^\d{11}$/.test(doc))) { setLookup(null); return; }
+    const apply = (r) => {
+      if (!r?.ok) return;
+      setName((n) => (!n.trim() || n === autoFill.current.name ? r.name : n)); autoFill.current.name = r.name;
+      if (docType === "RUC" && r.address) { setCustomerAddress((a) => (!a.trim() || a === autoFill.current.address ? r.address : a)); autoFill.current.address = r.address; }
+    };
+    const key = docType + doc;
+    if (lookupCache.current[key]) { setLookup(lookupCache.current[key].view); apply(lookupCache.current[key].res); return; }
+    let alive = true;
+    setLookup({ state: "loading" });
+    const tm = setTimeout(async () => {
+      let res = null;
+      try { const { data, error } = await supabase.rpc("lookup_document", { p_type: docType, p_number: doc }); res = error ? null : data; } catch (e) { res = null; }
+      if (!alive) return;
+      if (!res || res.reason === "NO_CONFIGURADO") { lookupOff.current = !res || res.reason === "NO_CONFIGURADO"; setLookup(null); return; }
+      const why = { LIMITE: "Se alcanzó el límite de consultas de esta hora: escribe el nombre a mano.", SIN_CONEXION: "No se pudo consultar ahora: escribe el nombre a mano.", TOKEN_RECHAZADO: "La consulta de DNI/RUC no está funcionando (token). Avisa a Administración.", RUC_INVALIDO: "Este RUC no es válido: revisa los números.", NUMERO_INVALIDO: "Revisa el número." };
+      const view = res.ok ? { state: "ok", data: res } : res.reason === "NO_ENCONTRADO" ? { state: "nf" } : { state: "err", msg: why[res.reason] || "No se pudo consultar: escribe el nombre a mano." };
+      lookupCache.current[key] = { view, res };
+      setLookup(view); apply(res);
+    }, 350);
+    return () => { alive = false; clearTimeout(tm); };
+  }, [doc, docType, anon, matched]);
   const onDoc = (v) => {
     const max = { DNI: 8, RUC: 11, CE: 12, PAS: 12 }[docType] || 12;
     const d = (docType === "DNI" || docType === "RUC" ? v.replace(/\D/g, "") : v.replace(/[^0-9A-Za-z]/g, "").toUpperCase()).slice(0, max);
@@ -6375,6 +6818,19 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input autoFocus value={anon ? GENERIC_DOC : doc} disabled={anon} onChange={(e) => onDoc(e.target.value)} inputMode={docType === "DNI" || docType === "RUC" ? "numeric" : "text"} placeholder={{ DNI: "DNI (8 dígitos) *", RUC: "RUC (11 dígitos) *", CE: "Carné de extranjería *", PAS: "Pasaporte *" }[docType]} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
           </div>
+          {lookup && !matched && (() => {
+            const src = docType === "RUC" ? "SUNAT" : "RENIEC";
+            const d = lookup.data || {};
+            const warn = lookup.state === "ok" && docType === "RUC" && ((d.estado && d.estado.toUpperCase() !== "ACTIVO") || (d.condicion && d.condicion.toUpperCase() !== "HABIDO"));
+            const txt = lookup.state === "loading" ? `Buscando en ${src}…` : lookup.state === "nf" ? `No aparece en ${src}: escribe el nombre a mano.` : lookup.state === "err" ? lookup.msg
+              : docType === "RUC" ? `${warn ? "⚠" : "✓"} ${src}${d.estado ? ` · ${d.estado}` : ""}${d.condicion ? ` · ${d.condicion}` : ""}${d.source === "memoria" ? " (consultado antes)" : ""}` : `✓ Datos de ${src}${d.source === "memoria" ? " (consultado antes)" : ""}`;
+            return (
+              <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, background: C.paperDeep, borderRadius: 9, padding: "8px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: lookup.state === "err" || warn ? C.accent : C.ink }}>
+                {lookup.state === "loading" && <Loader2 size={14} className="spin" />}
+                <span>{txt}{warn ? " · Ojo: para factura SUNAT pide RUC activo y habido." : ""}</span>
+              </div>
+            );
+          })()}
           {matched && <div style={{ background: C.paperDeep, borderRadius: 9, padding: "9px 12px", marginBottom: 8, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>✓ Cliente registrado: <strong>{matched.name}</strong> · {matched.points || 0} puntos</div>}
           <div style={{ position: "relative", marginBottom: 8 }}>
             <input value={name} disabled={anon} onChange={(e) => { setName(e.target.value); setMatched(null); setShowSug(true); }} onFocus={() => setShowSug(true)} placeholder={isFactura || docType === "RUC" ? "Razón social *" : "Nombres y apellidos *"} style={{ ...inputStyle, fontSize: 15 }} />
@@ -6663,17 +7119,17 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
     );
   }
   return (
-    <div className="pos" style={{ padding: "16px 16px 90px", position: "relative" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+    <div className={`pos${saleItems.length ? " pos-busy" : ""}`} style={{ padding: "16px 16px 90px", position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: 0 }}>{title}</h1>
           {channel === "tienda" && (
-            <select value={currentStore.id} onChange={(e) => { setStoreId(e.target.value); try { localStorage.setItem("flyboutique:sede", e.target.value); } catch (err) { /* nada */ } }} style={{ ...inputStyle, width: "auto", padding: "7px 10px" }} aria-label="Sede">
+            <select value={currentStore.id} onChange={(e) => { setStoreId(e.target.value); try { localStorage.setItem("flyboutique:sede", e.target.value); } catch (err) { /* nada */ } }} style={{ ...inputStyle, width: "auto", maxWidth: "100%", padding: "7px 10px" }} aria-label="Sede">
               {posStores.map((x) => <option key={x.id} value={x.id}>Sede: {x.name}</option>)}
             </select>
           )}
         </div>
-        <select value={comprobanteTipo} onChange={(e) => setComprobanteTipo(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 10px" }}>
+        <select value={comprobanteTipo} onChange={(e) => setComprobanteTipo(e.target.value)} aria-label="Tipo de comprobante" style={{ ...inputStyle, width: "auto", maxWidth: "100%", padding: "8px 10px" }}>
           <option value="boleta">Boleta / Nota de venta</option>
           <option value="factura">Factura</option>
         </select>
@@ -6742,11 +7198,11 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
                     <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{i.size} · {i.colorName} · {money(i.unitPrice)}</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                    <button onClick={() => updateQty(i.saleItemId, -1)} aria-label="Menos" style={{ background: "none", border: "none", cursor: "pointer" }}><Minus size={13} /></button>
-                    <span style={{ fontFamily: FONT_BODY, fontSize: 12.5 }}>{i.qty}</span>
-                    <button onClick={() => updateQty(i.saleItemId, 1)} aria-label="Más" style={{ background: "none", border: "none", cursor: "pointer" }}><Plus size={13} /></button>
+                    <button className="tap-round" onClick={() => updateQty(i.saleItemId, -1)} aria-label="Menos"><Minus size={15} /></button>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, minWidth: 16, textAlign: "center" }}>{i.qty}</span>
+                    <button className="tap-round" onClick={() => updateQty(i.saleItemId, 1)} aria-label="Más"><Plus size={15} /></button>
                     <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 800, color: C.ink, minWidth: 54, textAlign: "right" }}>{money(i.unitPrice * i.qty)}</span>
-                    <button onClick={() => removeItem(i.saleItemId)} aria-label="Quitar" style={{ background: "none", border: "none", cursor: "pointer" }}><Trash2 size={13} color={C.ink} /></button>
+                    <button className="tap-round tap-plain" onClick={() => removeItem(i.saleItemId)} aria-label="Quitar"><Trash2 size={15} color={C.ink} /></button>
                   </div>
                 </div>
               ))}
@@ -7478,6 +7934,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("collections")} style={quickLinkStyle}><Layers size={16} color={C.ink} /> Colecciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("invoices")} style={quickLinkStyle}><Receipt size={16} color={C.ink} /> Comprobantes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("reports")} style={quickLinkStyle}><BarChart3 size={16} color={C.ink} /> Reportes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
+      <button onClick={() => setScreen("purchases")} style={quickLinkStyle}><Package size={16} color={C.ink} /> Compras a proveedores (entrada de mercadería) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("transfers")} style={quickLinkStyle}><Navigation size={16} color={C.ink} /> Traslados entre sedes <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("onlineorders")} style={quickLinkStyle}><Ticket size={16} color={C.ink} /> Pedidos Online <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       <button onClick={() => setScreen("manual")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Manual del equipo (cómo se hace todo) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
@@ -7489,6 +7946,7 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       <button onClick={() => setScreen("complaints")} style={quickLinkStyle}><BookOpen size={16} color={C.ink} /> Libro de Reclamaciones <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>
       {role === "superadmin" && <button onClick={downloadBackup} style={quickLinkStyle}><DatabaseBackup size={16} color={C.ink} /> Descargar copia de seguridad <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("promocodes")} style={quickLinkStyle}><Gift size={16} color={C.ink} /> Códigos promocionales <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
+      {role === "superadmin" && <button onClick={() => setScreen("docapi")} style={quickLinkStyle}><Scan size={16} color={C.ink} /> Consulta DNI / RUC (autocompletar en caja) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("users")} style={quickLinkStyle}><User size={16} color={C.ink} /> Usuarios y permisos <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       <button onClick={onExit} style={{ ...quickLinkStyle, color: C.accent, borderColor: C.accent }}><LogOut size={16} color={C.accent} /> Cerrar sesión</button>
     </div>
@@ -8193,6 +8651,13 @@ const STAFF_GUIDES = {
     ["X", "Si la clienta no pagó, toca «Cancelar: no pagó»: la prenda vuelve al stock. Si nadie lo hace, se cancela sola pasadas las horas configuradas."],
     ["Navigation", "Cambia el estado: preparando → listo → entregado/enviado. Si es envío, pon el número de seguimiento e imprime la etiqueta."],
   ] },
+  purchases: { title: "Compras a proveedores", steps: [
+    ["User", "La primera vez: pestaña «Proveedores» → «Nuevo proveedor» (nombre; RUC y celular si los tienes)."],
+    ["Plus", "Cuando llega mercadería: «Registrar compra» → proveedor → N.° de su factura → dónde entra (Larco o Almacén)."],
+    ["Package", "Escanea o busca cada prenda, pon cuántas llegaron y cuánto costó cada una. Si la prenda es nueva, primero créala en Productos con stock 0."],
+    ["Check", "«Registrar compra»: el stock sube en esa sede y el costo de la prenda se actualiza (promedio). Queda en el historial."],
+    ["X", "Si te equivocaste: abre la compra → «Anular compra» con el motivo. Se restan esas prendas (si todavía están en esa sede)."],
+  ] },
   transfers: { title: "Traslados entre sedes", steps: [
     ["Plus", "Quien envía: «Nueva guía» → elige desde y hacia → escanea o busca las prendas → cantidad → «Emitir guía». Puedes imprimirla y enviarla con la mercadería."],
     ["Package", "Las prendas de la guía quedan «en camino»: no se venden en ninguna sede hasta que lleguen."],
@@ -8281,7 +8746,7 @@ const StaffHelp = ({ screen, onOpenManual }) => {
     <>
       <button onClick={() => setOpen(true)} title="¿Cómo se hace? Ver los pasos de esta pantalla" className="staff-help-btn"
         style={{ position: "fixed", right: 18, bottom: 96, zIndex: 40, display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 999, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,0.22)" }}>
-        <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.paper, color: C.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: 13 }}>?</span> Ayuda
+        <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.paper, color: C.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: 13 }}>?</span><span className="help-label">Ayuda</span>
       </button>
       {open && (
         <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 75, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
@@ -8417,7 +8882,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -8633,6 +9098,8 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {isAdminRole && screen === "sellers" && <SellersScreen catalog={catalog} />}
         {isAdminRole && screen === "customers" && <CustomersScreen catalog={catalog} refreshData={refreshData} />}
         {screen === "manual" && <StaffManual role={role} />}
+        {canOpenScreen(role, "docapi") && screen === "docapi" && <DocApiScreen />}
+        {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
@@ -8662,7 +9129,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
 // la siguiente persona no ve nada de la anterior.
 const SHOPPER_IDLE_MINUTES = 60;
 const LAST_ACTIVE_KEY = "flyboutique:actividad:v1";
-const PERSONAL_KEYS = [WISHLIST_KEY, VIEWED_KEY, CLUB_KEY, SESSION_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY];
+const PERSONAL_KEYS = [WISHLIST_KEY, VIEWED_KEY, CLUB_KEY, SESSION_KEY, CART_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY];
 const readLastActive = () => { try { return Number(localStorage.getItem(LAST_ACTIVE_KEY)) || 0; } catch (e) { return 0; } };
 const markActive = () => { try { localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now())); } catch (e) { /* sin guardado */ } };
 const shopperIsIdle = () => Date.now() - readLastActive() > SHOPPER_IDLE_MINUTES * 60 * 1000;
@@ -8680,7 +9147,10 @@ export default function FlyBoutiqueApp() {
   const [screen, setScreen] = useState("home");
   const [activeCategory, setActiveCategory] = useState("Todo");
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => {
+    try { const c = JSON.parse(localStorage.getItem(CART_KEY) || "[]"); return Array.isArray(c) ? c.filter((i) => i && i.cartId && i.productId && i.qty > 0).slice(0, 50) : []; } catch (e) { return []; }
+  });
+  useEffect(() => { try { if (cart.length) localStorage.setItem(CART_KEY, JSON.stringify(cart)); else localStorage.removeItem(CART_KEY); } catch (e) { /* sin guardado */ } }, [cart]);
   const [favs, setFavs] = useState(new Set());
   const [toast, setToast] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -9171,6 +9641,45 @@ export default function FlyBoutiqueApp() {
         .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
         .app-content { scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        /* Fotos y videos: brillo gris mientras cargan, aparición suave al llegar */
+        @keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+        @keyframes imgIn { from { opacity: 0; } }
+        .fimg:not(.is-loaded), .fvid:not(.is-loaded) { background: linear-gradient(100deg, ${C.paperDeep} 30%, ${C.line} 50%, ${C.paperDeep} 70%) !important; background-size: 200% 100% !important; animation: shimmer 1.4s linear infinite; }
+        .fimg.is-loaded { animation: imgIn .45s ease; }
+        .fvid.is-loaded video { animation: imgIn .6s ease; }
+        /* Portada: acercamiento lento del banner visible (efecto «Ken Burns») y botón que late suave */
+        @keyframes heroZoom { from { transform: scale(1); } to { transform: scale(1.06); } }
+        .hero-zoom { animation: heroZoom 7s ease-out forwards; }
+        @keyframes ctaGlow { 0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } 80% { box-shadow: 0 0 0 0 rgba(255,255,255,.55); } 95% { box-shadow: 0 0 0 10px rgba(255,255,255,0); } }
+        .cta-glow { animation: ctaGlow 3.2s ease-out 1.2s infinite; }
+        /* Botón listo para comprar: un destello que lo recorre y un latido suave */
+        @keyframes btnShine { from { transform: translateX(-120%) skewX(-20deg); } to { transform: translateX(260%) skewX(-20deg); } }
+        @keyframes btnPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.025); } }
+        .btn-ready { position: relative; overflow: hidden; animation: btnPulse .55s ease 2; }
+        .btn-ready::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent); animation: btnShine 1.1s ease .15s 1 both; pointer-events: none; }
+        /* Falta la talla: las tallas palpitan para mostrar dónde tocar */
+        @keyframes nudge { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(3px); } }
+        @keyframes ring { 0% { box-shadow: 0 0 0 0 ${C.ink}55; } 100% { box-shadow: 0 0 0 9px ${C.ink}00; } }
+        .size-nudge { animation: nudge .5s ease; }
+        .size-nudge > button:not(:disabled) { animation: ring .9s ease-out 2; }
+        /* Inicio: las secciones aparecen subiendo al bajar, y sus prendas entran una tras otra */
+        @media (prefers-reduced-motion: no-preference) {
+          .reveal { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s cubic-bezier(.2,.7,.2,1); }
+          .reveal.is-in { opacity: 1; transform: none; }
+          .reveal.is-in .pcard { animation: cardIn .6s cubic-bezier(.2,.7,.2,1) both; }
+          ${[1, 2, 3, 4, 5, 6, 7, 8].map((i) => `.reveal.is-in .pcard:nth-child(${i}) { animation-delay: ${(i - 1) * 70}ms; }`).join(" ")}
+        }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+        /* Favorito: el corazón late; regalo del anuncio que se mueve; flecha que invita a tocar */
+        @keyframes heartPop { 0% { transform: scale(1); } 30% { transform: scale(1.45); } 60% { transform: scale(.9); } 100% { transform: scale(1); } }
+        .heart-pop { animation: heartPop .45s ease; }
+        @keyframes wiggle { 0%, 84%, 100% { transform: rotate(0); } 88% { transform: rotate(-12deg); } 92% { transform: rotate(10deg); } 96% { transform: rotate(-6deg); } }
+        .gift-wiggle { animation: wiggle 2.6s ease .6s infinite; }
+        @keyframes nudgeX { 0%, 70%, 100% { transform: translateX(0); } 85% { transform: translateX(5px); } }
+        .nudge-x { animation: nudgeX 2.4s ease infinite; }
+        /* Cesta: el número salta cuando se añade algo */
+        @keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.5); } 100% { transform: scale(1); } }
+        .badge-bump { animation: bump .45s ease; }
         /* Las tarjetas fuera de pantalla no se dibujan hasta acercarse: inicio y catálogo más fluidos en equipos antiguos */
         .admin-topbar .tb-short { display: none; }
         @media (max-width: 420px) { .admin-topbar .tb-label { display: none; } .admin-topbar .tb-short { display: inline; } .admin-topbar button[aria-label] { padding: 8px 10px !important; } }
@@ -9186,6 +9695,20 @@ export default function FlyBoutiqueApp() {
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 0.9s linear infinite; }
         button { font-family: inherit; }
+        /* Pantallas táctiles (caja en PC táctil, tablet o celular): sin retraso ni zoom por doble toque, sin selección de texto al tocar */
+        button, a, [role="button"], select, label { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+        button { -webkit-user-select: none; user-select: none; transition: transform .12s ease, opacity .12s ease; }
+        button:active:not(:disabled) { transform: scale(.96); }
+        /* Caja: mientras hay prendas en la venta, el botón Ayuda se oculta para no tapar «Cobrar»; en celular es solo «?» */
+        body:has(.pos-busy) .staff-help-btn { display: none !important; }
+        @media (max-width: 899px) { .staff-help-btn .help-label { display: none; } .staff-help-btn { padding: 9px !important; } }
+        .tap-round { width: 36px; height: 36px; border-radius: 50%; border: 1px solid ${C.line}; background: ${C.paper}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; color: ${C.ink}; flex-shrink: 0; }
+        .tap-round.tap-plain { border-color: transparent; background: transparent; }
+        @media (pointer: coarse), (any-pointer: coarse) {
+          /* También en PC con pantalla táctil (aunque tenga mouse). En iPhone/iPad, letra de 16 px en los campos: así no se agranda la pantalla al tocar uno */
+          input, select, textarea { font-size: 16px !important; }
+          .tap-round { width: 42px; height: 42px; }
+        }
         input:focus, button:focus-visible, select:focus, textarea:focus { outline: 2px solid ${C.ink}; outline-offset: 2px; }
 
         /* ---------- Celular: la app ocupa TODA la pantalla ---------- */
@@ -9357,6 +9880,7 @@ export default function FlyBoutiqueApp() {
                 reviews={catalog.reviews} onAddReview={addReview} collections={catalog.collections} allProducts={catalog.products} onOpenProduct={openProduct} catalog={catalog} cartSessionId={cartSessionId} onNavigate={navigateFromProduct} favs={favs} />}
               {!selectedProduct && <>
               {screen === "home" && <HomeScreen catalog={catalog} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} setScreen={setScreen} setActiveCategory={setActiveCategory} points={points} notifyMe={() => showToast(t("Te avisaremos primero ✓"))} viewedIds={viewedIds} onQuickAdd={addToCart} cartSessionId={cartSessionId} onOpenInfo={(i) => { setInfoSectionIndex(i); setScreen("info"); }} />}
+              {screen === "home" && !selectedProduct && !clubMember && clubOn(catalog?.settings) && <ClubInvite onJoin={() => setScreen("loyalty")} />}
               {screen === "info" && <InfoScreen sectionIndex={infoSectionIndex} setScreen={setScreen} />}
               {screen === "outlet" && <CategoryScreen key="outlet" outlet catalog={catalog} activeCategory={outletCat} setActiveCategory={setOutletCat} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={outletQ} setSearchQuery={setOutletQ} group={null} setGroup={() => {}} />}
               {screen === "category" && <CategoryScreen catalog={catalog} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={searchQuery} setSearchQuery={setSearchQuery} group={catalogGroup} setGroup={setCatalogGroup} />}

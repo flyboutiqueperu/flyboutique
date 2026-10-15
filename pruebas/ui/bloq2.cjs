@@ -21,7 +21,7 @@ const loggedIn = async (p) => { try { await p.waitForSelector("text=/Caja/", { t
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   for (const [name, vp] of [["pc", { width: 1366, height: 700 }], ["celular", { width: 390, height: 844 }]]) {
-    const ctx = await b.newContext({ viewport: vp });
+    const ctx = await b.newContext({ locale: "es-PE", viewport: vp });
     await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
     await ctx.route("http://fake.supabase.test/**", route);
     const p = await ctx.newPage();

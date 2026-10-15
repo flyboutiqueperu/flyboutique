@@ -13,7 +13,7 @@ const catalog = { products: [mk("p1", "Blusa Seda Marfil", 129, ["XS", "S", "M",
 const ORDER = { id: "o1", serie: "B001", numero: 77, status: "emitido", channel: "online", source: "web", createdAt: Date.now(), items: [{ productId: "p1", name: "Blusa Seda Marfil", size: "M", colorName: "Negro", qty: 2, unitPrice: 129 }], total: 258, subtotal: 258, discount: 0, paymentStatus: "confirmado", paymentMethod: "Yape", fulfillment: "pendiente", deliveryMethod: "local", customerName: "Lucía Torres", customerPhone: "51987654321", deliveryAddress: "Av. España 123", deliveryDetails: { address: "Av. España 123", district: "Trujillo", reference: "Frente al parque", lat: -8.1101, lng: -79.0301, mapsUrl: "https://www.google.com/maps?q=-8.110100,-79.030100" } };
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage();
   p.on("pageerror", (e) => console.log("ERROR EN PÁGINA:", e.message));

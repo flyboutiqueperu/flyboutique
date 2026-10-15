@@ -7,7 +7,7 @@ const mk = (id, name, cat, tag, extra = {}) => ({ id, name, category: cat, price
 const catalog = { products: [mk("p1", "Vestido Lino", "Vestidos", "Nuevo", { nameEn: "Linen Dress", descriptionEn: "Soft linen dress." }), mk("p2", "Blusa Seda", "Blusas", "Oferta"), mk("p3", "Falda Plisada", "Faldas", null, { outlet: true })], collections: [], banners: [], settings: {}, promoCodes: [] };
 (async () => {
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   await ctx.addInitScript(() => { localStorage.setItem("flyboutique:cookieconsent:v1", "none"); localStorage.setItem("flyboutique:idioma:v1", "en"); });
   const p = await ctx.newPage(); p.setDefaultTimeout(3000); p.on("pageerror", (e) => console.log("ERROR:", e.message));
   await p.route("http://fake.supabase.test/**", (rt) => { const u = rt.request().url(); if (u.includes("store_data")) return rt.fulfill({ json: { data: catalog } }); if (u.includes("set_reservation")) return rt.fulfill({ json: 3 }); return rt.fulfill({ json: [] }); });
