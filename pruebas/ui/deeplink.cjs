@@ -9,7 +9,7 @@ const catalog = { products: [mk("p1", "Vestido Lino", 100), mk("p2", "Blusa Arch
   const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   for (const [label, vp] of [["celular", { width: 390, height: 844 }], ["pc", { width: 1366, height: 860 }]]) {
     const ctx = await b.newContext({ locale: "es-PE", viewport: vp, isMobile: label === "celular" });
-    await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
+    await ctx.addInitScript(() => { try { localStorage.setItem("flyboutique:cookieconsent:v1", "none"); } catch (e) { /* about:blank no tiene localStorage */ } });
     const p = await ctx.newPage();
     p.on("pageerror", (e) => console.log("ERROR EN PÁGINA:", e.message));
     await p.route("http://fake.supabase.test/**", (rt) => { const u = rt.request().url(); if (u.includes("store_data")) return rt.fulfill({ json: { data: catalog } }); if (u.includes("/auth/v1/")) return rt.fulfill({ json: {} }); return rt.fulfill({ json: [] }); });

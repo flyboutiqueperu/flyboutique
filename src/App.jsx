@@ -5,7 +5,7 @@ import {
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
-  FileText, Truck, ArrowLeftRight, UserCog, Images, FolderArchive, ClipboardList, History, Contact, BadgePercent, Wallet, BookOpenCheck, HardDriveDownload,
+  FileText, Truck, ArrowLeftRight, UserCog, Images, FolderArchive, ClipboardList, History, Share, SquarePlus, Contact, BadgePercent, Wallet, BookOpenCheck, HardDriveDownload,
   MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
 // Excel y códigos de barras solo se descargan cuando el staff los usa (la tienda abre más rápido en celular)
@@ -3918,6 +3918,47 @@ const CookieConsent = ({ current, onSave, onOpenPolicy }) => {
           </>
         )}
       </div>
+    </div>
+  );
+};
+
+// Aviso para instalar la app que aparece solo al entrar (si el equipo lo permite).
+// Android/PC: botón «Instalar» (un toque). iPhone/iPad: Apple no deja instalar con un botón, se muestran los 2 pasos con una flecha.
+const InstallSheet = ({ app, tr = (x, v) => (v ? x.replace(/\{(\w+)\}/g, (m, k) => v[k] ?? m) : x), canPrompt, ios, iosSafari, ipad, onInstall, onClose }) => {
+  const icon = app === "caja" ? "/icons/caja-192.png" : app === "staff" ? "/icons/staff-192.png" : "/icons/icon-192.png";
+  const name = app === "caja" ? "Fly Caja" : app === "staff" ? "Fly Staff" : "Fly";
+  const step = (n, children) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, padding: "5px 0" }}>
+      <span style={{ width: 22, height: 22, borderRadius: "50%", background: C.ink, color: C.paper, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>{children}</span>
+    </div>
+  );
+  return (
+    <div className="install-sheet" role="dialog" aria-label={tr("Instalar la app")} style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90, display: "flex", justifyContent: "center", padding: "0 12px calc(12px + env(safe-area-inset-bottom, 0px))", pointerEvents: "none" }}>
+      <div style={{ pointerEvents: "auto", width: "100%", maxWidth: 420, background: C.paper, color: C.ink, borderRadius: 16, boxShadow: "0 10px 40px rgba(0,0,0,0.28)", border: `1px solid ${C.line}`, padding: "16px 16px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <img src={icon} alt="" width={48} height={48} style={{ borderRadius: 12, border: `1px solid ${C.line}`, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800 }}>{tr("Instala «{n}»", { n: name })}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>{tr("Ábrela desde tu pantalla de inicio, a pantalla completa.")}</div>
+          </div>
+          <button onClick={onClose} aria-label={tr("Cerrar")} style={{ background: "none", border: "none", padding: 6, cursor: "pointer", alignSelf: "flex-start" }}><X size={18} color={C.stone} /></button>
+        </div>
+        {canPrompt ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onClose} style={{ flex: 1, padding: 13, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 14, cursor: "pointer" }}>{tr("Ahora no")}</button>
+            <button className="install-go btn-ready" onClick={onInstall} style={{ flex: 2, padding: 13, borderRadius: 10, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><Download size={16} /> {tr("Instalar")}</button>
+          </div>
+        ) : ios && !iosSafari ? (
+          <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, lineHeight: 1.5 }}>{tr("En iPhone se instala desde Safari: abre esta misma página en Safari y aparecerán los pasos.")}</div>
+        ) : (
+          <>
+            {step(1, <>{tr("Toca")} <Share size={17} aria-label={tr("Compartir")} /> <strong>{tr("Compartir")}</strong> {ipad ? tr("(arriba a la derecha)") : tr("(abajo, en la barra de Safari)")}</>)}
+            {step(2, <>{tr("Elige")} <SquarePlus size={17} /> <strong>{tr("«Agregar a pantalla de inicio»")}</strong> {tr("y toca «Agregar»")}</>)}
+          </>
+        )}
+      </div>
+      {ios && iosSafari && !ipad && !canPrompt && <ChevronDown className="install-arrow" size={30} color={C.ink} style={{ position: "fixed", bottom: "calc(2px + env(safe-area-inset-bottom, 0px))", left: "50%", marginLeft: -15, pointerEvents: "none" }} />}
     </div>
   );
 };
@@ -10193,8 +10234,38 @@ export default function FlyBoutiqueApp() {
   }, []);
   // Al pasar de la tienda al staff cambia el manifiesto: el aviso guardado era de la otra app, se descarta
   // (el navegador vuelve a ofrecer la instalación con el manifiesto nuevo).
-  useEffect(() => { setInstallEvt(null); }, [mode]);
+  useEffect(() => {
+    let caja = false; try { caja = sessionStorage.getItem("fly:app") === "caja"; } catch (e) { /* nada */ }
+    const app = mode === "store" ? "" : caja ? "caja" : "staff";
+    if (window.__flyBootApp !== undefined && window.__flyBootApp !== app) setInstallEvt(null);
+  }, [mode]);
   const staffAppName = () => { try { return sessionStorage.getItem("fly:app") === "caja" ? "Fly Caja" : "Fly Staff"; } catch (e) { return "Fly Staff"; } };
+  // Aviso automático de instalación (una vez cada cierto tiempo por app; nunca dentro de la app ya instalada)
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
+  const isAppleTouch = isIOS || isIPad;
+  const isIOSSafari = isAppleTouch && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA|Instagram|FBAN|FBAV|TikTok|Line\//i.test(ua);
+  const [installSheet, setInstallSheet] = useState(null); // null | "store" | "staff" | "caja"
+  const sheetApp = mode === "staffLogin" ? (staffAppName() === "Fly Caja" ? "caja" : "staff") : mode === "store" ? "store" : null;
+  useEffect(() => {
+    if (isStandalone || !catalog || !sheetApp) { setInstallSheet(null); return; }
+    const key = `fly:installAsk:${sheetApp}`;
+    let last = 0; try { last = Number(localStorage.getItem(key) || 0); } catch (e) { /* nada */ }
+    const days = sheetApp === "store" ? 30 : 3;
+    if (Date.now() - last < days * 86400000) return;
+    const can = !!installEvt || isAppleTouch;
+    if (!can) return;
+    if (sheetApp === "store") {
+      // En la tienda: solo en celular, después de mirar un rato (no al llegar) y sin tapar la compra
+      const coarse = window.matchMedia?.("(pointer: coarse)").matches;
+      if (!coarse || showCookieConsent || selectedProduct || !["home", "category", "outlet"].includes(screen)) return;
+      const tm = setTimeout(() => setInstallSheet("store"), 40000);
+      return () => clearTimeout(tm);
+    }
+    const tm = setTimeout(() => setInstallSheet(sheetApp), 900);
+    return () => clearTimeout(tm);
+  }, [sheetApp, installEvt, catalog, showCookieConsent, selectedProduct, screen]);
+  const closeInstallSheet = () => { try { localStorage.setItem(`fly:installAsk:${installSheet}`, String(Date.now())); } catch (e) { /* nada */ } setInstallSheet(null); };
   const [installHint] = useState(() => { try { const h = sessionStorage.getItem("fly:installHint"); sessionStorage.removeItem("fly:installHint"); return !!h; } catch (e) { return false; } });
   const installStaffApp = async () => {
     const name = staffAppName();
@@ -10226,6 +10297,11 @@ export default function FlyBoutiqueApp() {
         .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
         .app-content { scrollbar-width: none; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .install-sheet > div { animation: sheetUp .35s cubic-bezier(.2,.8,.2,1) both; }
+        @keyframes sheetUp { from { transform: translateY(110%); opacity: 0; } }
+        .install-arrow { animation: arrowBob 1.1s ease-in-out infinite; }
+        @keyframes arrowBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+        @media (prefers-reduced-motion: reduce) { .install-sheet > div, .install-arrow { animation: none; } }
         /* Fotos y videos: brillo gris mientras cargan, aparición suave al llegar */
         @keyframes shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
         @keyframes imgIn { from { opacity: 0; } }
@@ -10485,7 +10561,10 @@ export default function FlyBoutiqueApp() {
             )}
           </div>
         ) : mode === "staffLogin" ? (
+          <>
           <StaffAccess onDone={enterStaff} onCancel={() => { try { localStorage.removeItem("fly:homeApp"); } catch (e) { /* nada */ } setMode("store"); clearStaffHash(); }} installName={isStandalone ? null : staffAppName()} onInstall={installStaffApp} installHint={installHint} />
+            {installSheet && installSheet !== "store" && <InstallSheet app={installSheet} canPrompt={!!installEvt} ios={isAppleTouch} iosSafari={isIOSSafari} ipad={isIPad} onInstall={() => { closeInstallSheet(); installStaffApp(); }} onClose={closeInstallSheet} />}
+          </>
         ) : mode === "staff" && session ? (
           <StaffApp catalog={catalog} updateCatalog={updateCatalog} patchCatalog={setCatalog} refreshData={refreshPrivate} role={session.staffMember.role} staffName={session.staffMember.name} staffUsername={session.staffMember.username}
             currentUserId={session.staffMember.user_id} reserveNumber={reserveNumber} onExit={() => exitStaff("Sesión cerrada")} initialScreen={staffScreenFromHash()} />
@@ -10520,6 +10599,7 @@ export default function FlyBoutiqueApp() {
               hasOutlet={outletOn(catalog.settings) && catalog.products.some((p) => p.showOnline !== false && isOutlet(p))} products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onOpenProduct={openProduct} onSearchQuery={(q) => goCatalog("Todo", null, q)} onCategory={(cat, group) => goCatalog(cat, group)} />
             {searchOpen && <SearchOverlay products={catalog.products.filter((p) => p.showOnline !== false && !isOutlet(p))} onClose={() => setSearchOpen(false)} onOpenProduct={(p) => { openProduct(p); setSearchOpen(false); }} onSearchAll={(term) => goCatalog(CATEGORY_OPTIONS.includes(term) ? term : "Todo", null, CATEGORY_OPTIONS.includes(term) ? "" : term)} />}
             {toast && <Toast message={toast} />}
+            {installSheet === "store" && <InstallSheet app="store" tr={t} canPrompt={!!installEvt} ios={isAppleTouch} iosSafari={isIOSSafari} ipad={isIPad} onInstall={() => { closeInstallSheet(); installApp(); }} onClose={closeInstallSheet} />}
             {showCookieConsent && <CookieConsent current={cookieChoice} onSave={resolveCookieConsent} onOpenPolicy={() => { setShowCookieConsent(false); openInfo(FOOTER_SECTIONS.findIndex((x) => x.title.startsWith("Seguridad"))); }} />}
             {showBackToTop && (
               <button className="back-top" onClick={scrollToTop} aria-label={t("Volver arriba")} style={{ position: "fixed", bottom: 28, right: 28, zIndex: 55, width: 44, height: 44, borderRadius: "50%", background: C.ink, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 18px rgba(0,0,0,0.25)" }}>

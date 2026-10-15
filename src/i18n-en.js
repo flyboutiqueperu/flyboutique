@@ -1,5 +1,18 @@
 // Traducciones de la tienda al inglés (español → inglés). Si falta una, se muestra en español.
 const EN = {
+ "Instalar la app": "Install the app",
+ "Instala «{n}»": "Install «{n}»",
+ "Ábrela desde tu pantalla de inicio, a pantalla completa.": "Open it from your home screen, full screen.",
+ "Ahora no": "Not now",
+ "Instalar": "Install",
+ "En iPhone se instala desde Safari: abre esta misma página en Safari y aparecerán los pasos.": "On iPhone it installs from Safari: open this page in Safari and the steps will appear.",
+ "Toca": "Tap",
+ "Compartir": "Share",
+ "(arriba a la derecha)": "(top right)",
+ "(abajo, en la barra de Safari)": "(at the bottom, in Safari's bar)",
+ "Elige": "Choose",
+ "«Agregar a pantalla de inicio»": "«Add to Home Screen»",
+ "y toca «Agregar»": "and tap «Add»",
  "Quiero unirme": "I want to join",
  "Gana puntos con cada compra y recibe novedades primero.": "Earn points with every purchase and get new arrivals first.",
  "Reproducir video": "Play video",
