@@ -641,6 +641,10 @@ const SmartVideo = ({ src, poster, style, active = true }) => {
     const el = ref.current; if (!el) return;
     if (visible && active && play) el.play?.()?.catch?.(() => {}); else el.pause?.();
   }, [visible, active, play]);
+  useEffect(() => { // al volver a la app, sigue reproduciendo solo si se ve
+    const onVis = () => { const el = ref.current; if (el && document.visibilityState === "visible" && visible && active && play) el.play?.()?.catch?.(() => {}); };
+    document.addEventListener("visibilitychange", onVis); return () => document.removeEventListener("visibilitychange", onVis);
+  }, [visible, active, play]);
   return (
     <div className={ready ? "fvid is-loaded" : "fvid"} style={{ position: "relative", width: "100%", height: "100%", ...style }}>
       <video ref={ref} src={src} poster={poster || undefined} muted loop playsInline preload={visible || !manual ? "metadata" : "none"} onLoadedData={() => setReady(true)}
@@ -4267,7 +4271,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["transfers", "purchases", "activity", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "purchases", "activity", "diagnostico", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -6150,6 +6154,47 @@ const ActivityScreen = () => {
         </div>
       ))}
       {more && <button onClick={() => load(true)} disabled={loading} style={{ width: "100%", padding: 12, borderRadius: 10, border: `1px solid ${C.ink}`, background: C.paper, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600 }}>{loading ? "Cargando…" : "Cargar más"}</button>}
+    </div>
+  );
+};
+
+// Diagnóstico del equipo: lo que anotó este celular/computadora (errores, ratos trabada, recargas forzadas). Solo en este equipo.
+const DiagnosticScreen = () => {
+  const read = () => { try { return JSON.parse(localStorage.getItem("fly:diagnostico") || "[]"); } catch (e) { return []; } };
+  const [list, setList] = useState(read);
+  const info = (() => {
+    const n = navigator; const sw = window.screen || {};
+    const standalone = window.matchMedia?.("(display-mode: standalone)").matches || n.standalone === true;
+    return [["Equipo", n.userAgent], ["Pantalla", `${sw.width}×${sw.height} · ventana ${window.innerWidth}×${window.innerHeight}`], ["Modo", standalone ? "App instalada" : "Navegador"],
+      ["Memoria del equipo", n.deviceMemory ? `${n.deviceMemory} GB` : "No informa"], ["Conexión", n.connection?.effectiveType || "No informa"], ["Versión de Fly", (document.querySelector('script[src*="/assets/index-"]')?.getAttribute("src") || "desarrollo").split("/").pop()]];
+  })();
+  const TIPOS = { error: "Error", trabada: "Se trabó", recarga: "Recarga forzada", pantalla: "Pantalla con error" };
+  const text = () => [...info.map(([k, v]) => `${k}: ${v}`), "", ...list.map((x) => `${new Date(x.at).toLocaleString("es-PE")} · ${TIPOS[x.tipo] || x.tipo} · ${x.ruta} · ${x.detalle}`)].join("\n");
+  const copy = async () => { try { await navigator.clipboard.writeText(text()); alert("Copiado. Pégalo en el chat con Claude o por WhatsApp."); } catch (e) { prompt("Copia este texto:", text()); } };
+  return (
+    <div style={{ padding: "18px 18px 40px", maxWidth: 760, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Diagnóstico del equipo</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, lineHeight: 1.5, marginBottom: 14 }}>Si la página se traba o queda en blanco en este celular o computadora, aquí queda anotado. Toca «Copiar informe» y envíalo para revisarlo. No se envía nada solo.</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <button onClick={copy} style={{ padding: "11px 16px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Copiar informe</button>
+        <button onClick={() => setList(read())} style={{ padding: "11px 16px", borderRadius: 9, border: `1px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" }}>Actualizar</button>
+        <button onClick={() => { if (confirm("¿Borrar lo anotado en este equipo?")) { try { localStorage.removeItem("fly:diagnostico"); } catch (e) { /* nada */ } setList([]); } }} style={{ padding: "11px 16px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" }}>Borrar</button>
+      </div>
+      <AdminCard style={{ marginBottom: 14 }}>
+        {info.map(([k, v]) => <div key={k} style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink, padding: "4px 0", wordBreak: "break-word" }}><strong>{k}:</strong> {v}</div>)}
+      </AdminCard>
+      <span style={labelStyle}>Últimos problemas ({list.length})</span>
+      {!list.length ? <AdminCard><div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>Nada anotado. ✓</div></AdminCard> : (
+        <AdminCard style={{ padding: "4px 14px" }}>
+          {list.map((x, i) => (
+            <div key={i} style={{ padding: "9px 0", borderBottom: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12.5 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><strong style={{ color: x.tipo === "info" ? C.ink : C.accent }}>{TIPOS[x.tipo] || x.tipo}</strong><span style={{ color: C.stone, whiteSpace: "nowrap" }}>{new Date(x.at).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span></div>
+              <div style={{ color: C.inkSoft, marginTop: 2, wordBreak: "break-word" }}>{x.detalle}</div>
+              <div style={{ color: C.stone, fontSize: 11 }}>{x.ruta}</div>
+            </div>
+          ))}
+        </AdminCard>
+      )}
     </div>
   );
 };
@@ -8481,6 +8526,7 @@ const MORE_ITEMS = [
   { id: "users", g: "equipo", t: "Usuarios y permisos", d: "Crear cuentas del staff, cambiar su rol o contraseña.", icon: UserCog, k: "usuario rol contraseña cajero acceso", only: "superadmin" },
   { id: "sellers", g: "equipo", t: "Vendedores (códigos)", d: "El código de cada vendedora (ej. MA01) para saber quién vendió.", icon: Contact, k: "vendedora codigo ma01 comision" },
   { id: "docapi", g: "seguridad", t: "Consulta DNI / RUC", d: "Token del proveedor para que la caja complete nombres solos.", icon: Scan, k: "dni ruc reniec sunat decolecta token", only: "superadmin" },
+  { id: "diagnostico", g: "seguridad", t: "Diagnóstico del equipo", d: "Si la página se traba o queda en blanco en este equipo: ver y copiar lo anotado.", icon: AlertCircle, k: "error trabada lenta blanco falla problema celular" },
   { id: "fotoscopia", g: "seguridad", t: "Copia de las fotos", d: "Descargar todas las fotos y videos en ZIP (una vez al mes).", icon: FolderArchive, k: "respaldo backup fotos zip", only: "superadmin" },
   { id: "backup", g: "seguridad", t: "Copia de seguridad (datos)", d: "Descargar ventas, clientas y catálogo (una vez por semana).", icon: HardDriveDownload, k: "respaldo backup datos json", only: "superadmin" },
 ];
@@ -9564,7 +9610,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], activity: STAFF_ADMIN, facturacion: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], activity: STAFF_ADMIN, diagnostico: STAFF_ADMIN, facturacion: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -9783,6 +9829,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canOpenScreen(role, "docapi") && screen === "docapi" && <DocApiScreen />}
         {canOpenScreen(role, "fotoscopia") && screen === "fotoscopia" && <PhotoBackupScreen catalog={catalog} />}
         {canOpenScreen(role, "activity") && screen === "activity" && <ActivityScreen />}
+        {canOpenScreen(role, "diagnostico") && screen === "diagnostico" && <DiagnosticScreen />}
         {canOpenScreen(role, "facturacion") && screen === "facturacion" && <EInvoiceScreen catalog={catalog} role={role} />}
         {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
@@ -10302,6 +10349,25 @@ export default function FlyBoutiqueApp() {
     }
   }, [screen, mode]);
 
+  // Al salir de la app se pausan los videos; al volver, Safari a veces deja «congelado» el desplazamiento o la pantalla
+  // en blanco: se fuerza a redibujar los contenedores que se desplazan (sin perder la posición).
+  useEffect(() => {
+    const wake = () => {
+      document.querySelectorAll(".app-content").forEach((el) => {
+        const top = el.scrollTop; el.style.overflowY = "hidden"; void el.offsetHeight; el.style.overflowY = ""; el.scrollTop = top;
+      });
+      window.dispatchEvent(new Event("resize"));
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") { document.querySelectorAll("video").forEach((v) => { try { v.pause(); } catch (e) { /* nada */ } }); return; }
+      requestAnimationFrame(wake);
+    };
+    const onShow = (e) => { if (e.persisted) requestAnimationFrame(wake); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pageshow", onShow);
+    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pageshow", onShow); };
+  }, []);
+
   // ---- Instalar la tienda como app en el celular ----
   const [installEvt, setInstallEvt] = useState(null);
   const isStandalone = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
@@ -10366,7 +10432,7 @@ export default function FlyBoutiqueApp() {
 
   // Sin "marco de teléfono": la app ocupa toda la pantalla desde el primer instante. Antes el marco negro (y el
   // fondo gris) se veía un momento al abrir la app instalada, hasta que el celular terminaba de medir la pantalla.
-  const frameStyle = { width: "100%", height: "100vh", background: C.paper, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" };
+  const frameStyle = { width: "100%", background: C.paper, position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" };
 
   return (
     <div className="app-page" style={{ width: "100%", minHeight: "100vh", background: C.paper, display: "flex", justifyContent: "center", boxSizing: "border-box", fontFamily: FONT_BODY }}>
@@ -10377,6 +10443,10 @@ export default function FlyBoutiqueApp() {
         #root { height: 100%; }
         .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
         .app-content { scrollbar-width: none; }
+        /* Alto real de la pantalla: en iPhone 100vh es más alto que lo visible (la barra de Safari) y la página podía quedar descuadrada al volver */
+        .app-frame { height: 100vh; height: 100dvh; }
+        /* Las tarjetas que no se ven no se dibujan: menos memoria en celulares (evita que Safari deje la página en blanco) */
+        .product-grid > *, .pos-tiles > * { content-visibility: auto; contain-intrinsic-size: auto 340px; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .install-sheet > div { animation: sheetUp .35s cubic-bezier(.2,.8,.2,1) both; }
         @keyframes sheetUp { from { transform: translateY(110%); opacity: 0; } }
@@ -10393,7 +10463,7 @@ export default function FlyBoutiqueApp() {
         @keyframes heroZoom { from { transform: scale(1); } to { transform: scale(1.06); } }
         .hero-zoom { animation: heroZoom 7s ease-out forwards; }
         @keyframes ctaGlow { 0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } 80% { box-shadow: 0 0 0 0 rgba(255,255,255,.55); } 95% { box-shadow: 0 0 0 10px rgba(255,255,255,0); } }
-        .cta-glow { animation: ctaGlow 3.2s ease-out 1.2s infinite; }
+        .cta-glow { animation: ctaGlow 3.2s ease-out 1.2s 3; }
         /* Botón listo para comprar: un destello que lo recorre y un latido suave */
         @keyframes btnShine { from { transform: translateX(-120%) skewX(-20deg); } to { transform: translateX(260%) skewX(-20deg); } }
         @keyframes btnPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.025); } }
@@ -10416,9 +10486,9 @@ export default function FlyBoutiqueApp() {
         @keyframes heartPop { 0% { transform: scale(1); } 30% { transform: scale(1.45); } 60% { transform: scale(.9); } 100% { transform: scale(1); } }
         .heart-pop { animation: heartPop .45s ease; }
         @keyframes wiggle { 0%, 84%, 100% { transform: rotate(0); } 88% { transform: rotate(-12deg); } 92% { transform: rotate(10deg); } 96% { transform: rotate(-6deg); } }
-        .gift-wiggle { animation: wiggle 2.6s ease .6s infinite; }
+        .gift-wiggle { animation: wiggle 2.6s ease .6s 3; }
         @keyframes nudgeX { 0%, 70%, 100% { transform: translateX(0); } 85% { transform: translateX(5px); } }
-        .nudge-x { animation: nudgeX 2.4s ease infinite; }
+        .nudge-x { animation: nudgeX 2.4s ease 4; }
         /* Más (panel): tarjetas con ícono que entran una tras otra y responden al tocar */
         .dash-tile { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both; transition: transform .15s ease, box-shadow .2s ease; }
         .dash-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,.07); }
@@ -10468,7 +10538,7 @@ export default function FlyBoutiqueApp() {
         .big-ico { transition: transform .2s ease; }
         .big-action:hover .big-ico, .big-action:active .big-ico { transform: rotate(-6deg) scale(1.08); }
         @keyframes mainGlow { 0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(17,17,17,0); } 85% { box-shadow: 0 0 0 7px rgba(17,17,17,.12); } }
-        .big-main { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both, mainGlow 3s ease 1s infinite; }
+        .big-main { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both, mainGlow 3s ease 1s 3; }
         /* Cesta: el número salta cuando se añade algo */
         @keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.5); } 100% { transform: scale(1); } }
         .badge-bump { animation: bump .45s ease; }
