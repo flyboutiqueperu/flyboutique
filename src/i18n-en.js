@@ -1,5 +1,7 @@
 // Traducciones de la tienda al inglés (español → inglés). Si falta una, se muestra en español.
 const EN = {
+ "Quiero unirme": "I want to join",
+ "Gana puntos con cada compra y recibe novedades primero.": "Earn points with every purchase and get new arrivals first.",
  "Reproducir video": "Play video",
  "Banner": "Banner",
  " Termina lo que estás haciendo y actualiza.": " Finish what you're doing and update.",

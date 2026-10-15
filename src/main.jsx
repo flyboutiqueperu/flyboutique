@@ -15,8 +15,28 @@ window.addEventListener("vite:preloadError", (e) => {
     if (Date.now() - last > 60000) { e.preventDefault(); sessionStorage.setItem("fly:recargado", String(Date.now())); window.location.reload(); }
   } catch (err) { /* sin almacenamiento: no se recarga */ }
 });
+// Red de seguridad: si una pantalla falla, se muestra un aviso con «Volver a intentar» en vez de quedar en blanco.
+// «Volver a intentar» no recarga la página, así la cesta y lo escrito se conservan.
+class Guard extends React.Component {
+  constructor(props) { super(props); this.state = { err: null, n: 0 }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { console.error("Fly: error de pantalla", err, info?.componentStack); }
+  render() {
+    if (!this.state.err) return <React.Fragment key={this.state.n}>{this.props.children}</React.Fragment>;
+    const en = document.documentElement.lang === "en";
+    const btn = { padding: "13px 20px", borderRadius: 9, fontFamily: "Jost, sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer" };
+    return (
+      <div role="alert" style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 24, textAlign: "center", fontFamily: "Jost, sans-serif", background: "#fff", color: "#111" }}>
+        <div style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: 30 }}>FLY</div>
+        <div style={{ fontSize: 16, maxWidth: 340 }}>{en ? "Something didn't load properly." : "Algo no cargó bien."}</div>
+        <button onClick={() => this.setState((s) => ({ err: null, n: s.n + 1 }))} style={{ ...btn, background: "#111", color: "#fff", border: "none" }}>{en ? "Try again" : "Volver a intentar"}</button>
+        <button onClick={() => window.location.reload()} style={{ ...btn, background: "transparent", color: "#111", border: "1px solid #111" }}>{en ? "Reload page" : "Recargar la página"}</button>
+      </div>
+    );
+  }
+}
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode><App /></React.StrictMode>
+  <React.StrictMode><Guard><App /></Guard></React.StrictMode>
 );
 // Permite instalar la tienda como app (Android / iPhone / PC). No guarda copias: siempre carga lo último.
 if (import.meta.env.PROD && "serviceWorker" in navigator) {

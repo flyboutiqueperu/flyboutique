@@ -37,6 +37,7 @@ const CLUB_KEY = "flyboutique:clubmember:v1";
 const VIEWED_KEY = "flyboutique:viewed:v1";
 const MAX_VIEWED = 10;
 const SESSION_KEY = "flyboutique:session:v1";
+const CART_KEY = "flyboutique:cesta:v1"; // la cesta sobrevive a «Actualizar» y a recargar (se borra con lo personal tras 1 h sin uso)
 const COOKIE_CONSENT_KEY = "flyboutique:cookieconsent:v1";
 
 // Estadísticas: Google Analytics 4 (visitas, de dónde vienen, embudo de compra) y
@@ -754,7 +755,7 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
       <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
         <Tag label={label} />
         <button aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          <Heart size={14} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
+          <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={14} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
         </button>
         <ProductImg src={hovering && altImg ? altImg : baseImg} alt={pName(product)} dim={soldOut} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block", animation: "fadeIn .25s ease" }} />
         {!soldOut && onQuickAdd && (
@@ -1114,6 +1115,46 @@ const ViewedStrip = ({ items, onOpen, onQuickAdd, catalog, cartSessionId, onSeeA
   );
 };
 
+// Aparece subiendo suave la primera vez que entra en pantalla (si el teléfono pide «reducir movimiento», se ve directo)
+const Reveal = ({ children, style }) => {
+  const ref = useRef(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") { setInView(true); return; }
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setInView(true); io.disconnect(); } }, { rootMargin: "0px 0px -8% 0px" });
+    io.observe(el); return () => io.disconnect();
+  }, []);
+  return <div ref={ref} className={inView ? "reveal is-in" : "reveal"} style={style}>{children}</div>;
+};
+
+// Anuncio que sube desde abajo una sola vez (a los 9 s en el inicio) para invitar al Club Fly. Solo si el Club está activo y la persona no es socia.
+const CLUB_INVITE_KEY = "flyboutique:invitacion-club:v1";
+const ClubInvite = ({ onJoin }) => {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    let seen = false; try { seen = !!localStorage.getItem(CLUB_INVITE_KEY); } catch (e) { seen = true; }
+    if (seen) return;
+    const tm = setTimeout(() => setShow(true), 9000);
+    return () => clearTimeout(tm);
+  }, []);
+  const close = () => { setShow(false); try { localStorage.setItem(CLUB_INVITE_KEY, String(Date.now())); } catch (e) { /* sin guardado */ } };
+  if (!show) return null;
+  return (
+    <div role="dialog" aria-label={t("Club Fly")} className="club-invite" style={{ position: "fixed", left: 12, right: 12, bottom: "calc(86px + env(safe-area-inset-bottom))", zIndex: 80, maxWidth: 420, margin: "0 auto", background: C.ink, color: C.paper, borderRadius: 14, padding: "16px 16px 14px", boxShadow: "0 12px 32px rgba(0,0,0,.28)", fontFamily: FONT_BODY, animation: "slideUp .45s ease" }}>
+      <button onClick={close} aria-label={t("Cerrar")} style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", color: C.paper, cursor: "pointer", padding: 6 }}><X size={16} /></button>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, paddingRight: 24 }}>
+        <span className="gift-wiggle" style={{ width: 42, height: 42, borderRadius: "50%", background: C.paper, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Gift size={20} color={C.ink} /></span>
+        <div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800 }}>{t("Únete al Club Fly gratis")}</div>
+          <div style={{ fontSize: 12.5, opacity: 0.8, lineHeight: 1.4 }}>{t("Gana puntos con cada compra y recibe novedades primero.")}</div>
+        </div>
+      </div>
+      <button className="btn-ready" onClick={() => { close(); onJoin(); }} style={{ width: "100%", marginTop: 12, padding: "11px", borderRadius: 9, border: "none", background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{t("Quiero unirme")}</button>
+    </div>
+  );
+};
+
 // Portada: los banners activos rotan solos con fundido (cada 6 s), se pueden deslizar con el dedo o tocar los puntitos.
 // Solo se cargan el banner visible y el siguiente; la rotación se pausa si la portada no se ve o la app está en segundo plano.
 const HeroCarousel = ({ banners, onCta }) => {
@@ -1201,19 +1242,23 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
         </div>
       )}
 
+      <Reveal>
       <SectionTitle eyebrow="Recién llegado" title={t("Nueva colección")} action="Ver todo" onAction={() => setScreen("category")} />
       <div className="nuevos-row" style={{ display: "flex", gap: 14, overflowX: "auto", padding: "0 20px 6px", marginBottom: 32, scrollbarWidth: "none" }}>
         {nuevos.length ? nuevos.slice(0, 8).map((p) => <ProductCard key={p.id} product={p} onOpen={onOpen} fav={favs.has(p.id)} onToggleFav={onToggleFav} wide onQuickAdd={onQuickAdd} catalog={catalog} cartSessionId={cartSessionId} />)
           : <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, padding: "10px 0" }}>{t("Sin novedades por ahora.")}</div>}
       </div>
+      </Reveal>
 
+      <Reveal>
       <SectionTitle eyebrow="Lo más amado" title={t("Destacados")} />
       <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, padding: "0 20px", marginBottom: 32 }}>
         {destacados.map((p) => <ProductCard key={p.id} product={p} onOpen={onOpen} fav={favs.has(p.id)} onToggleFav={onToggleFav} onQuickAdd={onQuickAdd} catalog={catalog} cartSessionId={cartSessionId} />)}
       </div>
+      </Reveal>
 
       {ofertas.length > 0 && (
-        <div style={{ margin: "0 20px 32px", borderRadius: 14, border: `1px solid ${C.line}`, padding: "22px 20px" }}>
+        <Reveal><div style={{ margin: "0 20px 32px", borderRadius: 14, border: `1px solid ${C.line}`, padding: "22px 20px" }}>
           <Eyebrow color={C.accent}>{t("Ofertas")}</Eyebrow>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, marginBottom: 4 }}>{maxOff > 0 ? t("Hasta {n}% de descuento", { n: maxOff }) : t("En oferta")}</div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 16, maxWidth: 240 }}>{t("En piezas seleccionadas, hasta agotar stock.")}</div>
@@ -1225,7 +1270,7 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
               </div>
             ))}
           </div>
-        </div>
+        </div></Reveal>
       )}
 
       {outletCount > 0 && (
@@ -1234,7 +1279,7 @@ const HomeScreen = ({ catalog, onOpen, favs, onToggleFav, setScreen, setActiveCa
             <span style={{ display: "block", fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, letterSpacing: "0.14em", color: C.ink }}>{t("OUTLET")}</span>
             <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 3 }}>{t(outletCount === 1 ? "Últimas unidades a precio final · {n} prenda" : "Últimas unidades a precio final · {n} prendas", { n: outletCount })}</span>
           </span>
-          <ChevronRight size={18} color={C.ink} />
+          <ChevronRight className="nudge-x" size={18} color={C.ink} />
         </button>
       )}
 
@@ -1936,7 +1981,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           </span>
         </div>
         <button onClick={() => onToggleFav(product.id)} aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} style={{ width: 38, height: 38, borderRadius: "50%", background: "transparent", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          <Heart size={17} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
+          <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={17} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
         </button>
       </div>
 
@@ -6950,17 +6995,17 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
     );
   }
   return (
-    <div className="pos" style={{ padding: "16px 16px 90px", position: "relative" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+    <div className={`pos${saleItems.length ? " pos-busy" : ""}`} style={{ padding: "16px 16px 90px", position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 21, color: C.ink, fontWeight: 800, margin: 0 }}>{title}</h1>
           {channel === "tienda" && (
-            <select value={currentStore.id} onChange={(e) => { setStoreId(e.target.value); try { localStorage.setItem("flyboutique:sede", e.target.value); } catch (err) { /* nada */ } }} style={{ ...inputStyle, width: "auto", padding: "7px 10px" }} aria-label="Sede">
+            <select value={currentStore.id} onChange={(e) => { setStoreId(e.target.value); try { localStorage.setItem("flyboutique:sede", e.target.value); } catch (err) { /* nada */ } }} style={{ ...inputStyle, width: "auto", maxWidth: "100%", padding: "7px 10px" }} aria-label="Sede">
               {posStores.map((x) => <option key={x.id} value={x.id}>Sede: {x.name}</option>)}
             </select>
           )}
         </div>
-        <select value={comprobanteTipo} onChange={(e) => setComprobanteTipo(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "8px 10px" }}>
+        <select value={comprobanteTipo} onChange={(e) => setComprobanteTipo(e.target.value)} aria-label="Tipo de comprobante" style={{ ...inputStyle, width: "auto", maxWidth: "100%", padding: "8px 10px" }}>
           <option value="boleta">Boleta / Nota de venta</option>
           <option value="factura">Factura</option>
         </select>
@@ -7029,11 +7074,11 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
                     <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{i.size} · {i.colorName} · {money(i.unitPrice)}</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                    <button onClick={() => updateQty(i.saleItemId, -1)} aria-label="Menos" style={{ background: "none", border: "none", cursor: "pointer" }}><Minus size={13} /></button>
-                    <span style={{ fontFamily: FONT_BODY, fontSize: 12.5 }}>{i.qty}</span>
-                    <button onClick={() => updateQty(i.saleItemId, 1)} aria-label="Más" style={{ background: "none", border: "none", cursor: "pointer" }}><Plus size={13} /></button>
+                    <button className="tap-round" onClick={() => updateQty(i.saleItemId, -1)} aria-label="Menos"><Minus size={15} /></button>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 600, minWidth: 16, textAlign: "center" }}>{i.qty}</span>
+                    <button className="tap-round" onClick={() => updateQty(i.saleItemId, 1)} aria-label="Más"><Plus size={15} /></button>
                     <span style={{ fontFamily: FONT_DISPLAY, fontSize: 13, fontWeight: 800, color: C.ink, minWidth: 54, textAlign: "right" }}>{money(i.unitPrice * i.qty)}</span>
-                    <button onClick={() => removeItem(i.saleItemId)} aria-label="Quitar" style={{ background: "none", border: "none", cursor: "pointer" }}><Trash2 size={13} color={C.ink} /></button>
+                    <button className="tap-round tap-plain" onClick={() => removeItem(i.saleItemId)} aria-label="Quitar"><Trash2 size={15} color={C.ink} /></button>
                   </div>
                 </div>
               ))}
@@ -8576,7 +8621,7 @@ const StaffHelp = ({ screen, onOpenManual }) => {
     <>
       <button onClick={() => setOpen(true)} title="¿Cómo se hace? Ver los pasos de esta pantalla" className="staff-help-btn"
         style={{ position: "fixed", right: 18, bottom: 96, zIndex: 40, display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", borderRadius: 999, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", boxShadow: "0 6px 18px rgba(0,0,0,0.22)" }}>
-        <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.paper, color: C.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: 13 }}>?</span> Ayuda
+        <span style={{ width: 20, height: 20, borderRadius: "50%", background: C.paper, color: C.ink, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: 13 }}>?</span><span className="help-label">Ayuda</span>
       </button>
       {open && (
         <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 75, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
@@ -8958,7 +9003,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
 // la siguiente persona no ve nada de la anterior.
 const SHOPPER_IDLE_MINUTES = 60;
 const LAST_ACTIVE_KEY = "flyboutique:actividad:v1";
-const PERSONAL_KEYS = [WISHLIST_KEY, VIEWED_KEY, CLUB_KEY, SESSION_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY];
+const PERSONAL_KEYS = [WISHLIST_KEY, VIEWED_KEY, CLUB_KEY, SESSION_KEY, CART_KEY, ADDRESSES_KEY, MEASURES_KEY, RECENT_SEARCH_KEY];
 const readLastActive = () => { try { return Number(localStorage.getItem(LAST_ACTIVE_KEY)) || 0; } catch (e) { return 0; } };
 const markActive = () => { try { localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now())); } catch (e) { /* sin guardado */ } };
 const shopperIsIdle = () => Date.now() - readLastActive() > SHOPPER_IDLE_MINUTES * 60 * 1000;
@@ -8976,7 +9021,10 @@ export default function FlyBoutiqueApp() {
   const [screen, setScreen] = useState("home");
   const [activeCategory, setActiveCategory] = useState("Todo");
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => {
+    try { const c = JSON.parse(localStorage.getItem(CART_KEY) || "[]"); return Array.isArray(c) ? c.filter((i) => i && i.cartId && i.productId && i.qty > 0).slice(0, 50) : []; } catch (e) { return []; }
+  });
+  useEffect(() => { try { if (cart.length) localStorage.setItem(CART_KEY, JSON.stringify(cart)); else localStorage.removeItem(CART_KEY); } catch (e) { /* sin guardado */ } }, [cart]);
   const [favs, setFavs] = useState(new Set());
   const [toast, setToast] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -9488,6 +9536,21 @@ export default function FlyBoutiqueApp() {
         @keyframes ring { 0% { box-shadow: 0 0 0 0 ${C.ink}55; } 100% { box-shadow: 0 0 0 9px ${C.ink}00; } }
         .size-nudge { animation: nudge .5s ease; }
         .size-nudge > button:not(:disabled) { animation: ring .9s ease-out 2; }
+        /* Inicio: las secciones aparecen subiendo al bajar, y sus prendas entran una tras otra */
+        @media (prefers-reduced-motion: no-preference) {
+          .reveal { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s cubic-bezier(.2,.7,.2,1); }
+          .reveal.is-in { opacity: 1; transform: none; }
+          .reveal.is-in .pcard { animation: cardIn .6s cubic-bezier(.2,.7,.2,1) both; }
+          ${[1, 2, 3, 4, 5, 6, 7, 8].map((i) => `.reveal.is-in .pcard:nth-child(${i}) { animation-delay: ${(i - 1) * 70}ms; }`).join(" ")}
+        }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+        /* Favorito: el corazón late; regalo del anuncio que se mueve; flecha que invita a tocar */
+        @keyframes heartPop { 0% { transform: scale(1); } 30% { transform: scale(1.45); } 60% { transform: scale(.9); } 100% { transform: scale(1); } }
+        .heart-pop { animation: heartPop .45s ease; }
+        @keyframes wiggle { 0%, 84%, 100% { transform: rotate(0); } 88% { transform: rotate(-12deg); } 92% { transform: rotate(10deg); } 96% { transform: rotate(-6deg); } }
+        .gift-wiggle { animation: wiggle 2.6s ease .6s infinite; }
+        @keyframes nudgeX { 0%, 70%, 100% { transform: translateX(0); } 85% { transform: translateX(5px); } }
+        .nudge-x { animation: nudgeX 2.4s ease infinite; }
         /* Cesta: el número salta cuando se añade algo */
         @keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.5); } 100% { transform: scale(1); } }
         .badge-bump { animation: bump .45s ease; }
@@ -9506,6 +9569,20 @@ export default function FlyBoutiqueApp() {
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 0.9s linear infinite; }
         button { font-family: inherit; }
+        /* Pantallas táctiles (caja en PC táctil, tablet o celular): sin retraso ni zoom por doble toque, sin selección de texto al tocar */
+        button, a, [role="button"], select, label { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+        button { -webkit-user-select: none; user-select: none; transition: transform .12s ease, opacity .12s ease; }
+        button:active:not(:disabled) { transform: scale(.96); }
+        /* Caja: mientras hay prendas en la venta, el botón Ayuda se oculta para no tapar «Cobrar»; en celular es solo «?» */
+        body:has(.pos-busy) .staff-help-btn { display: none !important; }
+        @media (max-width: 899px) { .staff-help-btn .help-label { display: none; } .staff-help-btn { padding: 9px !important; } }
+        .tap-round { width: 36px; height: 36px; border-radius: 50%; border: 1px solid ${C.line}; background: ${C.paper}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; color: ${C.ink}; flex-shrink: 0; }
+        .tap-round.tap-plain { border-color: transparent; background: transparent; }
+        @media (pointer: coarse), (any-pointer: coarse) {
+          /* También en PC con pantalla táctil (aunque tenga mouse). En iPhone/iPad, letra de 16 px en los campos: así no se agranda la pantalla al tocar uno */
+          input, select, textarea { font-size: 16px !important; }
+          .tap-round { width: 42px; height: 42px; }
+        }
         input:focus, button:focus-visible, select:focus, textarea:focus { outline: 2px solid ${C.ink}; outline-offset: 2px; }
 
         /* ---------- Celular: la app ocupa TODA la pantalla ---------- */
@@ -9677,6 +9754,7 @@ export default function FlyBoutiqueApp() {
                 reviews={catalog.reviews} onAddReview={addReview} collections={catalog.collections} allProducts={catalog.products} onOpenProduct={openProduct} catalog={catalog} cartSessionId={cartSessionId} onNavigate={navigateFromProduct} favs={favs} />}
               {!selectedProduct && <>
               {screen === "home" && <HomeScreen catalog={catalog} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} setScreen={setScreen} setActiveCategory={setActiveCategory} points={points} notifyMe={() => showToast(t("Te avisaremos primero ✓"))} viewedIds={viewedIds} onQuickAdd={addToCart} cartSessionId={cartSessionId} onOpenInfo={(i) => { setInfoSectionIndex(i); setScreen("info"); }} />}
+              {screen === "home" && !selectedProduct && !clubMember && clubOn(catalog?.settings) && <ClubInvite onJoin={() => setScreen("loyalty")} />}
               {screen === "info" && <InfoScreen sectionIndex={infoSectionIndex} setScreen={setScreen} />}
               {screen === "outlet" && <CategoryScreen key="outlet" outlet catalog={catalog} activeCategory={outletCat} setActiveCategory={setOutletCat} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={outletQ} setSearchQuery={setOutletQ} group={null} setGroup={() => {}} />}
               {screen === "category" && <CategoryScreen catalog={catalog} activeCategory={activeCategory} setActiveCategory={setActiveCategory} onOpen={openProduct} favs={favs} onToggleFav={toggleFav} onQuickAdd={addToCart} cartSessionId={cartSessionId} searchQuery={searchQuery} setSearchQuery={setSearchQuery} group={catalogGroup} setGroup={setCatalogGroup} />}
