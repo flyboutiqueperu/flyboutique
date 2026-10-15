@@ -8192,7 +8192,7 @@ async function downloadBackup() {
   } catch (e) { alert("No se pudo generar la copia: " + (e.message || e)); }
 }
 
-const AdminMoreScreen = ({ setScreen, onExit, role }) => (
+const AdminMoreScreen = ({ setScreen, role }) => (
   <div style={{ padding: "18px 18px 90px" }}>
     <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 16px" }}>Más</h1>
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -8216,7 +8216,6 @@ const AdminMoreScreen = ({ setScreen, onExit, role }) => (
       {role === "superadmin" && <button onClick={() => setScreen("promocodes")} style={quickLinkStyle}><Gift size={16} color={C.ink} /> Códigos promocionales <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("docapi")} style={quickLinkStyle}><Scan size={16} color={C.ink} /> Consulta DNI / RUC (autocompletar en caja) <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
       {role === "superadmin" && <button onClick={() => setScreen("users")} style={quickLinkStyle}><User size={16} color={C.ink} /> Usuarios y permisos <ChevronRight size={15} color={C.stone} style={{ marginLeft: "auto" }} /></button>}
-      <button onClick={onExit} style={{ ...quickLinkStyle, color: C.accent, borderColor: C.accent }}><LogOut size={16} color={C.accent} /> Cerrar sesión</button>
     </div>
   </div>
 );
@@ -9381,7 +9380,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {(role === "administrador" || role === "superadmin") && screen === "collectionEditor" && <AdminCollectionEditor collection={catalog.collections.find((c) => c.id === editingCollectionId) || null} products={catalog.products} onSave={saveCollection} onCancel={() => setScreen("collections")} />}
         {(role === "administrador" || role === "superadmin") && screen === "invoices" && <AdminInvoicesScreen storesSettings={catalog.settings} sales={catalog.sales} onVoid={voidSale} onReturn={(sale) => { setReturnSale(sale); setScreen("returns"); }} />}
         {(role === "administrador" || role === "superadmin") && screen === "reports" && <AdminReportsScreen catalog={catalog} />}
-        {(role === "administrador" || role === "superadmin") && screen === "more" && <AdminMoreScreen setScreen={setScreen} onExit={onExit} role={role} />}
+        {(role === "administrador" || role === "superadmin") && screen === "more" && <AdminMoreScreen setScreen={setScreen} role={role} />}
         {role === "superadmin" && screen === "users" && <AdminUsersScreen currentUserId={currentUserId} />}
         {(role === "administrador" || role === "superadmin") && screen === "complaints" && <AdminComplaintsScreen staffName={staffName} />}
         {role === "superadmin" && screen === "promocodes" && <AdminPromoCodesScreen promoCodes={catalog.promoCodes} onSave={savePromo} onDelete={deletePromo} />}
