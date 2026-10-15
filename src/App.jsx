@@ -9757,7 +9757,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", background: C.paper, minHeight: 0 }}>
-      <div className="app-content" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
+      <div className="app-content staff-main" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
         {screen !== "productEditor" && screen !== "bannerEditor" && screen !== "collectionEditor" && <AdminTopBar title={`Fly · ${ROLE_LABELS[role] || role}`} onExit={onExit} onBack={screen !== homeScreen ? () => window.history.back() : null} onHome={screen !== homeScreen ? () => setScreen(homeScreen) : null} />}
         {screen === "productEditor" && <AdminTopBar title={editingProductId ? "Editar producto" : "Nuevo producto"} onBack={() => setScreen("products")} onExit={onExit} />}
         {screen === "bannerEditor" && <AdminTopBar title={editingBannerId ? "Editar banner" : "Nuevo banner"} onBack={() => setScreen("banners")} onExit={onExit} />}
@@ -10416,6 +10416,9 @@ export default function FlyBoutiqueApp() {
         .dash-tile { animation: cardIn .45s cubic-bezier(.2,.7,.2,1) both; transition: transform .15s ease, box-shadow .2s ease; }
         .dash-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,.07); }
         .more-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        /* Texto largo dentro de ventanas: justificado (como la página de información) */
+        .sheet-panel p, .cookie-text,
+        :is(.sheet-panel, .fold-body, .help-panel) :is([style*="line-height: 1.5"], [style*="line-height: 1.6"], [style*="line-height: 1.7"], [style*="line-height: 1.8"]):not([style*="text-align"]):not(:has(input, button, select, textarea)) { text-align: justify; hyphens: auto; -webkit-hyphens: auto; }
         .fold-chev { transition: transform .25s ease; flex-shrink: 0; }
         .fold-card.is-open .fold-chev { transform: rotate(180deg); }
         .fold-body { animation: groupIn .28s ease both; }
@@ -10502,6 +10505,8 @@ export default function FlyBoutiqueApp() {
           .pdp-slide { max-height: 76vh; }
         }
         @media (min-width: 600px) and (max-width: 899px) {
+          .overlay-sheet { justify-content: center !important; align-items: center !important; }
+          .sheet-panel { width: 560px; max-width: 92vw; border-radius: 16px !important; max-height: 86vh !important; }
           .cookie-box { padding: 22px 32px calc(22px + env(safe-area-inset-bottom)) !important; }
           .cookie-box .cookie-title { font-size: 17px !important; }
           .cookie-box .cookie-text { font-size: 13.5px !important; }
@@ -10582,12 +10587,14 @@ export default function FlyBoutiqueApp() {
             width: 100% !important; z-index: 50 !important; background: ${C.paper} !important;
             border-top: none !important; border-bottom: 1px solid ${C.line} !important;
             box-shadow: 0 0 0 100vmax ${C.paper}; clip-path: inset(0 -100vmax -1px);
-            justify-content: flex-start !important; gap: 6px !important; padding: 12px 20px !important;
+            justify-content: flex-start !important; gap: 6px !important; padding: 12px max(20px, calc((100% - 1100px) / 2 + 20px)) !important;
           }
           .staff-nav .nav-item { flex-direction: row !important; flex: none !important; gap: 8px !important; padding: 10px 14px !important; border-radius: 999px !important; }
           .staff-nav .nav-item:hover, .staff-nav .nav-item.is-active { background: ${C.paperDeep} !important; }
           .staff-nav .nav-label { font-size: 13px !important; }
-          .admin-topbar { position: static !important; margin: 16px 20px 0; border-radius: 12px; }
+          .admin-topbar { position: static !important; margin: 16px max(20px, calc((100% - 1100px) / 2 + 20px)) 0; border-radius: 12px; }
+          /* Pantallas del staff centradas en PC (antes quedaban pegadas a la izquierda) */
+          .staff-main > div:not(.admin-topbar):not(.overlay-sheet):not([style*="position: fixed"]) { max-width: 1100px; margin-left: auto !important; margin-right: auto !important; }
           .pos-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
           .pos-right { position: sticky; top: 76px; border: 1px solid ${C.line}; border-radius: 14px; padding: 14px; background: ${C.paper}; max-height: calc(100vh - 100px); overflow-y: auto; }
           .pos-tiles { grid-template-columns: repeat(4, 1fr) !important; }
