@@ -5,7 +5,7 @@ import {
   LogOut, CreditCard, Package, Settings2, SlidersHorizontal, ArrowUpDown,
   Mail, Pencil, Upload, Image as ImageIcon, KeyRound, LayoutDashboard,
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
-  FileText, Truck, ArrowLeftRight, UserCog, Images, FolderArchive, ClipboardList, Contact, BadgePercent, Wallet, BookOpenCheck, HardDriveDownload,
+  FileText, Truck, ArrowLeftRight, UserCog, Images, FolderArchive, ClipboardList, History, Contact, BadgePercent, Wallet, BookOpenCheck, HardDriveDownload,
   MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
 } from "lucide-react";
 // Excel y códigos de barras solo se descargan cuando el staff los usa (la tienda abre más rápido en celular)
@@ -4188,7 +4188,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
     : role === "almacen"
     ? [["stock", "Stock", Package], ["transfers", "Traslados", Navigation], ["onlineorders", "Pedidos", Ticket]]
     : [["onlinesales", "Venta Online", ShoppingCart], ["onlineorders", "Pedidos Web", Ticket], ["mysales", "Mis ventas", BarChart3]];
-  const moreScreens = ["transfers", "purchases", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["transfers", "purchases", "activity", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       {items.map(([key, label, Icon]) => {
@@ -4285,10 +4285,10 @@ const BusinessSummary = ({ catalog, go }) => {
       )}
       {extra.activity && extra.activity.length > 0 && (
         <AdminCard style={{ marginBottom: 24 }}>
-          <span style={labelStyle}>Actividad reciente</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}><span style={labelStyle}>Actividad reciente</span><button onClick={() => go("activity")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, color: C.ink, textDecoration: "underline" }}>Ver todo</button></div>
           {extra.activity.map((a, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.paperDeep}`, fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>
-              <span style={{ minWidth: 0 }}>{ACTION_LABELS[a.action] || a.action.replace(/_/g, " ")}{a.details?.guia ? ` · ${a.details.guia}` : a.details?.motivo ? ` · ${a.details.motivo}` : ""}</span>
+              <span style={{ minWidth: 0 }}>{activityLabel(a.action)}{a.details?.guia ? ` · ${a.details.guia}` : a.details?.motivo ? ` · ${a.details.motivo}` : ""}</span>
               <span style={{ color: C.stone, whiteSpace: "nowrap" }}>{a.user_name || ""} · {fmtDT(a.at)}</span>
             </div>
           ))}
@@ -5976,6 +5976,98 @@ const EInvoiceScreen = ({ catalog, role }) => {
 };
 
 // ---- Copia de las fotos y videos (Storage no entra en la copia de datos) ----
+// Registro de actividad: quién hizo qué y cuándo (tabla audit_log; solo la ven Super Admin y Administrador).
+// Solo lectura: nada se puede editar ni borrar desde aquí.
+const ACTIVITY_GROUPS = [
+  ["caja", "Caja", (a) => a.startsWith("caja_")],
+  ["ventas", "Ventas y devoluciones", (a) => /^(venta_|pago_validado|devolucion|cambio_prendas|vale_|puntos_)/.test(a)],
+  ["comprobantes", "Comprobantes SUNAT", (a) => /^(comprobante_|nota_credito_|facturacion_config)/.test(a)],
+  ["inventario", "Inventario y compras", (a) => /^(guia_|traslado_|compra_|costo_|gasto_)/.test(a)],
+  ["equipo", "Equipo y configuración", (a) => /^(usuario_|vendedor_|consulta_doc_config|permiso_publicidad)/.test(a)],
+];
+const ACTIVITY_EXTRA = { caja_entrada: "Entrada de dinero", caja_salida: "Salida de dinero", devolucion: "Devolución", cambio_prendas: "Cambio de prendas", vale_creado: "Vale creado", vale_anulado: "Vale anulado", puntos_canjeados: "Puntos canjeados", comprobante_aceptado: "Comprobante aceptado por SUNAT", comprobante_enviado: "Comprobante enviado", comprobante_rechazado: "Comprobante rechazado", comprobante_error: "Comprobante con error", comprobante_anulado: "Comprobante anulado", nota_credito_aceptado: "Nota de crédito aceptada", nota_credito_enviado: "Nota de crédito enviada", nota_credito_rechazado: "Nota de crédito rechazada", nota_credito_error: "Nota de crédito con error", facturacion_config: "Configuración de facturación", consulta_doc_config: "Configuración DNI/RUC", permiso_publicidad: "Permiso de publicidad", vendedor_guardado: "Vendedor guardado" };
+const activityLabel = (a) => ACTION_LABELS[a] || ACTIVITY_EXTRA[a] || String(a || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+const ACTIVITY_KEYS = { venta: "Venta", comprobante: "Comprobante", nota: "Nota", modifica: "Modifica", guia: "Guía", motivo: "Motivo", total: "Total", monto: "Monto", amount: "Monto", detalle: "Detalle", codigo: "Código", code: "Código", reason: "Motivo", token: "Token", sede: "Sede", diferencia: "Diferencia", difference: "Diferencia", serie: "Serie", numero: "Número" };
+const activityDetail = (d) => {
+  if (!d || typeof d !== "object") return "";
+  return Object.entries(d).filter(([, v]) => v !== null && v !== undefined && v !== "" && typeof v !== "object").slice(0, 6)
+    .map(([k, v]) => `${ACTIVITY_KEYS[k] || k}: ${typeof v === "number" && /total|monto|amount|diferencia|difference/i.test(k) ? money(v) : v}`).join(" · ");
+};
+const ActivityScreen = () => {
+  const PAGE = 200;
+  const [period, setPeriod] = useState("7");
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState("");
+  const [more, setMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [who, setWho] = useState("");
+  const [group, setGroup] = useState("");
+  const [q, setQ] = useState("");
+  const since = (p) => { if (p === "todo") return null; const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (Number(p) - 1)); return d.toISOString(); };
+  const load = async (append) => {
+    setLoading(true); setErr("");
+    const from = append ? (rows || []).length : 0;
+    let query = supabase.from("audit_log").select("id,at,user_name,action,details").order("at", { ascending: false }).range(from, from + PAGE - 1);
+    const s0 = since(period); if (s0) query = query.gte("at", s0);
+    const { data, error } = await query;
+    setLoading(false);
+    if (error) { setErr("No se pudo leer el registro: " + error.message); if (!append) setRows([]); return; }
+    setRows(append ? [...(rows || []), ...(data || [])] : data || []);
+    setMore((data || []).length === PAGE);
+  };
+  useEffect(() => { load(false); }, [period]);
+  const people = useMemo(() => [...new Set((rows || []).map((r) => r.user_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es")), [rows]);
+  const nq = normTxt(q.trim());
+  const shown = (rows || []).filter((r) => (!who || r.user_name === who)
+    && (!group || (ACTIVITY_GROUPS.find(([k]) => k === group)?.[2](r.action || "")))
+    && (!nq || normTxt(`${activityLabel(r.action)} ${r.user_name || ""} ${activityDetail(r.details)}`).includes(nq)));
+  const days = [];
+  shown.forEach((r) => { const k = new Date(r.at).toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long" }); if (!days.length || days[days.length - 1][0] !== k) days.push([k, []]); days[days.length - 1][1].push(r); });
+  const exportCsv = () => {
+    const out = [["Fecha", "Persona", "Acción", "Detalle"], ...shown.map((r) => [new Date(r.at).toLocaleString("es-PE"), r.user_name || "", activityLabel(r.action), activityDetail(r.details)])];
+    const csv = "﻿" + out.map((r) => r.map((x) => `"${String(x ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = `actividad-fly-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+  };
+  const sel = { ...inputStyle, padding: "9px 10px" };
+  return (
+    <div style={{ padding: "18px 18px 40px" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 6px" }}>Registro de actividad</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, marginBottom: 14, lineHeight: 1.5 }}>Quién hizo cada cambio importante: cajas, anulaciones, devoluciones, comprobantes, guías, compras y configuración. Solo lectura.</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        {[["1", "Hoy"], ["7", "7 días"], ["30", "30 días"], ["todo", "Todo"]].map(([k, l]) => <Chip key={k} active={period === k} onClick={() => setPeriod(k)}>{l}</Chip>)}
+      </div>
+      <div className="activity-filters" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+        <select aria-label="Persona" value={who} onChange={(e) => setWho(e.target.value)} style={sel}><option value="">Todas las personas</option>{people.map((p) => <option key={p} value={p}>{p}</option>)}</select>
+        <select aria-label="Tipo" value={group} onChange={(e) => setGroup(e.target.value)} style={sel}><option value="">Todo tipo</option>{ACTIVITY_GROUPS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+      </div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar (ej. B001-25, anulada, María)" style={{ ...inputStyle, marginBottom: 12 }} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>
+        <span>{rows === null ? "Cargando…" : `${shown.length} ${shown.length === 1 ? "registro" : "registros"}`}</span>
+        {shown.length > 0 && <button onClick={exportCsv} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${C.line}`, borderRadius: 8, padding: "7px 10px", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}><Download size={13} /> Excel (CSV)</button>}
+      </div>
+      {err && <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginBottom: 10 }}>{err}</div>}
+      {rows !== null && !shown.length && !err && <AdminCard><div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>No hay actividad con estos filtros.</div></AdminCard>}
+      {days.map(([d, list]) => (
+        <div key={d} style={{ marginBottom: 14 }}>
+          <span style={labelStyle}>{d}</span>
+          <AdminCard style={{ padding: "4px 14px" }}>
+            {list.map((r) => (
+              <div key={r.id} className="activity-row" style={{ padding: "9px 0", borderBottom: `1px solid ${C.line}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>
+                  <strong style={{ fontWeight: 600, color: /anulad|rechazad|error|salida/.test(r.action || "") ? C.accent : C.ink }}>{activityLabel(r.action)}</strong>
+                  <span style={{ color: C.stone, whiteSpace: "nowrap", fontSize: 12 }}>{new Date(r.at).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 2, wordBreak: "break-word" }}>{r.user_name || "Sistema"}{activityDetail(r.details) ? ` · ${activityDetail(r.details)}` : ""}</div>
+              </div>
+            ))}
+          </AdminCard>
+        </div>
+      ))}
+      {more && <button onClick={() => load(true)} disabled={loading} style={{ width: "100%", padding: 12, borderRadius: 10, border: `1px solid ${C.ink}`, background: C.paper, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600 }}>{loading ? "Cargando…" : "Cargar más"}</button>}
+    </div>
+  );
+};
+
 const PhotoBackupScreen = ({ catalog }) => {
   const [items, setItems] = useState(null);
   const [prog, setProg] = useState(null);
@@ -8294,6 +8386,7 @@ const MORE_ITEMS = [
   { id: "banners", g: "tienda", t: "Banners", d: "Las imágenes o videos grandes que rotan en la portada de la tienda.", icon: Images, k: "portada imagen video inicio" },
   { id: "collections", g: "tienda", t: "Colecciones", d: "Agrupar prendas (ej. «Oficina») para mostrarlas juntas en la web.", icon: Layers, k: "coleccion look agrupar" },
   { id: "manual", g: "equipo", t: "Manual del equipo", d: "Cómo se hace cada cosa, paso a paso, con imágenes.", icon: BookOpen, k: "ayuda guia como se hace" },
+  { id: "activity", g: "equipo", t: "Registro de actividad", d: "Quién abrió o cerró la caja, anuló, devolvió o cambió algo, y cuándo.", icon: History, k: "auditoria historial quien cambios log bitacora actividad" },
   { id: "reports", g: "equipo", t: "Reportes", d: "Ventas por día, vendedora, sede y prenda; rentabilidad y gastos.", icon: BarChart3, k: "reporte venta ganancia margen gasto vendedor" },
   { id: "users", g: "equipo", t: "Usuarios y permisos", d: "Crear cuentas del staff, cambiar su rol o contraseña.", icon: UserCog, k: "usuario rol contraseña cajero acceso", only: "superadmin" },
   { id: "sellers", g: "equipo", t: "Vendedores (códigos)", d: "El código de cada vendedora (ej. MA01) para saber quién vendió.", icon: Contact, k: "vendedora codigo ma01 comision" },
@@ -9348,7 +9441,7 @@ const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora
 const SCREEN_ACCESS = {
   dashboard: STAFF_ADMIN, products: STAFF_ADMIN, productEditor: STAFF_ADMIN, banners: STAFF_ADMIN, bannerEditor: STAFF_ADMIN,
   collections: STAFF_ADMIN, collectionEditor: STAFF_ADMIN, invoices: STAFF_ADMIN, reports: STAFF_ADMIN, more: STAFF_ADMIN,
-  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], facturacion: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
+  complaints: STAFF_ADMIN, sellers: STAFF_ADMIN, purchases: STAFF_ADMIN, docapi: ["superadmin"], fotoscopia: ["superadmin"], activity: STAFF_ADMIN, facturacion: STAFF_ADMIN, customers: STAFF_ADMIN, returns: ["superadmin", "administrador", "cajero"], credits: ["superadmin", "administrador", "cajero"], users: ["superadmin"], promocodes: ["superadmin"],
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
@@ -9566,6 +9659,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "manual" && <StaffManual role={role} />}
         {canOpenScreen(role, "docapi") && screen === "docapi" && <DocApiScreen />}
         {canOpenScreen(role, "fotoscopia") && screen === "fotoscopia" && <PhotoBackupScreen catalog={catalog} />}
+        {canOpenScreen(role, "activity") && screen === "activity" && <ActivityScreen />}
         {canOpenScreen(role, "facturacion") && screen === "facturacion" && <EInvoiceScreen catalog={catalog} role={role} />}
         {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
         {canOpenScreen(role, "transfers") && screen === "transfers" && <TransfersScreen catalog={catalog} role={role} refreshData={refreshData} />}
