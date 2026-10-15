@@ -15,7 +15,7 @@ const SALE = { id: "s9", serie: "B001", numero: 123, status: "emitido", channel:
   subtotal: 337, discount: 33.7, total: 303.3, staffName: "María", payments: [{ method: "Efectivo", amount: 303.3 }] };
 const calls = []; let CUR = null;
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));

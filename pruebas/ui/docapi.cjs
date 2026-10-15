@@ -14,7 +14,7 @@ const catalog = { products: [mk("p1", "Blusa Seda Marfil", 129, ["S", "M"]), mk(
 let suppliers = [], purchases = []; const calls = {}; const cfg = { configured: false, dniUrl: null, rucUrl: null, cached: 7, monthCalls: 12, monthFound: 10, lastProblem: { result: "sin-saldo", at: new Date().toISOString() } };
 const log = (k, v) => { (calls[k] = calls[k] || []).push(v); };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.setDefaultTimeout(4000);

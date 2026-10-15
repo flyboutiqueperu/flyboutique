@@ -20,7 +20,7 @@ const banners = [
 ];
 const catalog = { products: [mk("p1", "Vestido Lino", "a"), mk("p2", "Blusa Seda", "b")], collections: [], banners, settings: {}, promoCodes: [] };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, locale: "es-PE" });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.setDefaultTimeout(5000);

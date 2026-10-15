@@ -21,7 +21,7 @@ const page = async (b, ua, init) => {
 // Android: el navegador avisa que se puede instalar (evento simulado)
 const fakePrompt = () => { window.__prompted = 0; setTimeout(() => { const e = new Event("beforeinstallprompt"); e.prompt = () => { window.__prompted++; }; e.userChoice = Promise.resolve({ outcome: "accepted" }); window.dispatchEvent(e); }, 600); };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   // 1) Android en /caja: aparece solo, un toque instala
   let p = await page(b, null, fakePrompt);
   await p.goto("http://localhost:4383/caja"); await p.waitForTimeout(2500);
@@ -61,6 +61,29 @@ const fakePrompt = () => { window.__prompted = 0; setTimeout(() => { const e = n
   await p.clock.runFor(41000); await p.waitForTimeout(500);
   check("tienda: aparece después de 40 s", await p.locator(".install-sheet").count() === 1 && (await p.innerText(".install-sheet")).includes("Instala «Fly»"));
   await p.context().close();
+  // 7) iPhone en /caja con la sesión ya iniciada (entra directo a la caja): el aviso también aparece
+  {
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url"); const exp = Math.floor(Date.now() / 1000) + 3600;
+    const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: "u-caja", aal: "aal1", role: "authenticated", exp, email: "caja@staff.flyboutique.pe", amr: [{ method: "password", timestamp: 1 }] })}.sig`;
+    const user = { id: "u-caja", email: "caja@staff.flyboutique.pe", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, factors: [] };
+    p = await page(b, IPHONE, null);
+    await p.unroute("http://fake.supabase.test/**");
+    await p.route("http://fake.supabase.test/**", (rt) => { const u = rt.request().url();
+      if (u.includes("/auth/v1/token")) return rt.fulfill({ json: { access_token: jwt, token_type: "bearer", expires_in: 3600, expires_at: exp, refresh_token: "r", user } });
+      if (u.includes("/auth/v1/user")) return rt.fulfill({ json: user });
+      if (u.includes("/auth/v1/")) return rt.fulfill({ json: {} });
+      if (u.includes("store_data")) return rt.fulfill({ json: { data: catalog } });
+      if (u.includes("staff_profiles")) return rt.fulfill({ json: { user_id: "u-caja", username: "caja", name: "Carla Cajera", role: "cajero", active: true } });
+      if (u.includes("/rpc/current_cash")) return rt.fulfill({ json: null });
+      return rt.fulfill({ json: [] }); });
+    await p.goto("http://localhost:4383/caja"); await p.waitForSelector('input[placeholder="Usuario"]');
+    // marca el aviso del acceso como ya visto hace poco, para probar solo el de dentro de la caja
+    await p.fill('input[placeholder="Usuario"]', "caja"); await p.fill('input[placeholder="Contraseña"]', "clave1234"); await p.click("text=Entrar");
+    await p.waitForSelector("text=La caja de", { timeout: 15000 }); await p.waitForTimeout(1500);
+    check("caja con sesión iniciada: aparece «Instala «Fly Caja»»", (await p.locator(".install-sheet").count()) === 1 && (await p.innerText(".install-sheet")).includes("Fly Caja"));
+    await p.screenshot({ path: `${out}/instalar-caja-dentro.png` });
+    await p.context().close();
+  }
   // 6) App ya instalada: nunca aparece
   p = await page(b, IPHONE, () => { const mm = window.matchMedia.bind(window); window.matchMedia = (q) => (q.includes("display-mode: standalone") ? { matches: true, media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} } : mm(q)); });
   await p.goto("http://localhost:4383/staff"); await p.waitForTimeout(2500);

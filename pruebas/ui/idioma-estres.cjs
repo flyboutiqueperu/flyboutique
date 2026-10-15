@@ -8,7 +8,7 @@ const img = "http://localhost:4364/img/a.svg";
 const mk = (id, name, cat, extra = {}) => ({ id, name, category: cat, price: 129, compareAtPrice: id === "p2" ? 159 : null, status: "active", showOnline: true, description: "Vestido de lino.", images: [{ id: "i" + id, url: img }, { id: "j" + id, url: img }], variants: [{ id: id + "s", size: "S", colorName: "Negro", colorHex: "#111", stock: 3 }, { id: id + "m", size: "M", colorName: "Rojo", colorHex: "#b11", stock: 1 }], ...extra });
 const catalog = { products: [mk("p1", "Vestido Lino", "Vestidos", { nameEn: "Linen Dress" }), mk("p2", "Blusa Seda", "Blusas"), mk("p3", "Falda", "Faldas", { outlet: true })], collections: [], banners: [{ id: "b1", active: true, order: 1, title: "Nueva colección", image: img }, { id: "b2", active: true, order: 2, title: "Ofertas", image: img }], settings: {}, promoCodes: [] };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   let fallas = 0;
   for (const [equipo, opts] of [["celular", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }], ["PC", { viewport: { width: 1366, height: 860 } }]]) {
     const ctx = await b.newContext({ locale: "es-PE", ...opts });

@@ -15,7 +15,7 @@ const srv = http.createServer((q, r) => {
 const mk = (id, name) => ({ id, name, category: "Blusas", price: 99, status: "active", showOnline: true, images: [{ id: "i", url: "http://localhost:4359/img/orig.svg", thumb: "http://localhost:4359/img/thumb-roto.jpg" }], variants: [{ id: id + "v", size: "S", colorName: "Negro", colorHex: "#111", stock: 3 }] });
 const catalog = { products: Array.from({ length: 12 }, (_, i) => mk("p" + i, "Blusa " + i)), collections: [], banners: [], settings: {}, promoCodes: [] };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));

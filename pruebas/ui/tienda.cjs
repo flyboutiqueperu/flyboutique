@@ -6,7 +6,7 @@ const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?
 const mk = (id, name, price, sizes) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, featured: true, images: [], variants: sizes.map((s, i) => ({ id: id + s, size: s, colorName: "Negro", colorHex: "#111", stock: 3 + i, sku: (id + "-" + s).toUpperCase() })) });
 const catalog = { products: [mk("p1", "Blusa Seda Marfil", 129, ["XS", "S", "M"]), mk("p2", "Pantalón Sastre", 189, ["S", "M"])], collections: [], banners: [], settings: { cartHoldMinutes: 20 }, promoCodes: [] };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   for (const [label, vp] of [["celular", { width: 390, height: 844 }], ["pc", { width: 1366, height: 800 }]]) {
     const ctx = await b.newContext({ locale: "es-PE", viewport: vp, isMobile: label === "celular", hasTouch: label === "celular" });
     await ctx.addInitScript(() => { if (!sessionStorage.getItem("primera")) { sessionStorage.setItem("primera", "1");

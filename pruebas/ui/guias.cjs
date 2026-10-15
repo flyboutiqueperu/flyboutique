@@ -30,7 +30,7 @@ const run = async (b, role, fn) => {
   await fn(p); await ctx.close();
 };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   await run(b, "almacen", async (p) => {
     await p.getByText("Traslados", { exact: true }).last().click(); await p.waitForTimeout(500);
     await p.click("text=Nueva guía"); await p.waitForTimeout(300);

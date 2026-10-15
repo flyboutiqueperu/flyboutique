@@ -25,7 +25,7 @@ const hist = [
   { id: 1, created_at: new Date(Date.now() - 3 * 86400000).toISOString(), product_id: "p1", variant_id: "p1S", size: "S", color: "Negro", type: "anulación / devolución", qty: 1, stock_before: 3, stock_after: 4, unit_price: 129, doc: "B001-000101", staff_name: "Alberto", note: "Talla equivocada" },
 ];
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage();

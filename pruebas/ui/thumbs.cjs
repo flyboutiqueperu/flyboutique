@@ -15,7 +15,7 @@ const IMG = "http://localhost:4357/img/a.svg";
 catalog0.products[0].images = [{ id: "i1", url: IMG }, { id: "i2", url: IMG.replace("a.svg", "b.svg"), thumb: "http://localhost:4357/img/b-t.svg" }];
 const catalog = catalog0; const saves = []; const ups = [];
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));

@@ -10,7 +10,7 @@ const prod = { id: "p1", name: "Vestido Lino", slug: "p1", category: "Vestidos",
              { id: "v3", size: "S", colorName: "Rojo", colorHex: "#b11", stock: 1, sku: "V-S-R" }, { id: "v4", size: "M", colorName: "Rojo", colorHex: "#b11", stock: 0, sku: "V-M-R" }] };
 const catalog = { products: [prod], collections: [], banners: [], settings: {}, promoCodes: [] };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => localStorage.setItem("flyboutique:cookieconsent:v1", "none"));
   const p = await ctx.newPage(); p.on("pageerror", (e) => console.log("ERROR:", e.message));

@@ -29,7 +29,7 @@ const run = async (b, role, startHash, tries) => {
   await ctx.close();
 };
 (async () => {
-  const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
   await run(b, "cajero", "#caja", ["#staff/reports", "#staff/users", "#staff/products", "#staff/pos", "#caja"]);
   await run(b, "administrador", "#caja", ["#staff/reports", "#staff/users", "#staff/products"]);
   await run(b, "superadmin", "#caja", ["#staff/users", "#staff/promocodes"]);
