@@ -1,7 +1,28 @@
 {
   "rewrites": [
-    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
-    { "source": "/p/:id", "destination": "/api/p?id=:id" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/sitemap"
+    },
+    {
+      "source": "/p/:id",
+      "destination": "/api/p?id=:id"
+    },
+    {
+      "source": "/catalogo",
+      "destination": "/api/c"
+    },
+    {
+      "source": "/catalogo/:cat",
+      "destination": "/api/c?cat=:cat"
+    },
+    {
+      "source": "/outlet",
+      "destination": "/api/c?cat=outlet"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ]
 }
