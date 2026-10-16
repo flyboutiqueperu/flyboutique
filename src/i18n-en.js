@@ -795,7 +795,25 @@ const EN = {
  "Primavera: colores y telas ligeras": "Spring: colors and light fabrics",
  "Solo disponibles": "In stock only",
  "{n} — {p} en Fly Boutique": "{n} — {p} at Fly Boutique",
- "Enlace copiado": "Link copied"
+ "Enlace copiado": "Link copied",
+ "Avísame cuando vuelva": "Notify me when it's back",
+ "Avísame": "Notify me",
+ "¿Agotada tu talla? Avísame cuando vuelva": "Size sold out? Notify me when it's back",
+ "Agotado en este color: avísame cuando vuelva": "Sold out in this color: notify me when it's back",
+ "Tu celular o correo": "Your phone or email",
+ "999 999 999 o correo@ejemplo.com": "999 999 999 or name@example.com",
+ "Tu nombre (opcional)": "Your name (optional)",
+ "Solo te escribiremos para avisarte de esta prenda. No es publicidad.": "We'll only contact you about this item. No marketing.",
+ "Avisarme": "Notify me",
+ "Guardando…": "Saving…",
+ "¡Listo!": "Done!",
+ "Te avisaremos apenas vuelva la talla {s}.": "We'll let you know as soon as size {s} is back.",
+ "que pediste": "you asked for",
+ "Seguir viendo": "Keep browsing",
+ "Escribe un celular (9 dígitos) o un correo válido.": "Enter a phone number (9 digits) or a valid email.",
+ "Ya tienes muchos avisos pendientes. Te escribiremos pronto.": "You already have many pending alerts. We'll contact you soon.",
+ "Hay muchas solicitudes ahora. Intenta en unos minutos.": "There are many requests right now. Try again in a few minutes.",
+ "No se pudo guardar el aviso. Intenta de nuevo.": "We couldn't save your alert. Please try again."
 };
 export default EN;
 
