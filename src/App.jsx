@@ -472,12 +472,6 @@ function resizeImageFile(file, maxW = 1000, quality = 0.82) {
 }
 
 const mainImageUrl = (product) => imgThumb(product?.images?.[0]) || null;
-// Segunda foto disponible (de cualquier color) — para mostrar al pasar el mouse sobre la tarjeta.
-const hoverImageUrl = (product) => {
-  const imgs = (product?.images || []).filter((im) => im.type !== "video" && im.url);
-  const main = imgs[0]?.url;
-  return imgThumb(imgs.find((im) => im.url !== main)) || null;
-};
 // Fotos de un color para la tarjeta: la principal y "otro ángulo" del MISMO color
 const colorPhotos = (product, colorName) => {
   const imgs = (product?.images || []).filter((im) => im.type !== "video" && im.url);
@@ -748,10 +742,11 @@ const Switch = ({ on, onClick, label }) => (
 /* ------------------------------------------------------------------ */
 /*  PRODUCT CARD                                                       */
 /* ------------------------------------------------------------------ */
-const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId }) => {
+const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId, initialColor }) => {
   const colors = productColors(product);
   const sizes = productSizes(product);
-  const [color, setColor] = useState(colors[0] || null);
+  // Empieza en el color que se estaba viendo en la tarjeta (no cambia de color al tocar «+»)
+  const [color, setColor] = useState(colors.find((c) => c.n === initialColor) || colors[0] || null);
   const [size, setSize] = useState(null);
   const effStock = (s, colorName) => {
     const v = product.variants.find((vv) => vv.size === s && vv.colorName === colorName);
@@ -765,7 +760,7 @@ const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId })
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
       <div className="sheet-panel" style={{ position: "relative", background: C.white, borderRadius: "18px 18px 0 0", padding: "20px 20px 26px", animation: "slideUp .25s cubic-bezier(.2,.8,.2,1)" }}>
         <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-          <div style={{ width: 56, height: 70, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}><ProductImg src={mainImageUrl(product)} alt={pName(product)} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+          <div style={{ width: 56, height: 70, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}><ProductImg src={imgThumb((color && colorPhotos(product, color.n)[0]) || null) || mainImageUrl(product)} alt={pName(product)} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
           <div>
             <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, fontWeight: 600, marginBottom: 2 }}>{pName(product)}</div>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, color: C.ink, fontWeight: 800 }}>{money(product.price)}</div>
@@ -795,44 +790,68 @@ const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId })
   );
 };
 
+// En celular un toque dispara «mouseenter»: solo se usa el efecto de pasar el mouse en equipos con mouse de verdad
+const canHover = () => { try { return window.matchMedia("(hover: hover) and (pointer: fine)").matches; } catch (e) { return false; } };
 const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, catalog, cartSessionId }) => {
   const soldOut = productSoldOut(product);
   const label = soldOut ? "Agotado" : isOutlet(product) ? "Outlet" : product.tag;
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [hovering, setHovering] = useState(false);
-  const colors = productColors(product);
+  // Colores de la tarjeta: solo los que tienen stock (si la prenda está agotada, todos); los círculos salen si hay 2 o más
+  const allColors = productColors(product);
+  const colors = soldOut ? allColors : allColors.filter((c) => colorTotalStock(product, c.n) > 0);
   const [cardColor, setCardColor] = useState(null);
-  const shown = cardColor ? colorPhotos(product, cardColor) : [];
-  const baseObj = shown[0] || (product.images || [])[0];
-  const baseImg = imgThumb(baseObj) || mainImageUrl(product);
-  const sameColor = (cardColor ? shown : colorPhotos(product, (product.images || [])[0]?.colorName)).filter((im) => im.url !== baseObj?.url);
-  const altImg = imgThumb(sameColor[0]) || (cardColor ? null : hoverImageUrl(product));
-  // Deslizar la foto (en las tarjetas de la cuadrícula) pasa las fotos del color elegido; el color se elige con los puntitos de abajo.
-  // En la fila «Nueva colección» (wide) deslizar sigue moviendo la fila.
-  const colorSlides = colors.filter((c) => hasColorPhoto(product, c.n)).map((c) => c.n);
-  const firstColor = colorSlides.includes((product.images || [])[0]?.colorName) ? (product.images || [])[0].colorName : colorSlides[0];
-  const curColor = cardColor || firstColor || null;
-  const slidePhotos = colorPhotos(product, curColor).slice(0, 8);
   const [photoIdx, setPhotoIdx] = useState(0);
-  const pickCardColor = (c) => { setCardColor(c); setPhotoIdx(0); };
-  const slideMode = !wide && slidePhotos.length > 1;
-  const slideCount = slideMode ? slidePhotos.length : 0;
+  // Color que se ve: el elegido con los círculos, o el de la foto principal
+  const imgs = (product.images || []).filter((im) => im.type !== "video" && im.url);
+  const firstColor = imgs[0]?.colorName && colors.some((c) => c.n === imgs[0].colorName) ? imgs[0].colorName : (colors.find((c) => hasColorPhoto(product, c.n))?.n || null);
+  const curColor = cardColor || firstColor;
+  // Fotos que se pasan al deslizar: las del color que se ve (y las que no tienen color); si ese color aún no tiene foto, todas
+  const ownPhotos = curColor ? colorPhotos(product, curColor) : [];
+  const slidePhotos = (ownPhotos.length ? ownPhotos : imgs).slice(0, 8);
+  const slideCount = slidePhotos.length;
   const slideIdx = Math.min(photoIdx, Math.max(0, slideCount - 1));
-  const touch = useRef(null);
+  const pickCardColor = (c) => { setCardColor(c); setPhotoIdx(0); };
+  const altImg = slideIdx === 0 ? imgThumb(slidePhotos[1]) : null;
+  const shownImg = (hovering && altImg) || imgThumb(slidePhotos[slideIdx]) || mainImageUrl(product);
+  // Deslizar la foto: pasa las fotos del mismo color. En la fila de «Nueva colección» (wide), al llegar a la última
+  // foto (o si hay una sola) el dedo vuelve a mover la fila, como en Instagram.
+  const imgBox = useRef(null);
   const swiped = useRef(false);
-  const goSlide = (dir) => setPhotoIdx((slideIdx + dir + slideCount) % slideCount);
-  const onTouchStart = (e) => { const t0 = e.touches[0]; touch.current = { x: t0.clientX, y: t0.clientY }; swiped.current = false; setHovering(false); };
-  const onTouchEnd = (e) => {
-    const st = touch.current; touch.current = null;
-    if (!st || !slideMode) return;
-    const t1 = e.changedTouches[0]; const dx = t1.clientX - st.x, dy = t1.clientY - st.y;
-    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.4) { swiped.current = true; setTimeout(() => { swiped.current = false; }, 350); goSlide(dx < 0 ? 1 : -1); }
-  };
-  const shownImg = slideMode && slideIdx > 0 ? imgThumb(slidePhotos[slideIdx]) : hovering && altImg ? altImg : baseImg;
+  const live = useRef({});
+  live.current = { slideIdx, slideCount, wide };
+  useEffect(() => {
+    const el = imgBox.current;
+    if (!el) return undefined;
+    let st = null;
+    const canGo = (dir) => { const { slideIdx: i, slideCount: n, wide: w } = live.current; if (n < 2) return false; return w ? (dir > 0 ? i < n - 1 : i > 0) : true; };
+    const start = (e) => { const t0 = e.touches[0]; st = { x: t0.clientX, y: t0.clientY, mode: null }; swiped.current = false; setHovering(false); };
+    const move = (e) => {
+      if (!st) return;
+      const t1 = e.touches[0]; const dx = t1.clientX - st.x, dy = t1.clientY - st.y;
+      if (!st.mode && Math.abs(dx) + Math.abs(dy) > 8) st.mode = Math.abs(dx) > Math.abs(dy) && canGo(dx < 0 ? 1 : -1) ? "fotos" : "nativo";
+      if (st.mode === "fotos" && e.cancelable) e.preventDefault();
+    };
+    const end = (e) => {
+      const s0 = st; st = null;
+      if (!s0 || s0.mode !== "fotos") return;
+      const t1 = e.changedTouches[0]; const dx = t1.clientX - s0.x;
+      if (Math.abs(dx) < 35) return;
+      const dir = dx < 0 ? 1 : -1;
+      swiped.current = true; setTimeout(() => { swiped.current = false; }, 350);
+      const { slideIdx: i, slideCount: n } = live.current;
+      setPhotoIdx((i + dir + n) % n);
+    };
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end, { passive: true });
+    el.addEventListener("touchcancel", end, { passive: true });
+    return () => { el.removeEventListener("touchstart", start); el.removeEventListener("touchmove", move); el.removeEventListener("touchend", end); el.removeEventListener("touchcancel", end); };
+  }, []);
   return (
     <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => { if (swiped.current) { swiped.current = false; return; } onOpen(product, cardColor); }}>
-      <div className={slideMode ? "pcard-swipe" : undefined} data-slides={slideCount || undefined} style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep, touchAction: slideMode ? "pan-y" : undefined }}
-        onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)} onTouchStart={slideMode ? onTouchStart : undefined} onTouchEnd={slideMode ? onTouchEnd : undefined}>
+      <div ref={imgBox} className="pcard-swipe" data-slides={slideCount} style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }}
+        onMouseEnter={() => canHover() && setHovering(true)} onMouseLeave={() => setHovering(false)} onContextMenu={(e) => { if (!canHover()) e.preventDefault(); }}>
         <Tag label={label} />
         <button aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
           <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={14} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
@@ -856,16 +875,16 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
           {product.compareAtPrice && <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, textDecoration: "line-through" }}>{money(product.compareAtPrice)}</span>}
         </div>
         {colors.length > 1 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, marginLeft: -4 }}>
+          <div className="pcard-colors" style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 3, marginLeft: -8 }}>
             {colors.slice(0, 5).map((c) => {
               const active = curColor === c.n;
-              const withPhoto = hasColorPhoto(product, c.n);
               return (
-                <button key={c.n} title={withPhoto ? t(c.n) : t("{c} (sin foto aún)", { c: t(c.n) })} aria-label={t("Ver en {c}", { c: t(c.n) })}
-                  onClick={(e) => { e.stopPropagation(); if (withPhoto) pickCardColor(active ? null : c.n); else onOpen(product, c.n); }}
-                  onMouseEnter={() => withPhoto && !active && pickCardColor(c.n)}
-                  style={{ width: 22, height: 22, padding: 0, border: "none", background: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ width: 12, height: 12, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}`, boxShadow: active ? `0 0 0 2px ${C.paper}, 0 0 0 3px ${C.ink}` : "none" }} />
+                // Tocar un color solo cambia la foto de la tarjeta (no abre la prenda)
+                <button key={c.n} title={t(c.n)} aria-label={t("Ver en {c}", { c: t(c.n) })} aria-pressed={active}
+                  onClick={(e) => { e.stopPropagation(); pickCardColor(c.n); }}
+                  onMouseEnter={() => canHover() && !active && hasColorPhoto(product, c.n) && pickCardColor(c.n)}
+                  style={{ width: 32, height: 32, padding: 0, border: "none", background: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ width: 14, height: 14, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}`, boxShadow: active ? `0 0 0 2px ${C.paper}, 0 0 0 3px ${C.ink}` : "none" }} />
                 </button>
               );
             })}
@@ -873,7 +892,7 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
           </div>
         )}
       </div>
-      {quickAddOpen && createPortal(<QuickAddSheet product={product} onClose={() => setQuickAddOpen(false)} onQuickAdd={onQuickAdd} catalog={catalog} cartSessionId={cartSessionId} />, document.body)}
+      {quickAddOpen && createPortal(<QuickAddSheet product={product} initialColor={curColor} onClose={() => setQuickAddOpen(false)} onQuickAdd={onQuickAdd} catalog={catalog} cartSessionId={cartSessionId} />, document.body)}
     </div>
   );
 };
@@ -11346,6 +11365,8 @@ export default function FlyBoutiqueApp() {
         .admin-topbar .tb-short { display: none; }
         @media (max-width: 420px) { .admin-topbar .tb-label { display: none; } .admin-topbar .tb-short { display: inline; } .admin-topbar button[aria-label] { padding: 8px 10px !important; } }
         .pcard { content-visibility: auto; contain-intrinsic-block-size: auto 460px; }
+        /* Mantener el dedo sobre la foto de la tarjeta no abre el menú «Guardar en Fotos / Copiar» de iPhone: se puede deslizar tranquilo */
+        .pcard-swipe, .pcard-swipe img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
         @media print { @page { margin: 8mm; } body * { visibility: hidden !important; } .print-area, .print-area * { visibility: visible !important; } .print-area { position: absolute; left: 0; top: 0; width: 100%; border: none !important; } }
         @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
