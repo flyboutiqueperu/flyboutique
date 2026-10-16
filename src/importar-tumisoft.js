@@ -54,13 +54,24 @@ const GARMENT_WORDS = ["DRESS", "TOP", "TOPS", "JEANS", "JEAN", "PANTS", "PANTAL
 // Palabras que acompañan a un color («AZUL CLARO», «VERDE AGUA», «LIGHT BLUE», «OFF WHITE»)
 const COLOR_MODS = ["CLARO", "OSCURO", "BEBE", "PALO", "VIEJO", "NEON", "FLUOR", "PASTEL", "LIGHT", "DARK", "BABY", "INTENSO", "OFF"];
 const isColorWord = (w, extra) => Object.prototype.hasOwnProperty.call(COLOR_HEX, w) || COLOR_MODS.includes(w) || Boolean(extra && extra.has(w));
-const titleWord = (w) => (/\d/.test(w) ? w : w.charAt(0) + w.slice(1).toLowerCase());
-export const titleCase = (s) => String(s || "").trim().split(/\s+/).map(titleWord).join(" ");
-// TumiSoft escribe sin tildes: el nombre del color se muestra bien escrito («MARRON» → «Marrón»)
+// TumiSoft escribe sin tildes: se ponen en las palabras conocidas (nombres de prenda y colores)
 const ACCENTS = { MARRON: "Marrón", CAFE: "Café", MAIZ: "Maíz", MELON: "Melón", PETROLEO: "Petróleo", ELECTRICO: "Eléctrico", CONAC: "Coñac", CHAMPAN: "Champán",
   OXIDO: "Óxido", BORGONA: "Borgoña", CARMESI: "Carmesí", CARMIN: "Carmín", PURPURA: "Púrpura", LIMON: "Limón", ORQUIDEA: "Orquídea", METALICO: "Metálico", SALMON: "Salmón",
-  BEBE: "Bebé", INDIGO: "Índigo", CARBON: "Carbón" };
-export const colorLabel = (color) => String(color || "").trim().split(/\s+/).map((w) => ACCENTS[w] || titleWord(w)).join(" ");
+  BEBE: "Bebé", INDIGO: "Índigo", CARBON: "Carbón", PANTALON: "Pantalón", PANTALONES: "Pantalones", CAMISON: "Camisón", ALGODON: "Algodón", BOTON: "Botón", BOTONES: "Botones",
+  CORAZON: "Corazón", CINTURON: "Cinturón", TACON: "Tacón", TACONES: "Tacones", LENCERIA: "Lencería", BANO: "Baño", JOYERIA: "Joyería", BISUTERIA: "Bisutería",
+  BASICO: "Básico", BASICA: "Básica", CLASICO: "Clásico", CLASICA: "Clásica", ELASTICO: "Elástico", TERMICO: "Térmico", SATEN: "Satén", CREPE: "Crepé", TUNICA: "Túnica",
+  CARDIGAN: "Cárdigan", ESPANOL: "Español", CAMION: "Camión", CHIFON: "Chifón", POLIESTER: "Poliéster", ACRILICO: "Acrílico", CROCHE: "Croché", CORSE: "Corsé",
+  ASIMETRICO: "Asimétrico", ASIMETRICA: "Asimétrica", LATEX: "Látex", SUETER: "Suéter", JERSEY: "Jersey", CHAQUETON: "Chaquetón", BOLSON: "Bolsón", CAPSULA: "Cápsula",
+  NINA: "Niña", NINO: "Niño", NINAS: "Niñas", NINOS: "Niños", ANO: "Año", DISENO: "Diseño", PEQUENO: "Pequeño", PEQUENA: "Pequeña", OTONO: "Otoño", MAMA: "Mamá", PAPA: "Papá",
+  SENORA: "Señora", MONTANA: "Montaña", PINA: "Piña", ENSUENO: "Ensueño", SUENO: "Sueño", GRANDE: "Grande", UNICO: "Único", UNICA: "Única", ULTIMO: "Último", ULTIMA: "Última",
+  MAGICO: "Mágico", MAGICA: "Mágica", ROMANTICO: "Romántico", ROMANTICA: "Romántica", ELEGANTE: "Elegante", TROPICO: "Trópico", TROPICAL: "Tropical", PARIS: "París",
+  CORAZONES: "Corazones", LAZO: "Lazo", ARCOIRIS: "Arcoíris", ESTRELLA: "Estrella", CORDON: "Cordón", CAMARA: "Cámara", PANUELO: "Pañuelo", PANUELOS: "Pañuelos",
+  SOFIA: "Sofía", LUCIA: "Lucía", MARIA: "María", ROCIO: "Rocío", BELEN: "Belén", INES: "Inés", ANGELES: "Ángeles", MONICA: "Mónica", VERONICA: "Verónica", ANGELICA: "Angélica",
+  JAZMIN: "Jazmín", RAMON: "Ramón", ADRIAN: "Adrián", DAMIAN: "Damián", JULIAN: "Julián", SEBASTIAN: "Sebastián", MATIAS: "Matías", NOEMI: "Noemí", ZOE: "Zoe", ABRIL: "Abril",
+  MALAGA: "Málaga", CORDOBA: "Córdoba", CADIZ: "Cádiz", TUNEZ: "Túnez", JAPON: "Japón", PERU: "Perú", MEXICO: "México", AMERICA: "América", AFRICA: "África" };
+const titleWord = (w) => (/\d/.test(w) ? w : ACCENTS[w] || w.charAt(0) + w.slice(1).toLowerCase());
+export const titleCase = (s) => String(s || "").trim().split(/\s+/).map(titleWord).join(" ");
+export const colorLabel = (color) => titleCase(color);
 
 // «90S LOW RISE JEANS AZUL 34» → { base: "90S LOW RISE JEANS", color: "AZUL", size: "34" }
 // extra (opcional): más palabras de color, las que ya existen en el catálogo o se aprendieron del mismo archivo.
@@ -88,7 +99,17 @@ export const mapCategory = (c) => { const k = keyOf(c); return CATEGORY_MAP[k] |
  * Devuelve { products (nuevos y actualizados, con variantes), costs [{productId, cost}], summary, samples }.
  * No cambia el stock de combinaciones que ya existen (salvo que el archivo traiga una columna de stock).
  */
-export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}`, slugify = (s) => keyOf(s).toLowerCase().replace(/ /g, "-") } = {}) {
+// Distancia entre dos textos (letras que cambian): para avisar de nombres casi iguales («ALDANA DRESS» / «ALDANA DRES»)
+const distancia = (a, b) => {
+  if (Math.abs(a.length - b.length) > 2) return 9;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+};
+// aliases: { «ALDANA DRES»: «ALDANA DRESS» } une una prenda con otra (lo elige Alberto en la vista previa).
+// renames: { slug: «Nombre nuevo» } cambia el nombre de la prenda al importar.
+export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}`, slugify = (s) => keyOf(s).toLowerCase().replace(/ /g, "-"), aliases = {}, renames = {} } = {}) {
   const norm = rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [HEADERS[keyOf(k)] || keyOf(k).toLowerCase(), v])));
   const byCode = new Map(); // código interno o de barras → { product, variant }
   existing.forEach((p) => (p.variants || []).forEach((v) => { [v.sku, v.barcode].filter(Boolean).forEach((c) => byCode.set(keyOf(c), { p, v })); }));
@@ -103,11 +124,13 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
   // para que «AMIRA DRESS AZULINO M» se separe aunque Amira solo venga en ese color.
   const extra = new Set();
   const knownHex = new Map();
+  const knownName = new Map(); // colores que ya existen en el catálogo: se usa EXACTAMENTE ese nombre (no se crea «otro» color)
   existing.forEach((p) => (p.variants || []).forEach((v) => {
     const k = keyOf(v.colorName);
     if (!k || k === "UNICO" || k === "UNICA") return;
     k.split(" ").forEach((w) => { if (!/^\d+$/.test(w) && !isSize(w)) extra.add(w); });
     if (v.colorHex && !knownHex.has(k)) knownHex.set(k, v.colorHex);
+    if (!knownName.has(k)) knownName.set(k, v.colorName);
   }));
   const nombres = norm.map((r) => String(r.nombre || "").trim()).filter(Boolean);
   const learn = () => {
@@ -130,13 +153,26 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
   nombres.forEach((n) => { const s = splitSmart(n); if (s.color) s.color.split(" ").forEach((w) => { if (!nameWords.has(w)) extra.add(w); }); });
   if (extra.size > before) splitSmart = learn();
   const hexOf = (color) => knownHex.get(keyOf(color)) || colorHexOf(color);
+  // Ortografía: si el Excel trae tildes o Ñ se respetan; si no, se ponen en las palabras conocidas (ACCENTS)
+  const origWords = new Map();
+  nombres.forEach((n) => n.split(/\s+/).forEach((tok) => { const k = keyOf(tok); const up = tok.toUpperCase().replace(/[^\p{L}\p{N}]/gu, ""); if (k && !k.includes(" ") && up !== k && up.normalize("NFD").replace(/[\u0300-\u036f]/g, "") === k) origWords.set(k, up); }));
+  const tildes = new Map();
+  const pretty = (text) => String(text || "").trim().split(/\s+/).filter(Boolean).map((w) => {
+    if (/\d/.test(w)) return w;
+    if (origWords.has(w)) { const o = origWords.get(w); return o.charAt(0) + o.slice(1).toLowerCase(); }
+    const tw = titleWord(w);
+    if (ACCENTS[w] && keyOf(tw) === w && tw !== w.charAt(0) + w.slice(1).toLowerCase()) tildes.set(w, tw);
+    return tw;
+  }).join(" ");
   summary.colores = {};
   summary.sinColor = [];
   for (const r of norm) {
     const nombre = String(r.nombre || "").trim();
     if (!nombre) { summary.ignoradas++; continue; }
     summary.filas++;
-    const { base, color, size } = splitSmart(nombre);
+    const sp0 = splitSmart(nombre);
+    const { color, size } = sp0;
+    const base = aliases[keyOf(sp0.base)] || sp0.base;
     const interno = String(r.interno || "").trim(), barras = String(r.barras || "").trim();
     const hit = byCode.get(keyOf(interno)) || byCode.get(keyOf(barras));
     const slug = hit ? (hit.p.slug || slugify(hit.p.name)) : slugify(base || nombre);
@@ -145,23 +181,24 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
     const activo = !/inactiv|anulad|baja/i.test(String(r.estado || "activo"));
     const categoria = mapCategory(r.categoria);
     summary.categorias.add(categoria);
-    if (samples.length < 12) samples.push({ nombre, prenda: titleCase(base || nombre), color: color ? colorLabel(color) : "Único", talla: size || "Única", codigo: interno || barras });
+    if (samples.length < 12) samples.push({ nombre, prenda: pretty(base || nombre), color: color ? pretty(color) : "Único", talla: size || "Única", codigo: interno || barras });
     let prod = out.get(slug);
     if (!prod) {
       const prev = hit?.p || bySlug.get(slug);
       prod = prev ? { ...prev, variants: [...(prev.variants || [])] } : {
-        id: genId("prod"), name: titleCase(base || nombre), slug, category: categoria, description: "", price: price || 0, compareAtPrice: null,
+        id: genId("prod"), name: pretty(base || nombre), slug, category: categoria, description: "", price: price || 0, compareAtPrice: null,
         // Prenda nueva: queda oculta (borrador) hasta que tenga foto; al subir sus fotos en lote se publica sola
         status: "borrador", awaitingPhotos: activo, tag: null, images: [], collectionIds: [], variants: [], minStock: 3, createdAt: Date.now(), updatedAt: Date.now(),
       };
       prod._new = !prev;
+      prod._baseKey = keyOf(base || nombre);
       prod._prices = [];
       if (prev) { prod.category = categoria || prev.category; prod.updatedAt = Date.now(); }
       out.set(slug, prod);
     }
     if (price > 0) prod._prices.push(price);
     if (cost > 0) costs.set(prod.id, cost);
-    const colorName = color ? colorLabel(color) : "Único";
+    const colorName = color ? knownName.get(keyOf(color)) || pretty(color) : "Único";
     summary.colores[colorName] = (summary.colores[colorName] || 0) + 1;
     if (!color && summary.sinColor.length < 30) summary.sinColor.push(nombre);
     const sizeName = size || "Única";
@@ -180,9 +217,14 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
     summary.combinaciones++;
     if (!activo && prod._new) { prod.status = "borrador"; prod.awaitingPhotos = false; }
   }
+  const newIds = [];
+  const baseOf = new Map();
   const products = [...out.values()].map((p) => {
     const prices = p._prices; delete p._prices;
     const isNew = p._new; delete p._new;
+    const bk = p._baseKey; delete p._baseKey;
+    if (isNew) { newIds.push(p.id); baseOf.set(p.id, bk); }
+    if (renames[p.slug] && String(renames[p.slug]).trim()) p.name = String(renames[p.slug]).trim().slice(0, 120);
     if (prices.length) {
       const counts = {}; prices.forEach((x) => { counts[x] = (counts[x] || 0) + 1; });
       const common = Number(Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]);
@@ -192,7 +234,18 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
     if (isNew) summary.nuevas++; else summary.actualizadas++;
     return p;
   });
-  return { products, costs: [...costs.entries()].map(([productId, cost]) => ({ productId, cost })), summary: { ...summary, categorias: [...summary.categorias] }, samples };
+  // Posibles duplicados: prendas NUEVAS con nombre casi igual a otra (una letra de más o de menos)
+  const parecidos = [];
+  const cand = products.filter((p) => baseOf.has(p.id)).map((p) => ({ p, k: baseOf.get(p.id) }));
+  const all = [...cand, ...existing.map((p) => ({ p, k: keyOf(p.name), old: true }))];
+  cand.forEach((a) => {
+    if (a.k.length < 6) return;
+    const b = all.find((x) => x.p.id !== a.p.id && x.k !== a.k && x.k.split(" ")[0] === a.k.split(" ")[0] && x.k.length >= 6 && distancia(a.k, x.k) <= 2 && (x.old || x.k.length >= a.k.length));
+    if (b && !parecidos.some((x) => x.desdeKey === b.k && x.haciaKey === a.k)) parecidos.push({ desde: a.p.name, desdeKey: a.k, hacia: b.p.name, haciaKey: b.k, haciaExiste: !!b.old });
+  });
+  summary.parecidos = parecidos;
+  summary.tildes = [...tildes.entries()].map(([a, b]) => `${a} → ${b}`);
+  return { products, newIds, costs: [...costs.entries()].map(([productId, cost]) => ({ productId, cost })), summary: { ...summary, categorias: [...summary.categorias] }, samples };
 }
 
 // Fotos en lote: «9LRJC28.jpg», «9LRJC28-2.jpg», «ALDANA DRESS NEGRO 1.jpg» → prenda + color + orden

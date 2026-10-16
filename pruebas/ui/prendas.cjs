@@ -11,6 +11,9 @@ const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: "u1", aal: "aal2"
 const user = { id: "u1", email: "ana@staff.flyboutique.pe", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, factors: [{ id: "f1", factor_type: "totp", status: "verified" }] };
 const mk = (id, name, price, sizes) => ({ id, name, slug: id, category: "Blusas", price, status: "active", showOnline: true, images: [], variants: sizes.map((s, i) => ({ id: id + s, size: s, colorName: "Negro", colorHex: "#111", stock: 3 + i, sku: (id + "-" + s).toUpperCase() })) });
 const catalog = { products: [mk("p3", "Falda Plisada Marina", 99, ["S"]), mk("p1", "Blusa Seda Valentina", 129, ["S", "M"]), mk("p2", "VESTIDO-MIDI-CORALINA-S-CORAL-LARGO-CODIGO-SIN-ESPACIOS-PARA-PROBAR", 189, ["M"])], collections: [], banners: [], settings: {}, promoCodes: [] };
+// La blusa tiene dos colores y solo foto del negro (para el filtro «Colores sin foto»)
+catalog.products[1].variants.push({ id: "p1B", size: "S", colorName: "Beige", colorHex: "#D9C7A7", stock: 2, sku: "P1-SB" });
+catalog.products[1].images = [{ id: "im1", url: "data:image/gif;base64,R0lGODlhAQABAAAAACw=", colorName: "Negro" }];
 let suppliers = [], purchases = []; const calls = {}; const ecfg = { configured: false, auto: true, ruta: null, serieBoleta: "B001", serieFactura: "F001", nextBoleta: 1, nextFactura: 1, counts: {} }; let erows = [];
 const cfg = { configured: false, dniUrl: null, rucUrl: null, cached: 7, monthCalls: 12, monthFound: 10, lastProblem: { result: "sin-saldo", at: new Date().toISOString() } };
 const log = (k, v) => { (calls[k] = calls[k] || []).push(v); };
@@ -75,6 +78,8 @@ let ok = true; const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if
   await p.selectOption('select[aria-label="Ordenar"]', "nuevos");
   await p.click("button:has-text('Agotados')"); await p.waitForTimeout(300); t = await names();
   check("Productos: filtro Agotados muestra solo la falda", t.includes("Falda Plisada Marina") && !t.includes("Blusa Seda Valentina") && t.includes("1 de 3 prendas"));
+  await p.click("button:has-text('Colores sin foto')"); await p.waitForTimeout(300); t = await names();
+  check("Productos: filtro «Colores sin foto» muestra la blusa y dice qué color falta (Beige)", t.includes("Blusa Seda Valentina") && !t.includes("Falda Plisada Marina") && t.includes("1 de 3 prendas") && /Falta foto de:\s*Beige/.test(t));
   await p.fill('input[aria-label="Buscar prendas"]', ""); await p.click("button:has-text('Todos')");
   await p.fill('input[aria-label="Buscar prendas"]', "valentina s"); await p.waitForTimeout(300); t = await names();
   check("Productos: búsqueda en vivo («valentina s»)", t.includes("Blusa Seda Valentina") && !t.includes("Falda Plisada Marina"));
