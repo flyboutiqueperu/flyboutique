@@ -37,6 +37,7 @@ check("guarda código interno (sku) y de barras", jeans.variants[0].sku === "90L
 check("precio con coma 71,2 → 71.2", r.products.find((p) => p.name === "Alysa Top").price === 71.2);
 check("categorías mapeadas", r.products.find((p) => p.name === "Aldana Dress").category === "Vestidos" && r.products.find((p) => p.name === "Active Top").category === "Teen Life");
 check("tono de color para Negro", r.products.find((p) => p.name === "Aldana Dress").variants.find((v) => v.colorName === "Negro").colorHex === "#111111");
+check("prendas nuevas quedan ocultas «Esperando fotos» (borrador) hasta tener foto", r.products.every((p) => p.status === "borrador" && p.awaitingPhotos === true));
 check("stock 0 en combinaciones nuevas (el stock se carga aparte)", r.products.every((p) => p.variants.every((v) => v.stock === 0)));
 // Segunda importación: actualiza en vez de duplicar, conserva stock y fotos
 jeans.variants[0].stock = 7; jeans.images = [{ id: "i1", url: "x.jpg", colorName: "Azul" }];

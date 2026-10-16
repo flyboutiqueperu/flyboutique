@@ -89,7 +89,8 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
       const prev = hit?.p || bySlug.get(slug);
       prod = prev ? { ...prev, variants: [...(prev.variants || [])] } : {
         id: genId("prod"), name: titleCase(base || nombre), slug, category: categoria, description: "", price: price || 0, compareAtPrice: null,
-        status: activo ? "active" : "borrador", tag: null, images: [], collectionIds: [], variants: [], minStock: 3, createdAt: Date.now(), updatedAt: Date.now(),
+        // Prenda nueva: queda oculta (borrador) hasta que tenga foto; al subir sus fotos en lote se publica sola
+        status: "borrador", awaitingPhotos: activo, tag: null, images: [], collectionIds: [], variants: [], minStock: 3, createdAt: Date.now(), updatedAt: Date.now(),
       };
       prod._new = !prev;
       prod._prices = [];
@@ -113,7 +114,7 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
     }
     if (stock !== null) summary.conStock++;
     summary.combinaciones++;
-    if (!activo && prod._new) prod.status = "borrador";
+    if (!activo && prod._new) { prod.status = "borrador"; prod.awaitingPhotos = false; }
   }
   const products = [...out.values()].map((p) => {
     const prices = p._prices; delete p._prices;
