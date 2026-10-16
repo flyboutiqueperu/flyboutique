@@ -6,17 +6,15 @@ import App from "./App.jsx";
 {
   const m = window.location.pathname.toLowerCase().replace(/\/+$/, "").match(/^\/(staff|caja)(\/[a-z]+)?$/);
   if (m) window.history.replaceState(null, "", m[1] === "caja" ? "/#caja" : `/#staff${m[2] || ""}`);
-  // Tres apps instalables: la tienda «Fly», «Fly Staff» (panel) y «Fly Caja» (solo caja). Se elige el manifiesto
-  // antes de dibujar la página, así «Instalar app» desde /caja instala «Fly Caja» y desde /staff instala «Fly Staff».
+  // Dos apps instalables: la tienda «Fly» y «Fly Staff» (caja y panel: cada usuario ve lo que su rol permite).
+  // /caja abre la misma app «Fly Staff» directo en la caja. Antes existía «Fly Caja» aparte: ya no se ofrece.
   try {
     const h = window.location.hash;
-    if (h === "#caja") sessionStorage.setItem("fly:app", "caja");
-    else if (h.startsWith("#staff")) sessionStorage.removeItem("fly:app");
-    const app = sessionStorage.getItem("fly:app") === "caja" && (h === "#caja" || h.startsWith("#staff")) ? "caja" : h === "#caja" || h.startsWith("#staff") ? "staff" : null;
-    if (app) {
-      document.querySelector('link[rel="manifest"]')?.setAttribute("href", `/manifest-${app}.webmanifest`);
-      document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute("content", app === "caja" ? "Fly Caja" : "Fly Staff");
-      document.querySelector('link[rel="apple-touch-icon"]')?.setAttribute("href", `/icons/${app}-apple-touch-icon.png`);
+    sessionStorage.removeItem("fly:app");
+    if (h === "#caja" || h.startsWith("#staff")) {
+      document.querySelector('link[rel="manifest"]')?.setAttribute("href", "/manifest-staff.webmanifest");
+      document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute("content", "Fly Staff");
+      document.querySelector('link[rel="apple-touch-icon"]')?.setAttribute("href", "/icons/staff-apple-touch-icon.png");
     }
   } catch (e) { /* sin almacenamiento: se usa el manifiesto normal */ }
 }

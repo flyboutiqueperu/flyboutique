@@ -25,7 +25,7 @@ const fakePrompt = () => { window.__prompted = 0; setTimeout(() => { const e = n
   // 1) Android en /caja: aparece solo, un toque instala
   let p = await page(b, null, fakePrompt);
   await p.goto("http://localhost:4383/caja"); await p.waitForTimeout(2500);
-  check("Android /caja: aviso aparece solo", await p.locator(".install-sheet").count() === 1 && (await p.innerText(".install-sheet")).includes("Instala «Fly Caja»"));
+  check("Android /caja: aviso aparece solo", await p.locator(".install-sheet").count() === 1 && (await p.innerText(".install-sheet")).includes("Instala «Fly Staff»"));
   await p.screenshot({ path: `${out}/instalar-android.png` });
   await p.click(".install-go"); await p.waitForTimeout(500);
   check("un toque → abre la instalación del celular", (await p.evaluate(() => window.__prompted)) === 1);
@@ -80,7 +80,7 @@ const fakePrompt = () => { window.__prompted = 0; setTimeout(() => { const e = n
     // marca el aviso del acceso como ya visto hace poco, para probar solo el de dentro de la caja
     await p.fill('input[placeholder="Usuario"]', "caja"); await p.fill('input[placeholder="Contraseña"]', "clave1234"); await p.click("text=Entrar");
     await p.waitForSelector("text=La caja de", { timeout: 15000 }); await p.waitForTimeout(1500);
-    check("caja con sesión iniciada: aparece «Instala «Fly Caja»»", (await p.locator(".install-sheet").count()) === 1 && (await p.innerText(".install-sheet")).includes("Fly Caja"));
+    check("caja con sesión iniciada: aparece «Instala «Fly Staff»»", (await p.locator(".install-sheet").count()) === 1 && (await p.innerText(".install-sheet")).includes("Fly Staff"));
     await p.screenshot({ path: `${out}/instalar-caja-dentro.png` });
     await p.context().close();
   }

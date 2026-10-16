@@ -19,13 +19,13 @@ let ok = true; const check = (txt, v) => { console.log(v ? "OK " : "FALLA", txt)
   const body = () => p.evaluate(() => document.body.innerText);
 
   await p.goto("http://localhost:4381/caja"); await p.waitForTimeout(1800);
-  let m = await man(); check("/caja usa manifest-caja: " + m.join(" | "), m[0] === "/manifest-caja.webmanifest" && m[1] === "Fly Caja" && m[2] === "/icons/caja-apple-touch-icon.png");
+  let m = await man(); check("/caja usa la app «Fly Staff» (una sola app del personal): " + m.join(" | "), m[0] === "/manifest-staff.webmanifest" && m[1] === "Fly Staff" && m[2] === "/icons/staff-apple-touch-icon.png");
   check("/caja queda en #caja", p.url().endsWith("/#caja"));
-  check("botón «Instalar «Fly Caja» en este equipo»", (await body()).includes("Instalar «Fly Caja» en este equipo"));
+  check("/caja ofrece «Instalar «Fly Staff» en este equipo» (ya no «Fly Caja»)", (await body()).includes("Instalar «Fly Staff» en este equipo") && !(await body()).includes("Fly Caja"));
   await p.screenshot({ path: `${out}/apps-caja.png` });
   await p.click(".staff-install"); await p.waitForTimeout(300);
   const mj = JSON.parse(await (await p.request.get("http://localhost:4381/manifest-caja.webmanifest")).text());
-  check("manifest-caja: id /caja, start /caja", mj.id === "/caja" && mj.start_url === "/caja" && mj.icons.length === 3);
+  check("manifest-caja (apps viejas ya instaladas): ahora es «Fly Staff» y abre /staff", mj.id === "/caja" && mj.start_url === "/staff" && mj.short_name === "Fly Staff" && mj.icons.length === 3);
   for (const ic of mj.icons) check("ícono existe " + ic.src, fs.existsSync(path.join(dist, ic.src)));
 
   const p2 = await ctx.newPage(); await p2.route("http://fake.supabase.test/**", (rt) => rt.fulfill({ json: [] }));
