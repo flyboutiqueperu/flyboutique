@@ -807,29 +807,28 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
   const baseImg = imgThumb(baseObj) || mainImageUrl(product);
   const sameColor = (cardColor ? shown : colorPhotos(product, (product.images || [])[0]?.colorName)).filter((im) => im.url !== baseObj?.url);
   const altImg = imgThumb(sameColor[0]) || (cardColor ? null : hoverImageUrl(product));
-  // Deslizar la foto (en las tarjetas de la cuadrícula): cambia de color si hay 2+ colores con foto; si no, pasa las fotos.
-  // En la fila «Nueva colección» (wide) deslizar sigue moviendo la fila; ahí el color se cambia con los puntitos.
+  // Deslizar la foto (en las tarjetas de la cuadrícula) pasa las fotos del color elegido; el color se elige con los puntitos de abajo.
+  // En la fila «Nueva colección» (wide) deslizar sigue moviendo la fila.
   const colorSlides = colors.filter((c) => hasColorPhoto(product, c.n)).map((c) => c.n);
-  const allPhotos = colorPhotos(product, null);
-  const [photoIdx, setPhotoIdx] = useState(0);
-  const slideMode = wide ? null : colorSlides.length > 1 ? "color" : allPhotos.length > 1 ? "photo" : null;
   const firstColor = colorSlides.includes((product.images || [])[0]?.colorName) ? (product.images || [])[0].colorName : colorSlides[0];
-  const slideCount = slideMode === "color" ? colorSlides.length : slideMode === "photo" ? Math.min(allPhotos.length, 8) : 0;
-  const slideIdx = slideMode === "color" ? Math.max(0, colorSlides.indexOf(cardColor || firstColor)) : slideMode === "photo" ? photoIdx : 0;
+  const curColor = cardColor || firstColor || null;
+  const slidePhotos = colorPhotos(product, curColor).slice(0, 8);
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const pickCardColor = (c) => { setCardColor(c); setPhotoIdx(0); };
+  const slideMode = !wide && slidePhotos.length > 1;
+  const slideCount = slideMode ? slidePhotos.length : 0;
+  const slideIdx = Math.min(photoIdx, Math.max(0, slideCount - 1));
   const touch = useRef(null);
   const swiped = useRef(false);
-  const goSlide = (dir) => {
-    const i = (slideIdx + dir + slideCount) % slideCount;
-    if (slideMode === "color") setCardColor(colorSlides[i]); else setPhotoIdx(i);
-  };
+  const goSlide = (dir) => setPhotoIdx((slideIdx + dir + slideCount) % slideCount);
   const onTouchStart = (e) => { const t0 = e.touches[0]; touch.current = { x: t0.clientX, y: t0.clientY }; swiped.current = false; setHovering(false); };
   const onTouchEnd = (e) => {
     const st = touch.current; touch.current = null;
     if (!st || !slideMode) return;
     const t1 = e.changedTouches[0]; const dx = t1.clientX - st.x, dy = t1.clientY - st.y;
-    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.4) { swiped.current = true; goSlide(dx < 0 ? 1 : -1); }
+    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.4) { swiped.current = true; setTimeout(() => { swiped.current = false; }, 350); goSlide(dx < 0 ? 1 : -1); }
   };
-  const shownImg = slideMode === "photo" && photoIdx > 0 ? imgThumb(allPhotos[photoIdx]) : hovering && altImg ? altImg : baseImg;
+  const shownImg = slideMode && slideIdx > 0 ? imgThumb(slidePhotos[slideIdx]) : hovering && altImg ? altImg : baseImg;
   return (
     <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => { if (swiped.current) { swiped.current = false; return; } onOpen(product, cardColor); }}>
       <div className={slideMode ? "pcard-swipe" : undefined} data-slides={slideCount || undefined} style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep, touchAction: slideMode ? "pan-y" : undefined }}
@@ -859,12 +858,12 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
         {colors.length > 1 && (
           <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, marginLeft: -4 }}>
             {colors.slice(0, 5).map((c) => {
-              const active = cardColor === c.n;
+              const active = curColor === c.n;
               const withPhoto = hasColorPhoto(product, c.n);
               return (
                 <button key={c.n} title={withPhoto ? t(c.n) : t("{c} (sin foto aún)", { c: t(c.n) })} aria-label={t("Ver en {c}", { c: t(c.n) })}
-                  onClick={(e) => { e.stopPropagation(); if (withPhoto) setCardColor(active ? null : c.n); else onOpen(product, c.n); }}
-                  onMouseEnter={() => withPhoto && setCardColor(c.n)}
+                  onClick={(e) => { e.stopPropagation(); if (withPhoto) pickCardColor(active ? null : c.n); else onOpen(product, c.n); }}
+                  onMouseEnter={() => withPhoto && !active && pickCardColor(c.n)}
                   style={{ width: 22, height: 22, padding: 0, border: "none", background: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <span style={{ width: 12, height: 12, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}`, boxShadow: active ? `0 0 0 2px ${C.paper}, 0 0 0 3px ${C.ink}` : "none" }} />
                 </button>

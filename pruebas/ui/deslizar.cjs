@@ -1,4 +1,4 @@
-// Prueba: deslizar la foto de una tarjeta cambia de color (o de foto) sin abrir la prenda. Uso: node pruebas/ui/deslizar.cjs <carpeta>
+// Prueba: deslizar la foto de una tarjeta pasa las fotos del color elegido (el color se elige con los puntitos) sin abrir la prenda. Uso: node pruebas/ui/deslizar.cjs <carpeta>
 const { chromium } = require("playwright-core");
 const http = require("http"), fs = require("fs"), path = require("path");
 const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
@@ -8,7 +8,8 @@ const pic = (fill, txt) => "data:image/svg+xml," + encodeURIComponent(`<svg xmln
 const v = (id, color, hex) => ["S", "M"].map((size) => ({ id: id + color + size, size, colorName: color, colorHex: hex, stock: 3, sku: id + color + size }));
 const catalog = { products: [
   { id: "p1", name: "Aldana Dress", slug: "aldana-dress", category: "Vestidos", price: 149, status: "active", showOnline: true,
-    images: [{ id: "i1", url: pic("#111", "NEGRO"), colorName: "Negro" }, { id: "i2", url: pic("#E9E4DA", "PERLA"), colorName: "Perla" }, { id: "i3", url: pic("#6D1F2A", "VINO"), colorName: "Vino" }],
+    images: [{ id: "i1", url: pic("#111", "NEGRO 1"), colorName: "Negro" }, { id: "i2", url: pic("#E9E4DA", "PERLA 1"), colorName: "Perla" }, { id: "i3", url: pic("#6D1F2A", "VINO 1"), colorName: "Vino" },
+      { id: "i4", url: pic("#222", "NEGRO 2"), colorName: "Negro" }, { id: "i5", url: pic("#DDD6C8", "PERLA 2"), colorName: "Perla" }],
     variants: [...v("p1", "Negro", "#111111"), ...v("p1", "Perla", "#E9E4DA"), ...v("p1", "Vino", "#6D1F2A")] },
   { id: "p2", name: "Almira Top", slug: "almira-top", category: "Tops", price: 59, status: "active", showOnline: true,
     images: [{ id: "j1", url: pic("#7B8794", "FOTO 1") }, { id: "j2", url: pic("#8B7D72", "FOTO 2") }], variants: v("p2", "Acero", "#7B8794") },
@@ -31,18 +32,23 @@ let ok = true; const check = (t, val) => { console.log(val ? "OK " : "FALLA", t)
     el.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [mk(x, y)], changedTouches: [mk(x, y)] }));
     el.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], changedTouches: [mk(x + dx, y + dy)] }));
   }, [dx, dy]);
-  check("Aldana: 3 puntitos sobre la foto (3 colores con foto)", (await card("Aldana Dress").locator(".pcard-dots span").count()) === 3);
-  check("Empieza en Negro", (await src("Aldana Dress")).includes("NEGRO"));
+  const dots = (name) => card(name).locator(".pcard-dots span").count();
+  check("Aldana en Negro: 2 puntitos sobre la foto (2 fotos de Negro)", (await dots("Aldana Dress")) === 2 && (await src("Aldana Dress")).includes("NEGRO 1"));
   await swipe("Aldana Dress", -120); await p.waitForTimeout(250);
-  check("Deslizar a la izquierda → Perla", (await src("Aldana Dress")).includes("PERLA"));
+  check("Deslizar a la izquierda → 2.ª foto de Negro", (await src("Aldana Dress")).includes("NEGRO 2"));
   check("No abrió la prenda al deslizar", !p.url().includes("/p/"));
-  await swipe("Aldana Dress", -120); await p.waitForTimeout(250);
-  check("Otra vez → Vino", (await src("Aldana Dress")).includes("VINO"));
-  await swipe("Aldana Dress", 120); await p.waitForTimeout(250);
-  check("Deslizar a la derecha → vuelve a Perla", (await src("Aldana Dress")).includes("PERLA"));
   await swipe("Aldana Dress", -20, -150); await p.waitForTimeout(250);
-  check("Mover hacia arriba (bajar la página) no cambia el color", (await src("Aldana Dress")).includes("PERLA"));
+  check("Mover hacia arriba (bajar la página) no cambia la foto", (await src("Aldana Dress")).includes("NEGRO 2"));
+  await card("Aldana Dress").locator("button[aria-label='Ver en Perla']").click(); await p.waitForTimeout(250);
+  check("Tocar el color Perla → 1.ª foto de Perla", (await src("Aldana Dress")).includes("PERLA 1") && !p.url().includes("/p/"));
+  await swipe("Aldana Dress", -120); await p.waitForTimeout(250);
+  check("Deslizar → 2.ª foto de Perla", (await src("Aldana Dress")).includes("PERLA 2"));
   await p.screenshot({ path: `${out}/deslizar.png` });
+  await swipe("Aldana Dress", 120); await p.waitForTimeout(250);
+  check("Deslizar a la derecha → vuelve a la 1.ª de Perla", (await src("Aldana Dress")).includes("PERLA 1"));
+  await card("Aldana Dress").locator("button[aria-label='Ver en Vino']").click(); await p.waitForTimeout(250);
+  check("Vino (una sola foto): sin puntitos", (await src("Aldana Dress")).includes("VINO 1") && (await dots("Aldana Dress")) === 0);
+  await card("Aldana Dress").locator("button[aria-label='Ver en Perla']").click(); await p.waitForTimeout(250);
   check("Almira (un color, 2 fotos): deslizar pasa a la 2.ª foto", (await swipe("Almira Top", -120), await p.waitForTimeout(250), (await src("Almira Top")).includes("FOTO 2")));
   check("Falda con una sola foto: sin puntitos", (await card("Falda Simple").locator(".pcard-dots").count()) === 0);
   await card("Aldana Dress").locator("img").first().click(); await p.waitForTimeout(600);
