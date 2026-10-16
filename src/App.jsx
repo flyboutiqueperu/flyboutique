@@ -792,6 +792,27 @@ const QuickAddSheet = ({ product, onClose, onQuickAdd, catalog, cartSessionId, i
 
 // En celular un toque dispara «mouseenter»: solo se usa el efecto de pasar el mouse en equipos con mouse de verdad
 const canHover = () => { try { return window.matchMedia("(hover: hover) and (pointer: fine)").matches; } catch (e) { return false; } };
+// Compartir la prenda (WhatsApp, Instagram…): en el celular abre el menú de compartir del equipo; en la PC copia el
+// enlace. El enlace /p/<id> muestra foto, nombre y precio en WhatsApp (api/p.js).
+const ShareProductButton = ({ product }) => {
+  const [copied, setCopied] = useState(false);
+  const share = async () => {
+    const url = `${window.location.origin}/p/${encodeURIComponent(product.id)}`;
+    const text = t("{n} — {p} en Fly Boutique", { n: pName(product), p: money(product.price) });
+    track("share", { method: navigator.share ? "menu" : "copiar", content_type: "product", item_id: product.id });
+    if (navigator.share) { try { await navigator.share({ title: pName(product), text, url }); } catch (e) { /* cerró el menú */ } return; }
+    try { await navigator.clipboard.writeText(`${text} ${url}`); setCopied(true); setTimeout(() => setCopied(false), 2200); }
+    catch (e) { window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, "_blank", "noopener"); }
+  };
+  return (
+    <div style={{ position: "relative" }}>
+      <button onClick={share} aria-label={t("Compartir")} title={t("Compartir")} style={{ width: 38, height: 38, borderRadius: "50%", background: "transparent", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+        <Share size={16} color={C.ink} strokeWidth={1.6} />
+      </button>
+      {copied && <div role="status" className="share-copied" style={{ position: "absolute", top: 44, right: 0, whiteSpace: "nowrap", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, padding: "6px 10px", borderRadius: 8, zIndex: 30 }}>{t("Enlace copiado")}</div>}
+    </div>
+  );
+};
 const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, catalog, cartSessionId }) => {
   const soldOut = productSoldOut(product);
   const label = soldOut ? "Agotado" : isOutlet(product) ? "Outlet" : product.tag;
@@ -2165,9 +2186,12 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
             <span className="pdp-crumb-name"> / <span style={{ color: C.ink }}>{pName(product)}</span></span>
           </span>
         </div>
-        <button onClick={() => onToggleFav(product.id)} aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} style={{ width: 38, height: 38, borderRadius: "50%", background: "transparent", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-          <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={17} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <ShareProductButton product={product} />
+          <button onClick={() => onToggleFav(product.id)} aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} style={{ width: 38, height: 38, borderRadius: "50%", background: "transparent", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={17} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
+          </button>
+        </div>
       </div>
 
       <div className="pdp-wrap" style={{ flex: "1 0 auto", width: "100%", maxWidth: 1180, margin: "0 auto" }}>

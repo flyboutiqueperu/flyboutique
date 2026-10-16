@@ -793,7 +793,9 @@ const EN = {
  "Invierno: abrigos y tejidos para el frío": "Winter: coats and knits for the cold",
  "Primavera": "Spring",
  "Primavera: colores y telas ligeras": "Spring: colors and light fabrics",
- "Solo disponibles": "In stock only"
+ "Solo disponibles": "In stock only",
+ "{n} — {p} en Fly Boutique": "{n} — {p} at Fly Boutique",
+ "Enlace copiado": "Link copied"
 };
 export default EN;
 
