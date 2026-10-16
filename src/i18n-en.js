@@ -796,3 +796,26 @@ const EN = {
  "Solo disponibles": "In stock only"
 };
 export default EN;
+
+// Colores palabra por palabra (sin tildes, en mayúsculas): «Azul Claro» → «Light Blue», «Verde Oliva» → «Olive Green».
+// Se usa solo si TODAS las palabras del nombre son colores (así nunca se traduce mal otra cosa).
+export const COLOR_WORDS_EN = {
+  NEGRO: "Black", BLANCO: "White", HUESO: "Bone", CREMA: "Cream", MARFIL: "Ivory", BEIGE: "Beige", NUDE: "Nude", CAMEL: "Camel", ARENA: "Sand", TOPO: "Taupe",
+  MARRON: "Brown", CAFE: "Brown", CHOCOLATE: "Chocolate", GRIS: "Grey", PLOMO: "Lead Grey", ACERO: "Steel", HUMO: "Smoke", PERLA: "Pearl", PLATA: "Silver", PLATEADO: "Silver",
+  DORADO: "Gold", ORO: "Gold", AZUL: "Blue", MARINO: "Navy", CELESTE: "Sky Blue", JEAN: "Denim", DENIM: "Denim", INDIGO: "Indigo", VERDE: "Green", VERDOSO: "Greenish",
+  OLIVA: "Olive", MILITAR: "Military Green", MENTA: "Mint", JADE: "Jade", AGUA: "Aqua", ROJO: "Red", VINO: "Wine", GUINDA: "Burgundy", CORAL: "Coral", ROSADO: "Pink", ROSA: "Pink",
+  FUCSIA: "Fuchsia", FUXIA: "Fuchsia", LILA: "Lilac", MORADO: "Purple", LAVANDA: "Lavender", AMARILLO: "Yellow", MAIZ: "Corn Yellow", MOSTAZA: "Mustard", NARANJA: "Orange",
+  DURAZNO: "Peach", MELON: "Melon", TERRACOTA: "Terracotta", LADRILLO: "Brick", TURQUESA: "Turquoise", MULTICOLOR: "Multicolor", ESTAMPADO: "Print", ANIMAL: "Animal Print",
+  AZULINO: "Bright Blue", AZULADO: "Bluish", CIELO: "Sky", PETROLEO: "Petrol Blue", COBALTO: "Cobalt", REY: "Royal Blue", ELECTRICO: "Electric", AGUAMARINA: "Aquamarine",
+  NOCHE: "Night", MEDIANOCHE: "Midnight", GRAFITO: "Graphite", CARBON: "Charcoal", ANTRACITA: "Anthracite", OXFORD: "Oxford Grey", CENIZA: "Ash", CEMENTO: "Cement",
+  NIEVE: "Snow", LECHE: "Milk", NATURAL: "Natural", CRUDO: "Ecru", VAINILLA: "Vanilla", KAKI: "Khaki", CAQUI: "Khaki", KHAKI: "Khaki", TABACO: "Tobacco", MIEL: "Honey",
+  CONAC: "Cognac", CARAMELO: "Caramel", MOKA: "Mocha", MOCA: "Mocha", CANELA: "Cinnamon", AVELLANA: "Hazelnut", EXPRESSO: "Espresso", CHAMPAN: "Champagne", CHAMPAGNE: "Champagne",
+  BRONCE: "Bronze", COBRE: "Copper", OXIDO: "Rust", CEREZA: "Cherry", FRESA: "Strawberry", GRANATE: "Garnet", MARSALA: "Marsala", BORDO: "Burgundy", BORGONA: "Burgundy",
+  GRANA: "Scarlet", CARMESI: "Crimson", CARMIN: "Carmine", ESCARLATA: "Scarlet", MAGENTA: "Magenta", SALMON: "Salmon", MANDARINA: "Tangerine", CALABAZA: "Pumpkin",
+  PURPURA: "Purple", VIOLETA: "Violet", UVA: "Grape", BERENJENA: "Eggplant", CIRUELA: "Plum", MALVA: "Mauve", ORQUIDEA: "Orchid", LIMA: "Lime", LIMON: "Lemon",
+  PISTACHO: "Pistachio", ESMERALDA: "Emerald", BOTELLA: "Bottle Green", SALVIA: "Sage", MUSGO: "Moss", KIWI: "Kiwi", LEOPARDO: "Leopard", CEBRA: "Zebra", SERPIENTE: "Snake",
+  FLORAL: "Floral", FLOREADO: "Floral", FLORES: "Floral", RAYAS: "Stripes", RAYADO: "Striped", CUADROS: "Plaid", LUNARES: "Polka Dot", BICOLOR: "Two-tone",
+  TRANSPARENTE: "Clear", METALICO: "Metallic", TORNASOL: "Iridescent", NEUTRO: "Neutral", UNICO: "One color", UNICA: "One color",
+};
+// Palabras que en inglés van delante: «Azul Claro» → «Light Blue»
+export const COLOR_MODS_EN = { CLARO: "Light", OSCURO: "Dark", BEBE: "Baby", PALO: "Dusty", VIEJO: "Old", NEON: "Neon", FLUOR: "Neon", PASTEL: "Pastel", INTENSO: "Deep" };
