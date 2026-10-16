@@ -807,14 +807,43 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
   const baseImg = imgThumb(baseObj) || mainImageUrl(product);
   const sameColor = (cardColor ? shown : colorPhotos(product, (product.images || [])[0]?.colorName)).filter((im) => im.url !== baseObj?.url);
   const altImg = imgThumb(sameColor[0]) || (cardColor ? null : hoverImageUrl(product));
+  // Deslizar la foto (en las tarjetas de la cuadrícula): cambia de color si hay 2+ colores con foto; si no, pasa las fotos.
+  // En la fila «Nueva colección» (wide) deslizar sigue moviendo la fila; ahí el color se cambia con los puntitos.
+  const colorSlides = colors.filter((c) => hasColorPhoto(product, c.n)).map((c) => c.n);
+  const allPhotos = colorPhotos(product, null);
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const slideMode = wide ? null : colorSlides.length > 1 ? "color" : allPhotos.length > 1 ? "photo" : null;
+  const firstColor = colorSlides.includes((product.images || [])[0]?.colorName) ? (product.images || [])[0].colorName : colorSlides[0];
+  const slideCount = slideMode === "color" ? colorSlides.length : slideMode === "photo" ? Math.min(allPhotos.length, 8) : 0;
+  const slideIdx = slideMode === "color" ? Math.max(0, colorSlides.indexOf(cardColor || firstColor)) : slideMode === "photo" ? photoIdx : 0;
+  const touch = useRef(null);
+  const swiped = useRef(false);
+  const goSlide = (dir) => {
+    const i = (slideIdx + dir + slideCount) % slideCount;
+    if (slideMode === "color") setCardColor(colorSlides[i]); else setPhotoIdx(i);
+  };
+  const onTouchStart = (e) => { const t0 = e.touches[0]; touch.current = { x: t0.clientX, y: t0.clientY }; swiped.current = false; setHovering(false); };
+  const onTouchEnd = (e) => {
+    const st = touch.current; touch.current = null;
+    if (!st || !slideMode) return;
+    const t1 = e.changedTouches[0]; const dx = t1.clientX - st.x, dy = t1.clientY - st.y;
+    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.4) { swiped.current = true; goSlide(dx < 0 ? 1 : -1); }
+  };
+  const shownImg = slideMode === "photo" && photoIdx > 0 ? imgThumb(allPhotos[photoIdx]) : hovering && altImg ? altImg : baseImg;
   return (
-    <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => onOpen(product, cardColor)}>
-      <div style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
+    <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => { if (swiped.current) { swiped.current = false; return; } onOpen(product, cardColor); }}>
+      <div className={slideMode ? "pcard-swipe" : undefined} data-slides={slideCount || undefined} style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep, touchAction: slideMode ? "pan-y" : undefined }}
+        onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)} onTouchStart={slideMode ? onTouchStart : undefined} onTouchEnd={slideMode ? onTouchEnd : undefined}>
         <Tag label={label} />
         <button aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
           <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={14} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
         </button>
-        <ProductImg src={hovering && altImg ? altImg : baseImg} alt={pName(product)} dim={soldOut} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block", animation: "fadeIn .25s ease" }} />
+        <ProductImg key={shownImg} src={shownImg} alt={pName(product)} dim={soldOut} style={{ width: "100%", aspectRatio: "3/4", objectFit: "cover", display: "block", animation: "fadeIn .25s ease" }} />
+        {slideCount > 1 && (
+          <div className="pcard-dots" aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, bottom: 10, display: "flex", justifyContent: "center", gap: 4, zIndex: 1, pointerEvents: "none" }}>
+            {Array.from({ length: slideCount }, (_, i) => <span key={i} style={{ width: i === slideIdx ? 14 : 5, height: 5, borderRadius: 3, background: i === slideIdx ? "#fff" : "rgba(255,255,255,0.6)", boxShadow: "0 0 3px rgba(0,0,0,0.35)", transition: "width .2s ease" }} />)}
+          </div>
+        )}
         {!soldOut && onQuickAdd && (
           <button aria-label={t("Añadir a la cesta")} onClick={(e) => { e.stopPropagation(); setQuickAddOpen(true); }} style={{ position: "absolute", bottom: 8, right: 8, zIndex: 2, width: 32, height: 32, borderRadius: "50%", background: C.ink, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <Plus size={15} color={C.paper} />
