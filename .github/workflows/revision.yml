@@ -44,8 +44,10 @@ jobs:
           npx playwright-core install --with-deps chromium
           echo "CHROME_PATH=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
 
-      - name: Pruebas sin navegador (lector del Excel de TumiSoft)
-        run: node pruebas/importar.test.mjs
+      - name: Pruebas sin navegador (Excel de TumiSoft y páginas para Google)
+        run: |
+          node pruebas/importar.test.mjs
+          node pruebas/seo.test.mjs
 
       - name: Pruebas de navegador
         run: |

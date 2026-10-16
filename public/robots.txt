@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /staff
+Disallow: /caja
 
 Sitemap: https://flyboutique.vercel.app/sitemap.xml
