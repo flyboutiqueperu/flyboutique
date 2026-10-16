@@ -675,6 +675,7 @@ const SmartVideo = ({ src, poster, style, active = true }) => {
   const [ready, setReady] = useState(false);
   const [manual] = useState(saveData);
   const [play, setPlay] = useState(!manual);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
@@ -691,8 +692,13 @@ const SmartVideo = ({ src, poster, style, active = true }) => {
   }, [visible, active, play]);
   return (
     <div className={ready ? "fvid is-loaded" : "fvid"} style={{ position: "relative", width: "100%", height: "100%", ...style }}>
-      <video ref={ref} src={src} poster={poster || undefined} muted loop playsInline preload={visible || !manual ? "metadata" : "none"} onLoadedData={() => setReady(true)}
-        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      {/* La imagen de respaldo NO se pone debajo ni encima del video: solo se usa con «ahorro de datos» (antes de tocar ▶) o si el video no carga.
+          Mientras carga se ve el primer cuadro del mismo video (#t=0.1), así no aparece otra foto y luego el video «encima». */}
+      {failed && poster ? <ProductImg src={poster} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : (
+        <video ref={ref} src={/#t=/.test(src) ? src : `${src}#t=0.1`} poster={manual && !play && poster ? poster : undefined} muted loop playsInline preload={visible || !manual ? "metadata" : "none"}
+          onLoadedData={() => setReady(true)} onError={() => setFailed(true)}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      )}
       {!play && <button onClick={() => setPlay(true)} aria-label={t("Reproducir video")} style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer" }}>
         <span style={{ width: 54, height: 54, borderRadius: "50%", background: "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center" }}><Play size={22} color={C.ink} fill={C.ink} style={{ marginLeft: 3 }} /></span>
       </button>}
@@ -5863,7 +5869,7 @@ const AdminBannerList = ({ banners, openEditor, toggleActive, deleteBanner }) =>
       {banners.slice().sort((a, b) => a.order - b.order).map((b) => (
         <AdminCard key={b.id}>
           <div style={{ display: "flex", gap: 12 }}>
-            <div style={{ width: 76, height: 76, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}><ProductImg src={b.image} alt={b.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+            <div style={{ width: 76, height: 76, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: C.paperDeep }}>{b.videoUrl && !b.image ? <video src={`${b.videoUrl}#t=0.1`} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <ProductImg src={b.image} alt={b.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 4 }}>{b.title}</div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 8 }}>Orden {b.order} · CTA: {b.ctaLabel}</div>
@@ -5898,7 +5904,7 @@ const AdminBannerEditor = ({ banner, onSave, onCancel }) => {
     if (fileRef.current) fileRef.current.value = "";
     if (videoRef.current) videoRef.current.value = "";
   };
-  const canSave = form.title.trim() && form.image;
+  const canSave = form.title.trim() && (form.image || form.videoUrl);
   return (
     <div style={{ padding: "18px 18px 100px" }}>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>{banner ? "Editar banner" : "Nuevo banner"}</h1>
@@ -5908,13 +5914,13 @@ const AdminBannerEditor = ({ banner, onSave, onCancel }) => {
         <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>{uploading ? "Subiendo…" : <><Upload size={14} /> Subir imagen</>}</button>
         <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
         <input style={inputStyle} value={form.image} onChange={(e) => set("image", e.target.value)} placeholder="o pega una URL de imagen" />
-        <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 4 }}>Esta imagen se usa mientras no haya video, o como respaldo si el video no carga.</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 4 }}>{form.videoUrl ? "Con video, la imagen es opcional: no se ve encima ni debajo del video. Solo se usa si el video no carga o si el celular está en «ahorro de datos»." : "Sube una imagen o un video (abajo). Si pones video, la imagen es opcional."}</div>
         <div style={{ background: C.paperDeep, borderRadius: 8, padding: "10px 12px", marginTop: 10, fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, lineHeight: 1.6 }}>
           <strong>Medida recomendada del banner:</strong> 1080×1920px (proporción 9:16, bien alargada — casi ocupa toda la pantalla al entrar), JPG, menos de 500 KB. Deja lo importante (rostro, prenda) centrado, porque se recorta un poco por los costados en pantallas anchas.
         </div>
       </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Video (opcional — reemplaza a la imagen si lo pones)</span>
+        <span style={labelStyle}>Video (opcional — si lo pones, se ve el video y no la imagen)</span>
         {form.videoUrl && <video src={form.videoUrl} muted style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, marginBottom: 10 }} />}
         <button onClick={() => videoRef.current?.click()} disabled={uploading} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>
           {uploading ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {uploading ? "Subiendo…" : "Subir video desde tu equipo"}
