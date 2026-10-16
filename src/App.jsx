@@ -5222,7 +5222,9 @@ const TranslateTool = ({ products, onPatch }) => {
 // Buscar y ordenar prendas en el panel (Productos y Stock): por nombre, código, categoría o color; sin acentos.
 const normQ = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 const productMatches = (p, q) => { const n = normQ(q).trim(); if (!n) return true; const hay = normQ(`${p.name} ${p.nameEn || ""} ${p.category} ${(p.variants || []).map((v) => `${v.sku || ""} ${v.barcode || ""} ${v.colorName || ""} ${v.size || ""}`).join(" ")}`); return n.split(/\s+/).every((w) => hay.includes(w)); };
-const PROD_FILTERS = [["todos", "Todos"], ["agotados", "Agotados"], ["bajo", "Stock bajo"], ["sinfoto", "Sin fotos"], ["borrador", "Borradores"], ["outlet", "Outlet"]];
+const PROD_FILTERS = [["todos", "Todos"], ["agotados", "Agotados"], ["bajo", "Stock bajo"], ["sinfoto", "Sin fotos"], ["colorsinfoto", "Colores sin foto"], ["borrador", "Borradores"], ["outlet", "Outlet"]];
+// Colores de una prenda (con 2+ colores) que todavía no tienen foto propia: en la tienda salen como círculo y con «foto referencial»
+const colorsWithoutPhoto = (p) => { const cs = productColors(p); return cs.length > 1 ? cs.filter((c) => !hasColorPhoto(p, c.n)).map((c) => c.n) : []; };
 const PROD_SORTS = [["nuevos", "Más nuevos primero"], ["antiguos", "Más antiguos primero"], ["nombre", "Nombre (A-Z)"], ["menosstock", "Menos stock primero"]];
 const filterSortProducts = (products, q, filter, sort) => {
   const idx = new Map(products.map((p, i) => [p.id, i])); // el orden guardado: los nuevos van primero y editar no cambia el sitio
@@ -5230,6 +5232,7 @@ const filterSortProducts = (products, q, filter, sort) => {
   if (filter === "agotados") list = list.filter(productSoldOut);
   if (filter === "bajo") list = list.filter((p) => p.variants.some((v) => v.stock > 0 && v.stock <= (p.minStock ?? 3)));
   if (filter === "sinfoto") list = list.filter((p) => !(p.images || []).length);
+  if (filter === "colorsinfoto") list = list.filter((p) => colorsWithoutPhoto(p).length > 0);
   if (filter === "borrador") list = list.filter((p) => p.status === "borrador");
   if (filter === "outlet") list = list.filter(isOutlet);
   const by = { nuevos: (a, b) => idx.get(a.id) - idx.get(b.id), antiguos: (a, b) => idx.get(b.id) - idx.get(a.id), nombre: (a, b) => a.name.localeCompare(b.name, "es"), menosstock: (a, b) => productTotalStock(a) - productTotalStock(b) }[sort] || (() => 0);
@@ -5381,6 +5384,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
                   <Switch on={p.featured !== false} onClick={() => onToggleFeatured(p.id)} label="Destacado" />
                   <Switch on={p.showOnline !== false} onClick={() => onToggleOnline(p.id)} label={p.showOnline !== false ? "Web" : "Solo tienda"} />
                 </div>
+                {colorsWithoutPhoto(p).length > 0 && (p.images || []).length > 0 && <div className="color-sin-foto" style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, marginTop: 6 }}>Falta foto de: <strong>{colorsWithoutPhoto(p).join(", ")}</strong> (toca el lápiz y elige el color en cada foto)</div>}
                 {onPatchProduct && <OutletControl product={p} onPatch={onPatchProduct} />}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -7365,7 +7369,7 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, 
         {canEdit && <button onClick={() => setShowLabels(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Scan size={15} /> Imprimir etiquetas</button>}
       </div>
 
-      <ProductFilterBar q={q} setQ={setQ} filter={pf.filter} setFilter={pf.setFilter} sort={pf.sort} setSort={pf.setSort} count={filtered.length} total={catalog.products.length} onKeyDown={handleSearchKeyDown} placeholder="Nombre, código, color… (o escanea + Enter)" filters={PROD_FILTERS.filter(([k]) => k !== "sinfoto")} />
+      <ProductFilterBar q={q} setQ={setQ} filter={pf.filter} setFilter={pf.setFilter} sort={pf.sort} setSort={pf.setSort} count={filtered.length} total={catalog.products.length} onKeyDown={handleSearchKeyDown} placeholder="Nombre, código, color… (o escanea + Enter)" filters={PROD_FILTERS.filter(([k]) => k !== "sinfoto" && k !== "colorsinfoto")} />
       {pf.filter === "agotados" && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12, lineHeight: 1.5 }}>{filtered.length ? `${filtered.length} prenda(s) agotada(s). Toca una para reponer stock. Para ocultarla de la web o borrarla: Productos → filtro «Agotados».` : "No hay prendas agotadas. ✓"}</div>}
       {pf.filter !== "agotados" && !filtered.length && <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, padding: "16px 0", textAlign: "center" }}>No hay prendas con este filtro.</div>}
 

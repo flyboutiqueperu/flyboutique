@@ -78,6 +78,22 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR
   await p.waitForTimeout(2500);
   const again = (saves.filter((x) => !x.cost).pop()?.p_data?.products || []).find((x) => x.name === "Aldana Dress") || {};
   check("subir otra vez la misma foto la reemplaza (no la duplica)", (again.images || []).length === nAldana && dialogs.some((d) => d.includes("reemplazaron a una foto con el mismo nombre")));
+  // Camino completo: foto del otro color por código de barras → en la tienda los dos colores salen como miniatura con foto
+  await p.setInputFiles('input[type=file][accept="image/*"][multiple]', [{ name: "ALDRPESO03692236.png", mimeType: "image/png", buffer: PNG }]);
+  await p.waitForTimeout(2500);
+  const store = saves.filter((x) => !x.cost).pop()?.p_data || {};
+  const ald = (store.products || []).find((x) => x.name === "Aldana Dress") || {};
+  check("foto por código de barras de Perla queda con su color", (ald.images || []).some((im) => im.colorName === "Perla"));
+  const sp = await b.newPage({ viewport: { width: 390, height: 844 }, locale: "es-PE" });
+  await sp.addInitScript(() => { localStorage.setItem("flyboutique:cookieconsent:v1", "none"); localStorage.setItem("flyboutique:idioma:v1", "es"); });
+  await sp.route("http://fake.supabase.test/**", (rt) => rt.request().url().includes("store_data") ? rt.fulfill({ json: { data: { collections: [], banners: [], settings: {}, promoCodes: [], ...store, products: (store.products || []).map((x) => ({ ...x, variants: x.variants.map((v) => ({ ...v, stock: 3 })) })) } } }) : rt.fulfill({ json: [] }));
+  await sp.goto(`http://localhost:4398/p/${ald.id}`); await sp.waitForTimeout(2000);
+  const tiles = await sp.evaluate(() => ["Negro", "Perla"].map((c) => { const bt = document.querySelector(`.pdp-info button[aria-label="${c}"]`); return bt ? getComputedStyle(bt).borderRadius : "no"; }));
+  await sp.screenshot({ path: `${out}/importar-pdp.png` });
+  check("Tienda: Negro y Perla salen como miniatura con foto (uniforme, no círculo)", tiles.every((r) => r === "8px"));
+  await sp.goto("http://localhost:4398/catalogo"); await sp.waitForTimeout(1800);
+  check("Tienda: la tarjeta de Aldana muestra los 2 círculos de color", (await sp.locator(".pcard", { hasText: "Aldana Dress" }).first().locator(".pcard-colors button").count()) === 2);
+  await sp.close();
   await p.screenshot({ path: `${out}/importar.png` });
   console.log(ok ? "TODO OK" : "HAY FALLAS");
   await b.close(); srv.close(); process.exit(ok ? 0 : 1);

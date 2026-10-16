@@ -8,4 +8,6 @@ for (const [es, en] of Object.entries(cases)) check(`«${es}» → «${en}»`, t
 check("Un texto que no es color no se traduce mal («Blusa Seda»)", t("Blusa Seda") === "Blusa Seda");
 check("Color desconocido queda igual («Turmalina»)", t("Turmalina") === "Turmalina");
 check("Importador: «MARRON» → «Marrón», «AZUL CLARO» → «Azul Claro»", colorLabel("MARRON") === "Marrón" && colorLabel("AZUL CLARO") === "Azul Claro");
+const { titleCase } = await import("../src/importar-tumisoft.js");
+check("Importador: nombres con tilde («PANTALON PALAZZO AURORA» → «Pantalón Palazzo Aurora»)", titleCase("PANTALON PALAZZO AURORA") === "Pantalón Palazzo Aurora");
 console.log(ok ? "TODO OK" : "HAY FALLAS"); process.exit(ok ? 0 : 1);
