@@ -54,6 +54,11 @@ const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if (!v) ok = fals
   check("Se recuerda en este equipo (letra 110%, 64 mm, sin logo)", d3.font === d1.font && Math.abs(d3.w - d2.w) < 2 && !logoOn(d3));
   await p.click("text=Volver a los valores normales"); await p.waitForTimeout(150);
   check("«Volver a los valores normales» restablece", logoOn(await doc()) && (await p.innerText('[aria-label="Tamaño de letra: valor"]')).includes("100%"));
+  await p.click("button:has-text('Usar ajustes para ZJ-8330')"); await p.waitForTimeout(200);
+  const zj = await p.evaluate(() => JSON.parse(localStorage.getItem("flyboutique:impresion:v1") || "{}"));
+  const css2 = await p.evaluate(() => [...document.querySelectorAll("style")].map((s) => s.textContent).join(" "));
+  check("«Usar ajustes para ZJ-8330»: 80 mm, 72 mm imprimibles, margen 0", (await p.innerText('[aria-label="Ancho que imprime (rollo 80): valor"]')).includes("72") && /margin: 0mm/.test(css2) && zj.margin === 0 && zj.width80 === 72);
+  check("Trae los pasos para dejarla lista en la PC (driver, papel, corte)", (await p.innerText(".printer-preset")).includes("Cómo dejarla lista en la PC"));
   await p.screenshot({ path: `${out}/impresora.png` });
   await ctx.close();
   ({ p, ctx } = await open("cajero"));

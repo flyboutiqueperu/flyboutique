@@ -7642,6 +7642,8 @@ const RECEIPT_FORMATS = { "80": { label: "Ticket 80 mm", width: "72mm", page: "8
 // Letra más grande o más chica, margen, ancho imprimible del rollo y logo. No cambia la venta ni el comprobante.
 const PRINT_CFG_KEY = "flyboutique:impresion:v1";
 const PRINT_DEFAULT = { scale: 100, margin: 2, width58: 48, width80: 72, logo: true };
+// Impresoras conocidas: un toque deja los ajustes listos (Zjiang ZJ-8330 = la de la tienda: 80 mm, 72 mm imprimibles, el driver hace el corte)
+const PRINTER_PRESETS = { zj8330: { name: "ZJ-8330", format: "80", cfg: { scale: 100, margin: 0, width80: 72, logo: true } } };
 const clampN = (v, a, b, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(b, Math.max(a, n)) : d; };
 const printCfgGet = () => {
   let c = {}; try { c = JSON.parse(localStorage.getItem(PRINT_CFG_KEY) || "{}") || {}; } catch (e) { c = {}; }
@@ -7912,6 +7914,26 @@ const PrinterScreen = ({ settings }) => {
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         {Object.entries(RECEIPT_FORMATS).map(([k, f]) => <Chip key={k} active={format === k} onClick={() => choose(k)}>{f.label}</Chip>)}
       </div>
+      {/* Impresora de la tienda (Larco): Zjiang ZJ-8330, térmica 80 mm (72 mm imprimibles), USB y red, con corte automático */}
+      <AdminCard style={{ marginBottom: 14 }}>
+        <div className="printer-preset" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.6 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Impresora de la tienda: ZJ-8330 (80 mm)</div>
+          <div style={{ color: C.inkSoft, marginBottom: 10 }}>Ticket térmico de 80 mm (imprime 72 mm), con cable USB o por red (LAN) y corte automático.</div>
+          <PrimaryButton onClick={() => { const n = { ...pcfg, ...PRINTER_PRESETS.zj8330.cfg }; setPcfg(n); printCfgSave(n); choose(PRINTER_PRESETS.zj8330.format); }}>Usar ajustes para ZJ-8330</PrimaryButton>
+          <FoldCard title="Cómo dejarla lista en la PC (una sola vez)" summary="Driver, papel 80 mm, márgenes y corte" style={{ marginTop: 10 }}>
+            <ol style={{ margin: 0, paddingLeft: 18, color: C.inkSoft }}>
+              <li><strong>Driver:</strong> conecta el USB e instala el driver que vino con la impresora (en el CD o en la web de Zjiang, suele llamarse «POS-80» o «ZJ-80»). En Windows debe aparecer en Configuración → Impresoras.</li>
+              <li><strong>Papel:</strong> en las «Preferencias de impresión» de esa impresora elige papel <strong>80 mm</strong> (a veces dice «80(72.1) x 297 mm» o «Roll paper 80 x 297»).</li>
+              <li><strong>Corte:</strong> en esas mismas preferencias activa «Cortar papel al final del documento» (Cut / Paper cut). Así cada ticket sale cortado.</li>
+              <li>Toca arriba <strong>«Usar ajustes para ZJ-8330»</strong> y luego <strong>«Imprimir prueba»</strong>.</li>
+              <li>En la ventana de imprimir de Chrome: elige la ZJ-8330 / POS-80, en «Más ajustes» pon <strong>Márgenes: Ninguno</strong>, <strong>Escala: Predeterminada</strong> y <strong>quita «Encabezados y pies de página»</strong>. Chrome lo recuerda para la próxima.</li>
+              <li>Si el texto sale cortado a la derecha, baja «Ancho imprimible» a 70 mm; si sale muy chico, sube «Tamaño de letra».</li>
+              <li><strong>Opcional (más rápido):</strong> para imprimir sin la ventana de Chrome, crea un acceso directo con: <code style={{ wordBreak: "break-all" }}>chrome.exe --kiosk-printing https://flyboutique.vercel.app/caja</code> y deja la ZJ-8330 como impresora predeterminada.</li>
+              <li><strong>Por red (LAN):</strong> si la conectas al router, imprime su hoja de configuración (mantén el botón FEED al encenderla) para ver su IP y agrégala en Windows como impresora de red con esa IP; lo demás es igual.</li>
+            </ol>
+          </FoldCard>
+        </div>
+      </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}><PrintSettings cfg={pcfg} onChange={setPcfg} format={format} /></AdminCard>
       <div style={{ background: "#e9e9e9", borderRadius: 12, padding: "16px 8px", marginBottom: 14, overflowX: "auto" }}>
         <div style={{ boxShadow: "0 4px 18px rgba(0,0,0,0.12)", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}><ReceiptDocument sale={PRINT_TEST_SALE} settings={settings} format={format} cfg={pcfg} /></div>
