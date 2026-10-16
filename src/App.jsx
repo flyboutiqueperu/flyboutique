@@ -4630,6 +4630,7 @@ const SalesBoard = ({ catalog }) => {
   const discount = valid.reduce((a, s) => a + (Number(s.discount) || 0), 0);
   const refunded = valid.reduce((a, s) => a + (Number(s.refundedTotal) || 0), 0);
   const facturas = valid.filter((s) => s.tipo === "factura").length;
+  const notas = valid.filter((s) => s.tipo === "nota").length;
   const [ra, rb] = periodRange(f);
   const days = Math.max(1, Math.round((Math.min(rb.getTime(), Date.now()) - ra.getTime()) / 86400000));
   // Por hora del día (solo el tramo con ventas, mínimo de 9 a 21)
@@ -4673,7 +4674,7 @@ const SalesBoard = ({ catalog }) => {
         {kpi("Ticket promedio", money(valid.length ? total / valid.length : 0), "Por venta")}
         {kpi("Prendas por venta", valid.length ? (units / valid.length).toFixed(1) : "0", `${units} prendas en total`)}
         {kpi(days > 1 ? "Promedio por día" : "Descuentos", days > 1 ? money(total / days) : money(discount), days > 1 ? `${days} días · desc. ${money(discount)}` : refunded ? `Devuelto ${money(refunded)}` : "Promociones y rebajas")}
-        {kpi("Comprobantes", `${valid.length - facturas} / ${facturas}`, "Boletas / facturas")}
+        {kpi("Comprobantes", `${notas} / ${valid.length - facturas - notas} / ${facturas}`, "Notas de venta / boletas / facturas")}
       </div>
       <div className="board-grid">
         <div className="board-box"><div className="board-title">Ventas por hora</div><BoardBars data={hourData} label="Ventas por hora del día" /></div>
@@ -6651,7 +6652,7 @@ const EInvoiceScreen = ({ catalog, role }) => {
   };
   const sentIds = new Set(rows.map((r) => r.sale_id));
   const weekAgo = Date.now() - 7 * 86400000;
-  const pending = (catalog.sales || []).filter((x) => x.status !== "anulado" && (x.createdAt || 0) >= weekAgo && !sentIds.has(x.id) && !x.einvoice && (x.source !== "web" || x.paymentStatus === "confirmado")).slice(0, 50);
+  const pending = (catalog.sales || []).filter((x) => x.status !== "anulado" && (x.createdAt || 0) >= weekAgo && !sentIds.has(x.id) && !x.einvoice && x.tipo !== "nota" && (x.source !== "web" || x.paymentStatus === "confirmado")).slice(0, 50);
   const sendAll = async () => { for (const x of pending) { if (!(await act("emit_einvoice", { p_sale_id: x.id }, "all"))) break; } };
   const counts = st.counts || {};
   const chip = (status) => <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap", color: ["rechazado", "error"].includes(status) ? C.accent : C.ink }}>{EINV_LABEL[status] || status}</span>;
@@ -7845,7 +7846,7 @@ const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp, autoEmit = fal
       const { data } = await supabase.from("einvoices").select("*").eq("sale_id", sale.id).maybeSingle();
       if (!alive) return;
       if (data) setEinv(data);
-      else if (autoEmit && c.configured && c.auto && sale.status !== "anulado") emit();
+      else if (autoEmit && c.configured && c.auto && sale.status !== "anulado" && sale.tipo !== "nota") emit();
     })().catch(() => {});
     return () => { alive = false; };
   }, [sale.id]);
@@ -7870,11 +7871,11 @@ const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp, autoEmit = fal
           {eBusy && <Loader2 size={15} className="spin" />}
           <span style={{ flex: 1, minWidth: 180 }}>
             <strong>SUNAT:</strong>{" "}
-            {eBusy ? "enviando a Nubefact…" : einv ? `${EINV_LABEL[einv.status] || einv.status} · ${einv.serie}-${einv.numero}` : "aún no se envió"}
+            {eBusy ? "enviando a Nubefact…" : einv ? `${EINV_LABEL[einv.status] || einv.status} · ${einv.serie}-${einv.numero}` : sale.tipo === "nota" ? "nota de venta, no se envía (si la persona pide boleta, tócalo)" : "aún no se envió"}
             {einv?.last_error && <span style={{ display: "block", color: C.accent }}>{einv.last_error}</span>}
             {eMsg && <span style={{ display: "block", color: C.accent }}>{eMsg}</span>}
           </span>
-          {!eBusy && (!einv || ["preparado", "rechazado", "error"].includes(einv.status)) && cfg.configured && <button onClick={emit} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{einv ? "Reintentar" : "Enviar a SUNAT"}</button>}
+          {!eBusy && (!einv || ["preparado", "rechazado", "error"].includes(einv.status)) && cfg.configured && <button onClick={emit} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{einv ? "Reintentar" : sale.tipo === "nota" ? "Emitir boleta electrónica" : "Enviar a SUNAT"}</button>}
           {!eBusy && einv && ["enviado", "anulacion_pendiente"].includes(einv.status) && <button onClick={refresh} style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Actualizar estado</button>}
           {einv?.pdf_url && <a href={einv.pdf_url} target="_blank" rel="noreferrer" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>PDF oficial</a>}
         </div>
@@ -8049,7 +8050,17 @@ const autoPromoCalc = (settings, products, items) => {
   return { applied, total: round2(applied.reduce((a, x) => a + x.discount, 0)), tips };
 };
 
+// Tipos de comprobante en caja: la nota de venta es interna (nunca va a SUNAT); boleta y factura son electrónicas si Nubefact está activo
+const DOC_TIPOS = [["nota", "Nota de venta"], ["boleta", "Boleta"], ["factura", "Factura"]];
 const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprobanteTipo, onSaveCustomer, onConfirm, onClose, busy, staffName, role, channel = "tienda" }) => {
+  // ¿Está activa la facturación electrónica? (solo para el aviso bajo Nota de venta / Boleta / Factura)
+  const [einvActive, setEinvActive] = useState(() => !!(einvConfigCache && einvConfigCache.configured));
+  useEffect(() => { let alive = true; einvConfig().then((c) => { if (alive) setEinvActive(!!(c && c.configured && c.auto)); }).catch(() => {}); return () => { alive = false; }; }, []);
+  // La pantalla de cobro tapa toda la página: se bloquea el scroll de atrás para que no salgan dos barras
+  useEffect(() => {
+    document.documentElement.classList.add("scroll-lock");
+    return () => document.documentElement.classList.remove("scroll-lock");
+  }, []);
   const [sellers, setSellers] = useState([]);
   const [seller, setSeller] = useState(staffName || "");
   // Códigos de vendedor (MA01): si existen, en tienda cada venta pide el código de quien atendió
@@ -8214,8 +8225,11 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
       </div>
       <div className="checkout-grid" style={{ maxWidth: 1180, margin: "0 auto", padding: "16px 18px 40px" }}>
         <div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            {[["boleta", "Boleta / Nota de venta"], ["factura", "Factura"]].map(([k, l]) => <Chip key={k} active={comprobanteTipo === k} onClick={() => { setComprobanteTipo(k); if (k === "factura") toggleAnon(false); }}>{l}</Chip>)}
+          <div className="doc-tipo" role="group" aria-label="Tipo de comprobante" style={{ display: "flex", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+            {DOC_TIPOS.map(([k, l]) => <Chip key={k} active={comprobanteTipo === k} onClick={() => { setComprobanteTipo(k); if (k === "factura") toggleAnon(false); }}>{l}</Chip>)}
+          </div>
+          <div className="doc-tipo-nota" style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 14 }}>
+            {comprobanteTipo === "nota" ? "Nota de venta: comprobante interno, no se envía a SUNAT." : einvActive ? `${comprobanteTipo === "factura" ? "Factura" : "Boleta"} electrónica: se envía sola a SUNAT al registrar la venta.` : "La facturación electrónica aún no está activa: por ahora se imprime como nota de venta (Más → Facturación electrónica)."}
           </div>
           {step(1, "Cliente", customerOk, isFactura ? "Escribe el RUC: si ya compró antes, se completa solo." : "Escribe el DNI: si ya es cliente, se completa solo y suma sus puntos.")}
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 6 }}>Los datos con * son obligatorios.</div>
@@ -8434,7 +8448,9 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
   const [picking, setPicking] = useState(null);
   const [saleItems, setSaleItems] = useState([]);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [comprobanteTipo, setComprobanteTipo] = useState("boleta");
+  // Por defecto: boleta si la facturación electrónica está activa; si no, nota de venta (la tienda emite hoy con TumiSoft)
+  const [comprobanteTipo, setComprobanteTipo] = useState(() => (einvConfigCache && einvConfigCache.configured && einvConfigCache.auto ? "boleta" : "nota"));
+  useEffect(() => { let alive = true; einvConfig().then((c) => { if (alive && c && c.configured && c.auto) setComprobanteTipo((t) => (t === "nota" ? "boleta" : t)); }).catch(() => {}); return () => { alive = false; }; }, []);
   const [customerName, setCustomerName] = useState("");
   const [customerDoc, setCustomerDoc] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Efectivo");
@@ -8563,7 +8579,8 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
           )}
         </div>
         <select value={comprobanteTipo} onChange={(e) => setComprobanteTipo(e.target.value)} aria-label="Tipo de comprobante" style={{ ...inputStyle, width: "auto", maxWidth: "100%", padding: "8px 10px" }}>
-          <option value="boleta">Boleta / Nota de venta</option>
+          <option value="nota">Nota de venta</option>
+          <option value="boleta">Boleta</option>
           <option value="factura">Factura</option>
         </select>
       </div>
@@ -11502,6 +11519,8 @@ export default function FlyBoutiqueApp() {
         /* Las fuentes se cargan en index.html (<link>): un @import aquí hacía que Safari no aplicara NINGÚN estilo de este bloque hasta descargarlas */
         * { box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; margin: 0; }
+        /* Pantallas que tapan todo (cobro de caja): la página de atrás no se desplaza, así hay una sola barra */
+        html.scroll-lock, html.scroll-lock body { overflow: hidden !important; }
         #root { height: 100%; }
         .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
         .app-content { scrollbar-width: none; }
