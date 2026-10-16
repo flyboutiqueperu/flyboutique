@@ -83,6 +83,9 @@ function track(event, params = {}) {
     if (window.clarity) window.clarity("event", event);
   } catch (e) { /* sin estadísticas */ }
 }
+// Historial: registra en Más → Registro de actividad una acción hecha en el navegador (importar Excel, fotos en lote).
+// Usa la función del servidor del SQL 28; si aún no se corrió, no pasa nada (la acción ya se hizo igual).
+const staffLog = (action, details) => { try { supabase.rpc("staff_log", { p_action: action, p_details: details }).then(() => {}, () => {}); } catch (e) { /* sin historial */ } };
 const gaItem = (p, extra = {}) => ({ item_id: p.id, item_name: p.name, item_category: p.category, price: p.price, ...extra });
 const STORE_WHATSAPP = "51978687704"; // wa.me/c/51978687704 — el mismo número del Instagram de Fly Boutique
 const STORE_EMAIL = "flyboutiqueperu@gmail.com";
@@ -5208,7 +5211,11 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
         const sm = r.summary;
         const ejemplos = r.samples.slice(0, 6).map((x) => `• ${x.nombre} → ${x.prenda} · ${x.color} · ${x.talla}`).join("\n");
         const msg = `Excel de TumiSoft: ${sm.filas} filas → ${r.products.length} prendas (${sm.nuevas} nuevas, ${sm.actualizadas} ya existían) con ${sm.combinaciones} combinaciones (talla y color).\n\nAsí se separan:\n${ejemplos}\n\nCategorías: ${sm.categorias.join(", ")}.${sm.conStock ? `\nStock: ${sm.conStock} combinaciones con cantidad.` : "\nEl stock no viene en este archivo: las prendas nuevas quedan en 0 y las que ya existían conservan su stock."}${sm.precioDistinto.length ? `\nOjo, precios distintos dentro de una prenda (se usa el más común): ${sm.precioDistinto.slice(0, 3).join("; ")}${sm.precioDistinto.length > 3 ? "…" : ""}` : ""}\n\nNo se borra nada. ¿Importar?`;
-        if (confirm(msg)) { await onImportTumi(r.products, r.costs); alert(`Listo: ${sm.nuevas} prendas nuevas y ${sm.actualizadas} actualizadas.${r.costs.length ? ` Costos guardados: ${r.costs.length}.` : ""}\nAhora puedes subir las fotos en lote (nombradas con el código interno o con el nombre y el color).`); }
+        if (confirm(msg)) {
+          await onImportTumi(r.products, r.costs);
+          staffLog("catalogo_importado", { archivo: file.name.slice(0, 80), filas: sm.filas, nuevas: sm.nuevas, actualizadas: sm.actualizadas, combinaciones: sm.combinaciones, costos: r.costs.length });
+          alert(`Listo: ${sm.nuevas} prendas nuevas y ${sm.actualizadas} actualizadas.${r.costs.length ? ` Costos guardados: ${r.costs.length}.` : ""}\nNo se borró nada.${sm.nuevas ? `\nLas ${sm.nuevas} nuevas quedan OCULTAS («Esperando fotos») hasta que subas sus fotos en lote: al recibir su foto se publican solas.` : ""}\nQueda en Más → Registro de actividad.`);
+        }
         setImporting(false); if (fileRef.current) fileRef.current.value = ""; return;
       }
       const { toUpsert, toDelete, movements } = parseImportRows(sheet.rows);
@@ -5235,14 +5242,20 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
     }
     planned.sort((a, b) => a.match.product.id.localeCompare(b.match.product.id) || String(a.match.colorName || "").localeCompare(String(b.match.colorName || "")) || a.order - b.order || a.file.name.localeCompare(b.file.name, "es", { numeric: true }));
     for (const { file, match } of planned) {
-      try { const m = await uploadMedia(file, "productos"); matches.push({ productId: match.product.id, url: m.url, type: m.type, thumb: m.thumb || null, colorName: match.colorName }); }
+      try { const m = await uploadMedia(file, "productos"); matches.push({ productId: match.product.id, url: m.url, type: m.type, thumb: m.thumb || null, colorName: match.colorName, src: file.name.replace(/\.[^.]+$/, "").trim().toUpperCase() }); }
       catch (err) { console.error(err); unmatched.push(file.name); }
     }
-    if (matches.length) onBulkPhotos(matches);
+    const st = matches.length ? (onBulkPhotos(matches) || {}) : {};
     setMatchingPhotos(false);
     if (photoRef.current) photoRef.current.value = "";
     const withColor = matches.filter((m) => m.colorName).length;
-    alert(`${matches.length} foto(s) asignadas automáticamente${withColor ? ` (${withColor} con su color)` : ""}.${unmatched.length ? `\nSin coincidencia (${unmatched.length}): ${unmatched.join(", ")}` : ""}`);
+    const prendas = new Set(matches.map((m) => m.productId)).size;
+    if (matches.length || unmatched.length) staffLog("fotos_subidas", { fotos: matches.length, prendas, publicadas: (st.publicadas || []).length, reemplazadas: st.reemplazadas || 0, sin_reconocer: unmatched.length, detalle: unmatched.slice(0, 15).join(", ") });
+    alert(`${matches.length} foto(s) asignadas automáticamente${withColor ? ` (${withColor} con su color)` : ""}.`
+      + (st.reemplazadas ? `\n${st.reemplazadas} reemplazaron a una foto con el mismo nombre (no se duplicaron).` : "")
+      + (st.publicadas?.length ? `\nPublicadas en la tienda (ya tienen foto): ${st.publicadas.length} — ${st.publicadas.slice(0, 8).join(", ")}${st.publicadas.length > 8 ? "…" : ""}.` : "")
+      + (unmatched.length ? `\nSin coincidencia (${unmatched.length}): ${unmatched.join(", ")}` : "")
+      + "\nQueda en Más → Registro de actividad.");
   };
 
   const handleSearchKeyDown = (e) => {
@@ -5283,7 +5296,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
         {filtered.map((p) => {
           const soldOut = productSoldOut(p);
           const statusMap = { active: { l: "Activo", bg: C.ink, fg: C.paper }, agotado: { l: "Agotado", bg: C.accent, fg: C.white }, borrador: { l: "Borrador", bg: C.line, fg: C.inkSoft } };
-          const st = statusMap[soldOut && p.status !== "borrador" ? "agotado" : p.status];
+          const st = p.awaitingPhotos && p.status === "borrador" ? { l: "Esperando fotos", bg: C.paperDeep, fg: C.ink } : statusMap[soldOut && p.status !== "borrador" ? "agotado" : p.status];
           return (
             <AdminCard key={p.id} style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <div style={{ width: 52, height: 64, borderRadius: 6, overflow: "hidden", flexShrink: 0 }}><ProductImg src={mainImageUrl(p)} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
@@ -6522,9 +6535,9 @@ const ACTIVITY_GROUPS = [
   ["inventario", "Inventario y compras", (a) => /^(guia_|traslado_|compra_|costo_|gasto_)/.test(a)],
   ["equipo", "Equipo y configuración", (a) => /^(usuario_|vendedor_|consulta_doc_config|permiso_publicidad)/.test(a)],
 ];
-const ACTIVITY_EXTRA = { caja_entrada: "Entrada de dinero", caja_salida: "Salida de dinero", devolucion: "Devolución", cambio_prendas: "Cambio de prendas", vale_creado: "Vale creado", vale_anulado: "Vale anulado", puntos_canjeados: "Puntos canjeados", comprobante_aceptado: "Comprobante aceptado por SUNAT", comprobante_enviado: "Comprobante enviado", comprobante_rechazado: "Comprobante rechazado", comprobante_error: "Comprobante con error", comprobante_anulado: "Comprobante anulado", nota_credito_aceptado: "Nota de crédito aceptada", nota_credito_enviado: "Nota de crédito enviada", nota_credito_rechazado: "Nota de crédito rechazada", nota_credito_error: "Nota de crédito con error", facturacion_config: "Configuración de facturación", consulta_doc_config: "Configuración DNI/RUC", permiso_publicidad: "Permiso de publicidad", vendedor_guardado: "Vendedor guardado" };
+const ACTIVITY_EXTRA = { catalogo_importado: "Catálogo importado (Excel)", fotos_subidas: "Fotos subidas en lote", caja_entrada: "Entrada de dinero", caja_salida: "Salida de dinero", devolucion: "Devolución", cambio_prendas: "Cambio de prendas", vale_creado: "Vale creado", vale_anulado: "Vale anulado", puntos_canjeados: "Puntos canjeados", comprobante_aceptado: "Comprobante aceptado por SUNAT", comprobante_enviado: "Comprobante enviado", comprobante_rechazado: "Comprobante rechazado", comprobante_error: "Comprobante con error", comprobante_anulado: "Comprobante anulado", nota_credito_aceptado: "Nota de crédito aceptada", nota_credito_enviado: "Nota de crédito enviada", nota_credito_rechazado: "Nota de crédito rechazada", nota_credito_error: "Nota de crédito con error", facturacion_config: "Configuración de facturación", consulta_doc_config: "Configuración DNI/RUC", permiso_publicidad: "Permiso de publicidad", vendedor_guardado: "Vendedor guardado" };
 const activityLabel = (a) => ACTION_LABELS[a] || ACTIVITY_EXTRA[a] || String(a || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
-const ACTIVITY_KEYS = { venta: "Venta", comprobante: "Comprobante", nota: "Nota", modifica: "Modifica", guia: "Guía", motivo: "Motivo", total: "Total", monto: "Monto", amount: "Monto", detalle: "Detalle", codigo: "Código", code: "Código", reason: "Motivo", token: "Token", sede: "Sede", diferencia: "Diferencia", difference: "Diferencia", serie: "Serie", numero: "Número" };
+const ACTIVITY_KEYS = { archivo: "Archivo", filas: "Filas", nuevas: "Nuevas", actualizadas: "Actualizadas", combinaciones: "Tallas y colores", costos: "Costos", fotos: "Fotos", prendas: "Prendas", publicadas: "Publicadas", reemplazadas: "Reemplazadas", sin_reconocer: "Sin reconocer", venta: "Venta", comprobante: "Comprobante", nota: "Nota", modifica: "Modifica", guia: "Guía", motivo: "Motivo", total: "Total", monto: "Monto", amount: "Monto", detalle: "Detalle", codigo: "Código", code: "Código", reason: "Motivo", token: "Token", sede: "Sede", diferencia: "Diferencia", difference: "Diferencia", serie: "Serie", numero: "Número" };
 const activityDetail = (d) => {
   if (!d || typeof d !== "object") return "";
   return Object.entries(d).filter(([, v]) => v !== null && v !== undefined && v !== "" && typeof v !== "object").slice(0, 6)
@@ -10521,16 +10534,28 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     ...c,
     products: c.products.map((p) => ((p.images || []).some((m) => made[m.url] && !m.thumb) ? { ...p, images: p.images.map((m) => (made[m.url] && !m.thumb ? { ...m, thumb: made[m.url] } : m)) } : p)),
   }));
+  // Fotos en lote: NO borra nada. Si llega otra vez una foto con el mismo nombre de archivo (ej. «9LRJC28-1.jpg»), reemplaza
+  // a la anterior en vez de duplicarla. Las prendas importadas que esperaban fotos («Esperando fotos») se publican solas.
   const attachBulkImages = (matches) => {
-    updateCatalog((c) => ({
-      ...c,
-      products: c.products.map((p) => {
-        const add = matches.filter((m) => m.productId === p.id).map((m) => ({ id: genId("img"), url: m.url, colorName: m.colorName || null, ...(m.type === "video" ? { type: "video" } : {}), ...(m.thumb ? { thumb: m.thumb } : {}) }));
-        return add.length ? { ...p, images: [...p.images, ...add] } : p;
-      }),
-    }));
+    const stats = { publicadas: [], reemplazadas: 0, agregadas: 0 };
+    const apply = (p, count) => {
+      const mine = matches.filter((m) => m.productId === p.id);
+      if (!mine.length) return p;
+      let images = [...(p.images || [])];
+      for (const m of mine) {
+        const img = { id: genId("img"), url: m.url, colorName: m.colorName || null, ...(m.src ? { src: m.src } : {}), ...(m.type === "video" ? { type: "video" } : {}), ...(m.thumb ? { thumb: m.thumb } : {}) };
+        const i = m.src ? images.findIndex((x) => x.src === m.src) : -1;
+        if (i >= 0) { images[i] = { ...img, id: images[i].id }; if (count) stats.reemplazadas++; } else { images.push(img); if (count) stats.agregadas++; }
+      }
+      const publish = p.awaitingPhotos && p.status === "borrador";
+      if (publish && count) stats.publicadas.push(p.name);
+      return { ...p, images, ...(publish ? { status: "active", awaitingPhotos: false } : {}), updatedAt: Date.now() };
+    };
+    catalog.products.forEach((p) => apply(p, true)); // solo para contar (lo que se guarda lo calcula updateCatalog)
+    updateCatalog((c) => ({ ...c, products: c.products.map((p) => apply(p, false)) }));
+    return { ...stats, publicadas: [...new Set(stats.publicadas)] };
   };
-  const toggleProductActive = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, status: p.status === "active" ? "borrador" : "active" } : p)) }));
+  const toggleProductActive = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, status: p.status === "active" ? "borrador" : "active", awaitingPhotos: false } : p)) }));
   const toggleProductFeatured = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, featured: !(p.featured !== false) } : p)) }));
   const patchProduct = (id, patch) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p)) }));
   const toggleProductOnline = (id) => updateCatalog((c) => ({ ...c, products: c.products.map((p) => (p.id === id ? { ...p, showOnline: !(p.showOnline !== false) } : p)) }));
