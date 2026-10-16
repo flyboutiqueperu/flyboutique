@@ -66,6 +66,10 @@ let ok = true; const check = (t, val) => { console.log(val ? "OK " : "FALLA", t)
   check("Almira (un color, 2 fotos): deslizar pasa a la 2.ª foto", (await swipe("Almira Top", -120), await p.waitForTimeout(250), (await src("Almira Top")).includes("FOTO 2")));
   check("Almira: un solo color → sin círculos", (await card("Almira Top").locator(".pcard-colors").count()) === 0);
   check("Falda con una sola foto: sin puntitos", (await dots("Falda Simple")) === 0);
+  const css = await card("Aldana Dress").locator(".pcard-swipe img").first().evaluate((el) => { const c = getComputedStyle(el); const rule = [...document.querySelectorAll("style")].some((st) => /\.pcard-swipe img[^}]*-webkit-touch-callout:\s*none/.test(st.textContent)); return [rule, c.userSelect]; });
+  check("Mantener el dedo sobre la foto no abre el menú de iPhone (touch-callout none)", css[0] === true && css[1] === "none");
+  const ctxBlocked = await card("Aldana Dress").locator(".pcard-swipe img").first().evaluate((el) => { const e = new MouseEvent("contextmenu", { bubbles: true, cancelable: true }); el.dispatchEvent(e); return e.defaultPrevented; });
+  check("En celular, el menú de la foto (mantener presionado) queda bloqueado", ctxBlocked);
   // «+» con el color que se ve
   await card("Vestido Coralina").locator("button[aria-label='Ver en Marfil']").click(); await p.waitForTimeout(200);
   await card("Vestido Coralina").locator("button[aria-label='Añadir a la cesta']").click(); await p.waitForTimeout(400);

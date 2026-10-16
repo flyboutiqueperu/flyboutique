@@ -851,7 +851,7 @@ const ProductCard = ({ product, onOpen, fav, onToggleFav, wide, onQuickAdd, cata
   return (
     <div className={wide ? undefined : "pcard"} style={{ width: wide ? 300 : "100%", flexShrink: 0, cursor: "pointer", position: "relative" }} onClick={() => { if (swiped.current) { swiped.current = false; return; } onOpen(product, cardColor); }}>
       <div ref={imgBox} className="pcard-swipe" data-slides={slideCount} style={{ position: "relative", borderRadius: 10, overflow: "hidden", background: C.paperDeep }}
-        onMouseEnter={() => canHover() && setHovering(true)} onMouseLeave={() => setHovering(false)}>
+        onMouseEnter={() => canHover() && setHovering(true)} onMouseLeave={() => setHovering(false)} onContextMenu={(e) => { if (!canHover()) e.preventDefault(); }}>
         <Tag label={label} />
         <button aria-label={fav ? t("Quitar de favoritos") : t("Guardar en favoritos")} onClick={(e) => { e.stopPropagation(); onToggleFav(product.id); }} style={{ position: "absolute", top: 8, right: 8, zIndex: 2, width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.92)", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
           <Heart key={fav ? "on" : "off"} className={fav ? "heart-pop" : ""} size={14} color={C.ink} fill={fav ? C.ink : "none"} strokeWidth={1.6} />
@@ -11365,6 +11365,8 @@ export default function FlyBoutiqueApp() {
         .admin-topbar .tb-short { display: none; }
         @media (max-width: 420px) { .admin-topbar .tb-label { display: none; } .admin-topbar .tb-short { display: inline; } .admin-topbar button[aria-label] { padding: 8px 10px !important; } }
         .pcard { content-visibility: auto; contain-intrinsic-block-size: auto 460px; }
+        /* Mantener el dedo sobre la foto de la tarjeta no abre el menú «Guardar en Fotos / Copiar» de iPhone: se puede deslizar tranquilo */
+        .pcard-swipe, .pcard-swipe img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
         @media print { @page { margin: 8mm; } body * { visibility: hidden !important; } .print-area, .print-area * { visibility: visible !important; } .print-area { position: absolute; left: 0; top: 0; width: 100%; border: none !important; } }
         @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
