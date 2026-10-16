@@ -2110,6 +2110,65 @@ const Accordion = ({ title, children, defaultOpen = false }) => {
   );
 };
 
+// «Avísame cuando vuelva»: la persona deja su celular o correo para una talla/color agotado (SQL 29: request_stock_alert).
+// El staff ve la lista en Más → «Avísame cuando vuelva» y le escribe cuando llega. Solo se usa para ese aviso.
+const STOCK_ALERT_ERRORS = { CONTACTO_INVALIDO: "Escribe un celular (9 dígitos) o un correo válido.", DEMASIADOS_AVISOS: "Ya tienes muchos avisos pendientes. Te escribiremos pronto.", INTENTA_MAS_TARDE: "Hay muchas solicitudes ahora. Intenta en unos minutos." };
+const StockAlertSheet = ({ product, color, sizes, initialSize, onClose }) => {
+  const [size, setSize] = useState(initialSize || sizes[0] || "");
+  const [contact, setContact] = useState("");
+  const [name, setName] = useState("");
+  const [state, setState] = useState({ busy: false, done: false, err: "" });
+  const send = async () => {
+    setState({ busy: true, done: false, err: "" });
+    try {
+      const { data, error } = await supabase.rpc("request_stock_alert", { p_product_id: product.id, p_color: color || "", p_size: size || "", p_contact: contact, p_name: name || null, p_lang: getLang() });
+      if (error) { const code = Object.keys(STOCK_ALERT_ERRORS).find((k) => String(error.message || "").includes(k)); setState({ busy: false, done: false, err: t(code ? STOCK_ALERT_ERRORS[code] : "No se pudo guardar el aviso. Intenta de nuevo.") }); return; }
+      track("stock_alert", { item_id: product.id });
+      setState({ busy: false, done: data || "ok", err: "" });
+    } catch (e) { setState({ busy: false, done: false, err: t("No se pudo guardar el aviso. Intenta de nuevo.") }); }
+  };
+  const validContact = /^\+?[\d\s-]{9,15}$/.test(contact.trim()) || /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(contact.trim());
+  const lbl = { fontFamily: FONT_BODY, fontSize: 10.5, letterSpacing: "0.07em", textTransform: "uppercase", color: C.stone, marginBottom: 8 };
+  const field = { width: "100%", padding: "12px", borderRadius: 8, border: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 16, color: C.ink, background: C.white, outline: "none", boxSizing: "border-box" };
+  return (
+    <div className="overlay-sheet stock-alert" style={{ position: "fixed", inset: 0, zIndex: 70, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}77` }} />
+      <div className="sheet-panel" style={{ position: "relative", background: C.white, borderRadius: "18px 18px 0 0", padding: "20px 20px calc(24px + env(safe-area-inset-bottom))", animation: "slideUp .25s cubic-bezier(.2,.8,.2,1)", maxWidth: 520, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>{t("Avísame cuando vuelva")}</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginTop: 3 }}>{pName(product)}{color ? ` · ${t(color)}` : ""}</div>
+          </div>
+          <button onClick={onClose} aria-label={t("Cerrar")} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><X size={18} color={C.stone} /></button>
+        </div>
+        {state.done ? (
+          <div role="status" className="stock-alert-ok" style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, lineHeight: 1.6, padding: "6px 0 4px" }}>
+            <strong>{t("¡Listo!")}</strong> {t("Te avisaremos apenas vuelva la talla {s}.", { s: size || t("que pediste") })}
+            <div style={{ marginTop: 16 }}><PrimaryButton onClick={onClose}>{t("Seguir viendo")}</PrimaryButton></div>
+          </div>
+        ) : (
+          <>
+            {sizes.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={lbl}>{t("Talla")}</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {sizes.map((s) => <button key={s} onClick={() => setSize(s)} aria-pressed={size === s} style={{ minWidth: 46, height: 40, padding: "0 10px", borderRadius: 8, border: `1px solid ${size === s ? C.ink : C.line}`, background: size === s ? C.ink : "transparent", color: size === s ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" }}>{s}</button>)}
+                </div>
+              </div>
+            )}
+            <div style={lbl}>{t("Tu celular o correo")}</div>
+            <input value={contact} onChange={(e) => setContact(e.target.value)} inputMode="email" autoComplete="email" placeholder={t("999 999 999 o correo@ejemplo.com")} aria-label={t("Tu celular o correo")} style={{ ...field, marginBottom: 10 }} />
+            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="given-name" placeholder={t("Tu nombre (opcional)")} aria-label={t("Tu nombre (opcional)")} style={{ ...field, marginBottom: 10 }} />
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, lineHeight: 1.5, marginBottom: 14 }}>{t("Solo te escribiremos para avisarte de esta prenda. No es publicidad.")}</div>
+            {state.err && <div role="alert" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginBottom: 10 }}>{state.err}</div>}
+            <PrimaryButton disabled={!validContact || state.busy || (sizes.length > 0 && !size)} onClick={send}>{state.busy ? t("Guardando…") : t("Avisarme")}</PrimaryButton>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // Ficha de producto a pantalla completa (estilo tienda grande): galería grande arriba
 // (o a la izquierda en PC), datos y selección a la derecha, y en celular una barra
 // fija abajo con el precio y el botón de compra, siempre a mano.
@@ -2124,6 +2183,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
   const [hoverColor, setHoverColor] = useState(null);
   const [sizeNote, setSizeNote] = useState("");
   const [recSize, setRecSize] = useState(() => recommendSize(loadMeasures()));
+  const [alertOpen, setAlertOpen] = useState(false);
   const scrollRef = useRef(null);
   const soldOut = productSoldOut(product);
 
@@ -2224,7 +2284,8 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
           {soldOut ? (
             <div style={{ background: C.paperDeep, borderRadius: 10, padding: "14px 16px", display: "flex", gap: 10, alignItems: "center", marginBottom: 18 }}>
               <AlertCircle size={16} color={C.ink} />
-              <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft }}>{t("Este producto está agotado por ahora.")}</span>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, flex: 1 }}>{t("Este producto está agotado por ahora.")}</span>
+              <button className="avisame-link" onClick={() => setAlertOpen({ sizes })} style={{ background: C.ink, color: C.paper, border: "none", borderRadius: 8, padding: "8px 12px", fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>{t("Avísame")}</button>
             </div>
           ) : (
             <>
@@ -2276,6 +2337,11 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
                 )}
                 {sizeNote && !size && <div role="status" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, fontWeight: 600, marginTop: 10 }}>{sizeNote}</div>}
                 {stock > 0 && stock <= 5 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.accent, fontWeight: 600, marginTop: 10 }}>{stock === 1 ? t("¡Última unidad en esta talla!") : t("¡Solo quedan {n} unidades en esta talla!", { n: stock })}</div>}
+                {(() => {
+                  // Tallas agotadas de verdad (stock 0) en este color: se puede pedir aviso
+                  const out = sizes.filter((s) => { const v = product.variants.find((vv) => vv.size === s && vv.colorName === color?.n); return v && Number(v.stock) <= 0; });
+                  return out.length > 0 && <button className="avisame-link" onClick={() => setAlertOpen({ sizes: out })} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, textDecoration: "underline" }}><Bell size={13} /> {out.length === sizes.length ? t("Agotado en este color: avísame cuando vuelva") : t("¿Agotada tu talla? Avísame cuando vuelva")}</button>;
+                })()}
                 {stock === 0 && size && (() => {
                   const v = product.variants.find((vv) => vv.size === size && vv.colorName === color?.n);
                   const reservedElsewhere = v && v.stock > 0;
@@ -2378,6 +2444,7 @@ const ProductSheet = ({ product, initialColor, onClose, onAdd, fav, onToggleFav,
         <PrimaryButton key={canAdd ? "ok" : "no"} className={canAdd ? "btn-ready" : ""} disabled={!canAdd && !needSize} onClick={addNow} style={{ flex: 1, width: "auto", padding: "14px 16px" }}><ShoppingBag size={16} /> {buyLabel}</PrimaryButton>
       </div>
 
+      {alertOpen && createPortal(<StockAlertSheet product={product} color={color?.n || ""} sizes={alertOpen.sizes || []} initialSize={alertOpen.sizes?.includes(size) ? size : alertOpen.sizes?.[0]} onClose={() => setAlertOpen(false)} />, document.body)}
       {showSizeGuide && createPortal(<SizeGuideModal category={t(product.category)} onClose={() => setShowSizeGuide(false)} onRecommend={(r) => { setRecSize(r); if (r && sizes.includes(r) && effectiveVariantStock(r, color?.n) > 0) pickSize(r); }} />, document.body)}
     </div>
     </div>
@@ -8824,6 +8891,79 @@ const ReturnsScreen = ({ catalog, initialSale, onSaved }) => {
 // Vales de compra (SQL 22): saldo, a nombre de quién, de qué venta salió y cada uso. Administración puede anularlos.
 const creditMonthsOf = (settings) => { const n = Number(settings?.creditMonths); return Number.isFinite(n) && settings?.creditMonths !== undefined && settings?.creditMonths !== "" ? Math.max(0, Math.min(36, Math.round(n))) : 6; };
 const isExpired = (c) => c.status === "activo" && c.expires_at && new Date(c.expires_at) < new Date();
+// Más → «Avísame cuando vuelva» (SQL 29): personas que pidieron aviso por una talla/color agotado. Arriba las que YA
+// tienen stock (para escribirles), con botón de WhatsApp o correo y «Marcar avisado».
+const StockAlertsScreen = ({ catalog }) => {
+  const [list, setList] = useState(null);
+  const [f, setF] = useState("pendiente");
+  const [msg, setMsg] = useState("");
+  const load = async (st = f) => {
+    setList(null);
+    const { data, error } = await supabase.rpc("staff_stock_alerts", { p_status: st });
+    if (error) { setMsg(/staff_stock_alerts|PGRST202|42883/.test(`${error.code} ${error.message}`) ? "Falta correr el SQL 29 en Supabase." : "No se pudo cargar. Revisa tu conexión."); setList([]); return; }
+    setMsg(""); setList(data || []);
+  };
+  useEffect(() => { load(f); }, [f]);
+  const stockOf = (a) => {
+    const p = (catalog?.products || []).find((x) => x.id === a.product_id);
+    if (!p) return null;
+    return p.variants.filter((v) => (!a.color || v.colorName === a.color) && (!a.size || v.size === a.size)).reduce((n, v) => n + Math.max(0, Number(v.stock) || 0), 0);
+  };
+  const setStatus = async (a, status) => {
+    const { error } = await supabase.rpc("set_stock_alert_status", { p_id: a.id, p_status: status });
+    if (error) { alert("No se pudo guardar: " + (error.message.includes("SIN_PERMISO") ? "tu usuario no tiene permiso." : error.message)); return; }
+    load(f);
+  };
+  const message = (a) => {
+    const url = `${window.location.origin}/p/${encodeURIComponent(a.product_id)}`;
+    const detail = [a.color, a.size && `talla ${a.size}`].filter(Boolean).join(" ");
+    return a.lang === "en"
+      ? `Hi${a.name ? " " + a.name : ""}! This is Fly Boutique: ${a.product_name}${detail ? ` (${detail})` : ""} is back in stock. ${url}`
+      : `¡Hola${a.name ? " " + a.name : ""}! Te escribimos de Fly Boutique: ya volvió ${a.product_name}${detail ? ` en ${detail}` : ""}. ${url}`;
+  };
+  const rows = (list || []).map((a) => ({ ...a, stock: stockOf(a) })).sort((x, y) => (y.stock > 0) - (x.stock > 0) || new Date(y.created_at) - new Date(x.created_at));
+  const ready = rows.filter((a) => a.status === "pendiente" && a.stock > 0).length;
+  const txt = { fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft };
+  const btn = (dark) => ({ padding: "7px 11px", borderRadius: 7, border: `1px solid ${C.ink}`, background: dark ? C.ink : "transparent", color: dark ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 5 });
+  return (
+    <div className="avisos-screen" style={{ padding: "18px 18px 100px", maxWidth: 680, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Avísame cuando vuelva</h1>
+      <div style={{ ...txt, marginBottom: 12 }}>Personas que pidieron aviso desde la web por una talla o color agotado.{f === "pendiente" && list ? ` ${ready ? `${ready} ${ready === 1 ? "ya tiene" : "ya tienen"} stock: escríbeles.` : "Ninguna tiene stock todavía."}` : ""} Es solo para ese aviso, no para publicidad.</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {[["pendiente", "Pendientes"], ["avisado", "Avisados"], ["cancelado", "Cancelados"], ["todos", "Todos"]].map(([k, l]) => <Chip key={k} active={f === k} onClick={() => setF(k)}>{l}</Chip>)}
+      </div>
+      {msg && <div style={{ ...txt, color: C.accent, marginBottom: 10 }}>{msg}</div>}
+      {list === null ? <div style={txt}>Cargando…</div> : rows.length === 0 && !msg ? <div style={txt}>No hay avisos {f === "todos" ? "" : f === "pendiente" ? "pendientes" : f === "avisado" ? "avisados" : "cancelados"}.</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {rows.map((a) => (
+            <AdminCard key={a.id} style={{ padding: 12, borderColor: a.status === "pendiente" && a.stock > 0 ? C.ink : C.line }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 600, color: C.ink }}>{a.product_name}</div>
+                  <div style={txt}>{[a.color, a.size && `Talla ${a.size}`].filter(Boolean).join(" · ") || "Cualquier talla"} · {new Date(a.created_at).toLocaleDateString("es-PE")}</div>
+                  <div style={{ ...txt, color: C.ink, marginTop: 4 }}>{a.name ? `${a.name} · ` : ""}{a.contact}{a.lang === "en" ? " · (inglés)" : ""}</div>
+                  {a.handled_by && a.status !== "pendiente" && <div style={txt}>{a.status === "avisado" ? "Avisado" : "Cancelado"} por {a.handled_by}</div>}
+                </div>
+                <span className="aviso-stock" style={{ flexShrink: 0, fontFamily: FONT_BODY, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: a.stock > 0 ? C.ink : C.line, color: a.stock > 0 ? C.paper : C.inkSoft }}>{a.stock === null ? "Prenda borrada" : a.stock > 0 ? `Ya hay ${a.stock}` : "Sin stock"}</span>
+              </div>
+              {a.status === "pendiente" && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                  {a.contact_type === "celular"
+                    ? <a href={`https://wa.me/51${a.contact}?text=${encodeURIComponent(message(a))}`} target="_blank" rel="noopener noreferrer" style={btn(a.stock > 0)}>WhatsApp</a>
+                    : <a href={`mailto:${a.contact}?subject=${encodeURIComponent(a.lang === "en" ? "Back in stock at Fly Boutique" : "Ya volvió tu prenda en Fly Boutique")}&body=${encodeURIComponent(message(a))}`} style={btn(a.stock > 0)}>Correo</a>}
+                  <button onClick={() => setStatus(a, "avisado")} style={btn(false)}>Marcar avisado</button>
+                  <button onClick={() => { if (confirm("¿Cancelar este aviso? No se borra: queda en «Cancelados».")) setStatus(a, "cancelado"); }} style={{ ...btn(false), borderColor: C.line, color: C.inkSoft }}>Cancelar</button>
+                </div>
+              )}
+              {a.status !== "pendiente" && <button onClick={() => setStatus(a, "pendiente")} style={{ ...btn(false), marginTop: 8, borderColor: C.line }}>Volver a pendiente</button>}
+            </AdminCard>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const CreditsScreen = ({ role, settings, onSaveMonths }) => {
   const [months, setMonths] = useState(String(creditMonthsOf(settings)));
   const [list, setList] = useState(null);
@@ -9347,6 +9487,7 @@ const MORE_ITEMS = [
   { id: "products", g: "inventario", t: "Productos", d: "Crear y editar prendas, fotos, tallas, colores y precios.", icon: LayoutGrid, k: "prenda foto precio talla color crear editar" },
   { id: "stock", g: "inventario", t: "Stock", d: "Ver cuánto hay por sede, corregir y ver el historial de cada prenda.", icon: Package, k: "inventario cantidad ajuste merma historial" },
   { id: "transfers", g: "inventario", t: "Traslados entre sedes", d: "Enviar y recibir prendas entre Larco y el Almacén con guía.", icon: ArrowLeftRight, k: "guia traspaso almacen larco enviar recibir" },
+  { id: "avisos", g: "clientes", t: "Avísame cuando vuelva", d: "Quién pidió aviso por una talla agotada y si ya hay stock para escribirle.", icon: Bell, k: "aviso agotado talla stock volvio reponer esperar lista whatsapp" },
   { id: "customers", g: "clientes", t: "Fly Lovers (Club Fly)", d: "Datos, puntos y permiso de publicidad de cada cliente.", icon: Users, k: "club puntos cliente publicidad whatsapp" },
   { id: "cajapromos", g: "clientes", t: "Promociones en caja", d: "Se aplican solas al cobrar: «si llega a S/ 150, un labial por S/ 5», combos.", icon: Gift, k: "promocion oferta combo descuento caja regalo" },
   { id: "promocodes", g: "clientes", t: "Códigos promocionales", d: "Crear cupones de descuento para la web y la caja.", icon: BadgePercent, k: "cupon descuento promocion codigo", only: "superadmin" },
@@ -10510,6 +10651,7 @@ const SCREEN_ACCESS = {
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
   impresora: STAFF_STORE_SELLERS,
+  avisos: ["superadmin", "administrador", "vendedora_online", "vendedora_tienda", "cajero"],
 };
 const canOpenScreen = (role, sc) => (SCREEN_ACCESS[sc] || []).includes(role);
 // Pantalla con la que se abre el panel según el enlace: #caja → Caja; #staff/<pantalla> → esa pantalla (si su rol puede)
@@ -10738,6 +10880,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} userId={currentUserId} />}
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} onReturns={canOpenScreen(role, "returns") ? () => { setReturnSale(null); setScreen("returns"); } : null} onCredits={canOpenScreen(role, "credits") ? () => setScreen("credits") : null} />}
+        {canOpenScreen(role, "avisos") && screen === "avisos" && <StockAlertsScreen catalog={catalog} />}
         {canOpenScreen(role, "credits") && screen === "credits" && <CreditsScreen role={role} settings={catalog.settings} onSaveMonths={STAFF_ADMIN.includes(role) ? (n) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, creditMonths: n } })) : null} />}
         {canOpenScreen(role, "returns") && screen === "returns" && <ReturnsScreen key={returnSale?.id || "nueva"} catalog={catalog} initialSale={returnSale}
           onSaved={(data) => { patchCatalog((c) => ({ ...c, sales: c.sales.some((x) => x.id === data.id) ? c.sales.map((x) => (x.id === data.id ? data : x)) : c.sales })); refreshData && refreshData(); }} />}
