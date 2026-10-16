@@ -792,6 +792,7 @@ const EN = {
  "Invierno": "Winter",
  "Invierno: abrigos y tejidos para el frío": "Winter: coats and knits for the cold",
  "Primavera": "Spring",
- "Primavera: colores y telas ligeras": "Spring: colors and light fabrics"
+ "Primavera: colores y telas ligeras": "Spring: colors and light fabrics",
+ "Solo disponibles": "In stock only"
 };
 export default EN;

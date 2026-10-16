@@ -1515,6 +1515,7 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
   const [sizes, setSizes] = useState(new Set());
   const [colors, setColors] = useState(new Set());
   const [tags, setTags] = useState(new Set());
+  const [onlyAvail, setOnlyAvail] = useState(false); // «Solo disponibles»: oculta lo agotado
   const [sort, setSort] = useState("relevance");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
@@ -1532,7 +1533,9 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
   const nq = normText(searchQuery.trim());
   if (nq) filtered = filtered.filter((p) => normText(`${p.name} ${p.nameEn || ""} ${p.category} ${t(p.category)} ${p.tag || ""} ${p.description || ""} ${productColors(p).map((c) => `${c.n} ${t(c.n)}`).join(" ")}`).includes(nq));
   if (activeCollection) { const col = collections.find((c) => c.id === activeCollection); if (col) filtered = filtered.filter((p) => col.productIds.includes(p.id)); }
-  if (sizes.size) filtered = filtered.filter((p) => productSizes(p).some((s) => sizes.has(s)));
+  // Talla: solo prendas que TIENEN esa talla con stock (no sirve ver una prenda cuya talla M ya se agotó)
+  if (sizes.size) filtered = filtered.filter((p) => (p.variants || []).some((v) => sizes.has(v.size) && Number(v.stock) > 0));
+  if (onlyAvail) filtered = filtered.filter((p) => !productSoldOut(p));
   if (colors.size) filtered = filtered.filter((p) => productColors(p).some((c) => colors.has(c.n)));
   if (tags.size) filtered = filtered.filter((p) => p.tag && tags.has(p.tag));
   if (priceLimit < maxPrice) filtered = filtered.filter((p) => p.price <= priceLimit);
@@ -1540,8 +1543,8 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
   if (sort === "price-desc") filtered.sort((a, b) => b.price - a.price);
   if (sort === "new") filtered.sort((a, b) => (b.tag === "Nuevo") - (a.tag === "Nuevo"));
 
-  const activeFilterCount = sizes.size + colors.size + tags.size + (priceLimit < maxPrice ? 1 : 0) + (sort !== "relevance" ? 1 : 0) + (searchQuery ? 1 : 0) + (activeCategory !== "Todo" || group ? 1 : 0);
-  const clearAll = () => { setSizes(new Set()); setColors(new Set()); setTags(new Set()); setPriceLimit(maxPrice); setSort("relevance"); setActiveCollection(null); setSearchQuery && setSearchQuery(""); setGroup && setGroup(null); setActiveCategory("Todo"); setPanel(null); };
+  const activeFilterCount = sizes.size + colors.size + tags.size + (onlyAvail ? 1 : 0) + (priceLimit < maxPrice ? 1 : 0) + (sort !== "relevance" ? 1 : 0) + (searchQuery ? 1 : 0) + (activeCategory !== "Todo" || group ? 1 : 0);
+  const clearAll = () => { setSizes(new Set()); setColors(new Set()); setTags(new Set()); setOnlyAvail(false); setPriceLimit(maxPrice); setSort("relevance"); setActiveCollection(null); setSearchQuery && setSearchQuery(""); setGroup && setGroup(null); setActiveCategory("Todo"); setPanel(null); };
   const toggleSet = (set, setter, v) => { const n = new Set(set); n.has(v) ? n.delete(v) : n.add(v); setter(n); };
   const allTags = [...new Set(products.map((p) => p.tag).filter(Boolean))];
   const visibleCats = [...new Set(products.map((p) => p.category))].filter((c) => !group || (group === "Ropa" ? groupOfCategory(c) === "Ropa" : groupCats.includes(c)));
@@ -1571,6 +1574,7 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
           {filterBtn("color", "Color", Sparkles, colors.size)}
           {filterBtn("precio", "Precio", Ticket, priceLimit < maxPrice ? 1 : 0)}
           {allTags.length > 0 && filterBtn("destacado", "Destacado", Star, tags.size)}
+          <button className="avail-chip" onClick={() => setOnlyAvail((v) => !v)} aria-pressed={onlyAvail} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 999, border: `1px solid ${onlyAvail ? C.ink : C.line}`, background: onlyAvail ? C.ink : C.paper, color: onlyAvail ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}><Check size={13} /> {t("Solo disponibles")}</button>
           {filterBtn("orden", sort === "relevance" ? "Ordenar" : (SORT_OPTIONS.find(([k]) => k === sort) || [, "Ordenar"])[1], ArrowUpDown, 0)}
           {!outlet && onOutlet && <button onClick={onOutlet} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 999, border: `1px solid ${C.ink}`, background: C.paper, color: C.ink, fontFamily: FONT_DISPLAY, fontSize: 12, fontWeight: 800, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>{t("OUTLET")} <ChevronRight size={13} /></button>}
         </div>
@@ -1616,6 +1620,7 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
           {[...sizes].map((x) => <button key={"s" + x} onClick={() => toggleSet(sizes, setSizes, x)} style={activeChipStyle}>{t("Talla")} {x} <X size={11} /></button>)}
           {[...colors].map((x) => <button key={"c" + x} onClick={() => toggleSet(colors, setColors, x)} style={activeChipStyle}>{x} <X size={11} /></button>)}
           {[...tags].map((x) => <button key={"t" + x} onClick={() => toggleSet(tags, setTags, x)} style={activeChipStyle}>{x} <X size={11} /></button>)}
+          {onlyAvail && <button onClick={() => setOnlyAvail(false)} style={activeChipStyle}>{t("Solo disponibles")} <X size={11} /></button>}
           {priceLimit < maxPrice && <button onClick={() => setPriceLimit(maxPrice)} style={activeChipStyle}>{t("Hasta")} {money(priceLimit)} <X size={11} /></button>}
           {sort !== "relevance" && <button onClick={() => setSort("relevance")} style={activeChipStyle}>{(SORT_OPTIONS.find(([k]) => k === sort) || [])[1]} <X size={11} /></button>}
           <button onClick={clearAll} style={{ ...activeChipStyle, border: "none", background: "transparent", color: C.ink, fontWeight: 600, textDecoration: "underline", flexShrink: 0 }}><RotateCcw size={11} /> {t("Restablecer todos")}</button>
@@ -10800,7 +10805,7 @@ export default function FlyBoutiqueApp() {
   const [catalogGroup, setCatalogGroup] = useState(null);
   const [outletCat, setOutletCat] = useState("Todo");
   const [outletQ, setOutletQ] = useState("");
-  const goCatalog = (cat = "Todo", group = null, q = "") => { setSelectedProduct(null); setActiveCategory(cat); setCatalogGroup(group || (cat !== "Todo" ? groupOfCategory(cat) : null)); setSearchQuery(q); setScreen("category"); scrollAllTop(); };
+  const goCatalog = (cat = "Todo", group = null, q = "") => { if (q && q.trim()) track("search", { search_term: q.trim().slice(0, 80) }); setSelectedProduct(null); setActiveCategory(cat); setCatalogGroup(group || (cat !== "Todo" ? groupOfCategory(cat) : null)); setSearchQuery(q); setScreen("category"); scrollAllTop(); };
   const navigateFromProduct = (target, cat) => { if (target === "home") { setSelectedProduct(null); setScreen("home"); } else goCatalog(cat); scrollAllTop(); };
   const openProduct = (product, colorName = null) => { trackView(product.id); setSelectedColorPref(typeof colorName === "string" ? colorName : null); setSelectedProduct(product); track("view_item", { currency: "PEN", value: product.price, items: [gaItem(product)] }); };
   const removeFromViewed = (productId) => {
@@ -10855,6 +10860,7 @@ export default function FlyBoutiqueApp() {
   });
   const toggleFav = (id) => setFavs((prev) => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) { const fp = catalog?.products?.find((x) => x.id === id); if (fp) track("add_to_wishlist", { currency: "PEN", value: fp.price, items: [gaItem(fp)] }); }
     try { window.storage.set(WISHLIST_KEY, JSON.stringify([...next]), false); } catch (e) { /* storage unavailable */ }
     return next;
   });
