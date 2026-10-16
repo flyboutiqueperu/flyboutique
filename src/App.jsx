@@ -17,7 +17,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { supabase, setStaffSessionMode, clearStaffSessionMode } from "./supabaseClient.js";
 import { t, getLang, setLang, setStaffMode } from "./i18n.js";
-import { parseTumiSoft, isTumiSoft, matchPhoto } from "./importar-tumisoft.js";
+import { parseTumiSoft, isTumiSoft, matchPhoto, COLOR_HEX, keyOf } from "./importar-tumisoft.js";
 
 /* ------------------------------------------------------------------ */
 /*  DESIGN TOKENS — monochrome editorial, one burgundy accent          */
@@ -491,7 +491,19 @@ const colorPhotos = (product, colorName) => {
 const hasColorPhoto = (product, colorName) => (product?.images || []).some((im) => im.url && im.colorName === colorName);
 const productSoldOut = (product) => product.status === "agotado" || (product.variants.length > 0 && product.variants.every((v) => v.stock <= 0));
 const productTotalStock = (product) => product.variants.reduce((s, v) => s + Number(v.stock || 0), 0);
-const productSizes = (product) => [...new Set(product.variants.map((v) => v.size))];
+// Tallas de menor a mayor: XXS…XXXL, luego números (24, 26… 44), al final «Única»/Standard
+const QUICK_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "Única"];
+const LETTER_SIZES = ["XXXS", "XXS", "XS", "S", "M", "L", "XL", "XXL", "2XL", "XXXL", "3XL", "4XL"];
+const sizeRank = (x) => {
+  const k = String(x || "").trim().toUpperCase();
+  if (/^(ÚNICA|UNICA|STANDARD|STD|U|TU|TALLA ÚNICA|TALLA UNICA)$/.test(k)) return [3, 0, k];
+  const li = LETTER_SIZES.indexOf(k); if (li >= 0) return [0, li, k];
+  const n = parseFloat(k.replace(",", ".")); if (!isNaN(n)) return [1, n, k];
+  const m = /^([A-Z]+)\s*[/-]\s*([A-Z]+)$/.exec(k); if (m && LETTER_SIZES.includes(m[1])) return [0, LETTER_SIZES.indexOf(m[1]) + 0.5, k];
+  return [2, 0, k];
+};
+const sortSizes = (list) => [...list].sort((a, b) => { const x = sizeRank(a), y = sizeRank(b); return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]); });
+const productSizes = (product) => sortSizes([...new Set(product.variants.map((v) => v.size))]);
 const productColors = (product) => [...new Map(product.variants.map((v) => [v.colorName, { n: v.colorName, h: v.colorHex }])).values()];
 const colorTotalStock = (product, colorName) => product.variants.filter((v) => v.colorName === colorName).reduce((s, v) => s + Number(v.stock || 0), 0);
 const variantStock = (product, size, colorName) => product.variants.find((v) => v.size === size && v.colorName === colorName)?.stock ?? 0;
@@ -1613,7 +1625,7 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
   const [sortOpen, setSortOpen] = useState(false);
   const [activeCollection, setActiveCollection] = useState(null);
 
-  const allSizes = useMemo(() => [...new Set(products.flatMap((p) => productSizes(p)))], [products]);
+  const allSizes = useMemo(() => sortSizes([...new Set(products.flatMap((p) => productSizes(p)))]), [products]);
   const allColors = useMemo(() => [...new Map(products.flatMap((p) => productColors(p)).map((c) => [c.n, c])).values()], [products]);
   const maxPrice = useMemo(() => Math.max(100, ...products.map((p) => p.price)), [products]);
   const [priceLimit, setPriceLimit] = useState(maxPrice);
@@ -5564,15 +5576,45 @@ const emptyProductForm = () => ({
   status: "active", tag: "", minStock: 3, showOnline: true, images: [], collectionIds: [], sizes: [], colors: [], stock: {}, skus: {},
 });
 
-const QUICK_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "Única"];
-const sortSizes = (list) => [...list].sort((a, b) => {
-  const ia = QUICK_SIZES.indexOf(a), ib = QUICK_SIZES.indexOf(b);
-  if (ia >= 0 && ib >= 0) return ia - ib;
-  if (ia >= 0 || ib >= 0) return ia >= 0 ? -1 : 1;
-  return (parseFloat(a) || 0) - (parseFloat(b) || 0) || String(a).localeCompare(String(b));
-});
+// Tallas rápidas por grupo (se agregan con un toque y quedan ordenadas de menor a mayor)
+const SIZE_GROUPS = [["Letras", ["XS", "S", "M", "L", "XL", "XXL"]], ["Números", ["24", "26", "28", "30", "32", "34", "36", "38", "40", "42", "44"]], ["Otras", ["Única"]]];
+// Colores frecuentes: un toque y queda con su tono
+const QUICK_COLORS = ["Negro", "Blanco", "Beige", "Camel", "Marrón", "Gris", "Azul", "Celeste", "Verde", "Rojo", "Rosado", "Vino"];
+const colorHexFor = (name) => {
+  const k = keyOf(name); if (!k) return null;
+  if (COLOR_HEX[k]) return COLOR_HEX[k];
+  const w = k.split(" ").find((x) => COLOR_HEX[x]);
+  return w ? COLOR_HEX[w] : null;
+};
+// Sección desplegable del editor: ícono, título y resumen (lo que tiene) cuando está cerrada
+const EdSection = ({ icon: Icon, title, summary, open, onToggle, warn, children }) => (
+  <div className={`ed-sec${open ? " is-open" : ""}`} style={{ background: C.paperDeep, border: `1px solid ${open ? C.ink : C.line}`, borderRadius: 14, marginBottom: 10 }}>
+    <button type="button" className="ed-sec-btn" aria-expanded={open} onClick={onToggle} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "14px 16px", minHeight: 60, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+      <span style={{ width: 38, height: 38, borderRadius: 10, background: open ? C.ink : C.paper, border: `1px solid ${open ? C.ink : C.line}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon size={18} color={open ? C.paper : C.ink} /></span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.ink }}>{title}</span>
+        {summary && <span className="ed-sec-sum" style={{ display: "block", fontFamily: FONT_BODY, fontSize: 12, color: warn ? C.accent : C.stone, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{summary}</span>}
+      </span>
+      <ChevronDown size={20} color={C.ink} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+    </button>
+    {open && <div className="ed-sec-body" style={{ padding: "2px 16px 16px" }}>{children}</div>}
+  </div>
+);
+// − número + (para el dedo: botones de 42 px)
+const StepNum = ({ value, onChange, label, min = 0 }) => (
+  <div className="ed-step" style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${C.line}`, borderRadius: 10, background: C.paper, overflow: "hidden" }}>
+    <button type="button" aria-label={`${label}: menos`} onClick={() => onChange(Math.max(min, (Number(value) || 0) - 1))} style={{ width: 42, height: 42, border: "none", background: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Minus size={16} color={C.ink} /></button>
+    <input aria-label={label} inputMode="numeric" value={value ?? 0} onFocus={(e) => e.target.select()} onChange={(e) => onChange(Math.max(min, parseInt(e.target.value.replace(/\D/g, "") || "0", 10)))} style={{ width: 46, height: 42, border: "none", borderLeft: `1px solid ${C.line}`, borderRight: `1px solid ${C.line}`, textAlign: "center", fontFamily: FONT_BODY, fontSize: 16, fontWeight: 700, color: C.ink, background: "none", outline: "none" }} />
+    <button type="button" aria-label={`${label}: más`} onClick={() => onChange((Number(value) || 0) + 1)} style={{ width: 42, height: 42, border: "none", background: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Plus size={16} color={C.ink} /></button>
+  </div>
+);
+const edBtn = { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 42, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.ink}`, background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" };
+const edChip = { minHeight: 40, padding: "0 14px", borderRadius: 999, border: `1px dashed ${C.stone}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 13, cursor: "pointer" };
+
 const AdminProductEditor = ({ product, collections, allProducts, onSave, onCancel }) => {
   const [form, setForm] = useState(emptyProductForm());
+  // Stock al abrir: al guardar solo se aplica lo que se cambió aquí (si mientras tanto se vendió algo, no se pierde)
+  const stockAtOpen = useRef({});
   // Costo de compra y proveedor: privados (tabla product_costs), nunca en el catálogo público
   const [cost, setCost] = useState({ value: "", supplier: "", loaded: false, original: null, unavailable: false });
   const [pct, setPct] = useState("");
@@ -5593,11 +5635,16 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     if (error) alert("El producto se guardó, pero no el costo: " + error.message);
   };
   const [urlInput, setUrlInput] = useState("");
+  const [showUrl, setShowUrl] = useState(false);
   const [newSize, setNewSize] = useState("");
   const [newColorName, setNewColorName] = useState("");
   const [newColorHex, setNewColorHex] = useState("#7C2A2F");
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef(null);
+  // Secciones: al crear, abiertas las necesarias; al editar, todas cerradas con su resumen (un toque abre)
+  const [open, setOpen] = useState(() => (product ? {} : { datos: true, precio: true, tallas: true, stock: true }));
+  const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
 
   useEffect(() => {
     if (product) {
@@ -5605,20 +5652,25 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
       const colors = productColors(product);
       const stock = {}; const skus = {};
       product.variants.forEach((v) => { stock[`${v.size}|${v.colorName}`] = v.stock; skus[`${v.size}|${v.colorName}`] = v.sku || ""; });
+      stockAtOpen.current = { ...stock };
       setForm({ id: product.id, name: product.name, nameEn: product.nameEn || "", category: product.category, description: product.description || "", descriptionEn: product.descriptionEn || "",
         price: String(product.price), compareAtPrice: product.compareAtPrice ? String(product.compareAtPrice) : "",
         status: product.status, tag: product.tag || "", minStock: product.minStock ?? 3, showOnline: product.showOnline !== false, outlet: product.outlet === true, images: product.images, collectionIds: product.collectionIds || [],
         sizes, colors, stock, skus });
-    } else setForm(emptyProductForm());
-  }, [product]);
+    } else { stockAtOpen.current = {}; setForm(emptyProductForm()); }
+    // Solo al abrir otra prenda: la recarga automática del panel (cada 45 s) no borra lo que se está escribiendo
+  }, [product?.id]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const addSize = () => { const s = newSize.trim(); if (!s || form.sizes.includes(s)) return; set("sizes", sortSizes([...form.sizes, s])); setNewSize(""); };
+  const addSizeVal = (raw) => { const s = String(raw || "").trim(); if (!s) return; setForm((f) => (f.sizes.some((x) => x.toUpperCase() === s.toUpperCase()) ? f : { ...f, sizes: sortSizes([...f.sizes, s]) })); };
+  const addSize = () => { addSizeVal(newSize.toUpperCase() === "UNICA" ? "Única" : /^[a-z]{1,4}$/i.test(newSize.trim()) ? newSize.trim().toUpperCase() : newSize); setNewSize(""); };
   const removeSize = (s) => { set("sizes", form.sizes.filter((x) => x !== s)); const st = { ...form.stock }; const sk = { ...form.skus }; Object.keys(st).forEach((k) => k.startsWith(s + "|") && delete st[k]); Object.keys(sk).forEach((k) => k.startsWith(s + "|") && delete sk[k]); setForm((f) => ({ ...f, stock: st, skus: sk })); };
-  const addColor = () => { const n = newColorName.trim(); if (!n || form.colors.some((c) => c.n === n)) return; set("colors", [...form.colors, { n, h: newColorHex }]); setNewColorName(""); };
+  const addColorVal = (name, hex) => { const n = String(name || "").trim(); if (!n) return; setForm((f) => (f.colors.some((c) => c.n.toLowerCase() === n.toLowerCase()) ? f : { ...f, colors: [...f.colors, { n, h: hex || colorHexFor(n) || "#999999" }] })); };
+  const addColor = () => { addColorVal(newColorName, colorHexFor(newColorName) || newColorHex); setNewColorName(""); };
+  const setColorHex = (n, h) => set("colors", form.colors.map((c) => (c.n === n ? { ...c, h } : c)));
   const removeColor = (n) => { set("colors", form.colors.filter((c) => c.n !== n)); const st = { ...form.stock }; const sk = { ...form.skus }; Object.keys(st).forEach((k) => k.endsWith("|" + n) && delete st[k]); Object.keys(sk).forEach((k) => k.endsWith("|" + n) && delete sk[k]); setForm((f) => ({ ...f, stock: st, skus: sk })); };
-  const setStockVal = (size, colorName, val) => set("stock", { ...form.stock, [`${size}|${colorName}`]: Math.max(0, parseInt(val || "0", 10)) });
+  const setStockVal = (size, colorName, val) => setForm((f) => ({ ...f, stock: { ...f.stock, [`${size}|${colorName}`]: Math.max(0, parseInt(val || "0", 10) || 0) } }));
   const setSkuVal = (size, colorName, val) => set("skus", { ...form.skus, [`${size}|${colorName}`]: val });
 
   const addImageUrl = () => {
@@ -5629,8 +5681,9 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     setUrlInput("");
   };
   const removeImage = (id) => set("images", form.images.filter((i) => i.id !== id));
-  const handleFile = async (e) => {
-    const files = [...(e.target.files || [])]; if (!files.length) return;
+  const moveImage = (id, dir) => setForm((f) => { const a = [...f.images]; const i = a.findIndex((x) => x.id === id); const j = i + dir; if (i < 0 || j < 0 || j >= a.length) return f; [a[i], a[j]] = [a[j], a[i]]; return { ...f, images: a }; });
+  const uploadFiles = async (files) => {
+    if (!files.length) return;
     setUploading(true);
     const added = [];
     for (const file of files) {
@@ -5641,6 +5694,8 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     setUploading(false);
     if (fileRef.current) fileRef.current.value = "";
   };
+  const handleFile = (e) => uploadFiles([...(e.target.files || [])]);
+  const onDrop = (e) => { e.preventDefault(); setDragOver(false); uploadFiles([...(e.dataTransfer?.files || [])].filter((f) => /^(image|video)\//.test(f.type))); };
   const toggleCollection = (id) => set("collectionIds", form.collectionIds.includes(id) ? form.collectionIds.filter((c) => c !== id) : [...form.collectionIds, id]);
 
   const canSave = form.name.trim() && form.price !== "" && form.sizes.length > 0 && form.colors.length > 0;
@@ -5660,11 +5715,16 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     // Si el precio cambia mucho, se pide confirmar (evita un cero de más o de menos)
     if (product && product.price > 0 && (newPrice > product.price * 1.8 || newPrice < product.price * 0.5)
         && !confirm(`El precio cambia de S/ ${product.price} a S/ ${newPrice}. ¿Es correcto?`)) return;
+    // Stock de ahora (pudo venderse algo mientras se editaba): se le suma solo lo que se cambió en esta pantalla
+    const live = (allProducts || []).find((p) => p.id === form.id);
+    const liveStock = new Map((live?.variants || []).map((v) => [`${v.size}|${v.colorName}`, Number(v.stock) || 0]));
     const variants = [];
     form.sizes.forEach((s) => form.colors.forEach((c) => {
       const key = `${s}|${c.n}`;
       const customSku = (form.skus[key] || "").trim();
-      variants.push({ ...(existingVar.get(key) || {}), id: existingVar.get(key)?.id || genId("var"), size: s, colorName: c.n, colorHex: c.h, stock: form.stock[key] || 0,
+      const typed = Number(form.stock[key]) || 0;
+      const stock = liveStock.has(key) && key in stockAtOpen.current ? Math.max(0, liveStock.get(key) + typed - (Number(stockAtOpen.current[key]) || 0)) : typed;
+      variants.push({ ...(existingVar.get(key) || {}), id: existingVar.get(key)?.id || genId("var"), size: s, colorName: c.n, colorHex: c.h, stock,
         sku: customSku || `${slugify(form.name)}-${s}-${slugify(c.n)}`.toUpperCase() });
     }));
     const record = {
@@ -5678,186 +5738,223 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     onSave(record);
   };
 
+  const totalUnits = form.sizes.reduce((s, sz) => s + form.colors.reduce((t, c) => t + (Number(form.stock[`${sz}|${c.n}`]) || 0), 0), 0);
+  const colorUnits = (n) => form.sizes.reduce((t, sz) => t + (Number(form.stock[`${sz}|${n}`]) || 0), 0);
+  const onSale = Number(form.compareAtPrice) > Number(form.price) && Number(form.price) > 0;
+  const salePct = onSale ? Math.round((1 - Number(form.price) / Number(form.compareAtPrice)) * 100) : 0;
+  const photos = form.images.filter((i) => i.type !== "video").length, videos = form.images.length - photos;
+  const noPhotoColors = form.colors.length > 1 && form.images.length ? form.colors.filter((c) => !form.images.some((i) => i.colorName === c.n)).map((c) => c.n) : [];
+  const cover = form.images.find((i) => i.type !== "video");
+  const applyPct = (p) => {
+    const base = Number(form.compareAtPrice) > Number(form.price) ? Number(form.compareAtPrice) : Number(form.price);
+    if (!(base > 0) || !(p > 0)) return;
+    setForm((x) => ({ ...x, compareAtPrice: String(base), price: String(Math.round(base * (1 - p / 100))) })); setPct("");
+  };
+  const statusLabel = { active: "Activo", agotado: "Agotado (manual)", borrador: "Borrador" }[form.status] || form.status;
+
   return (
-    <div style={{ padding: "18px 18px 100px" }}>
-      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>{product ? "Editar producto" : "Nuevo producto"}</h1>
-
-      <AdminCard style={{ marginBottom: 14 }}>
-        <Field label="Nombre del producto"><input style={inputStyle} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Ej. Vestido Midi Coralina" /></Field>
-        <Field label="Categoría">
-          <select style={inputStyle} value={form.category} onChange={(e) => set("category", e.target.value)}>{[...new Set([...CATEGORY_OPTIONS, form.category].filter(Boolean))].map((c) => <option key={c} value={c}>{c}</option>)}</select>
-        </Field>
-        <Field label="Descripción"><textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Detalles, tela, cuidado…" /></Field>
-        <Field label="Nombre en inglés (opcional)"><input style={inputStyle} value={form.nameEn} onChange={(e) => set("nameEn", e.target.value)} placeholder={form.name ? `Automático: ${autoNameEn(form.name)}` : "Ej. Coralina Midi Dress"} /></Field>
-        <Field label="Descripción en inglés (opcional)"><textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.descriptionEn} onChange={(e) => set("descriptionEn", e.target.value)} placeholder="Se muestra cuando la tienda está en inglés. Si lo dejas vacío, se ve en español." /></Field>
-        {form.description?.trim() && <button type="button" onClick={async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = "Traduciendo…"; try { set("descriptionEn", await translateEsEn(form.description)); if (!form.nameEn) set("nameEn", autoNameEn(form.name)); b.textContent = "Traducido ✓ (revísalo)"; } catch (err) { b.textContent = "No se pudo traducir ahora"; } b.disabled = false; }} style={{ margin: "-4px 0 12px", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Traducir al inglés</button>}
-      </AdminCard>
-
-      <AdminCard style={{ marginBottom: 14 }}>
-        <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}><Field label="Precio (S/)"><input type="number" style={inputStyle} value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="189" /></Field></div>
-          <div style={{ flex: 1 }}><Field label="Precio anterior (opcional)"><input type="number" style={inputStyle} value={form.compareAtPrice} onChange={(e) => set("compareAtPrice", e.target.value)} placeholder="—" /></Field></div>
+    <div className="prod-editor" style={{ padding: "18px 18px 100px", maxWidth: 860, margin: "0 auto" }}>
+      {/* Cabecera: foto, nombre y guardar a la mano */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button type="button" onClick={onCancel} aria-label="Volver" style={{ width: 42, height: 42, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><ArrowLeft size={18} color={C.ink} /></button>
+        <div style={{ width: 46, height: 58, borderRadius: 8, overflow: "hidden", background: C.paperDeep, border: `1px solid ${C.line}`, flexShrink: 0 }}>{cover ? <ProductImg src={imgThumb(cover)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><ImageIcon size={18} color={C.stone} /></div>}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: C.ink, fontWeight: 800, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{form.name || (product ? "Editar producto" : "Nuevo producto")}</h1>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{form.price ? `S/ ${form.price} · ` : ""}{totalUnits} unidades{form.images.length ? ` · ${form.images.length} fotos` : ""}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 10 }}>
-          Poner en oferta:
-          <input inputMode="numeric" value={pct} onChange={(e) => setPct(e.target.value.replace(/\D/g, "").slice(0, 2))} placeholder="%" aria-label="Porcentaje de descuento" style={{ ...inputStyle, width: 64, padding: "7px 8px", textAlign: "center" }} />
-          <button type="button" disabled={!(Number(pct) > 0)} onClick={() => {
-            const base = Number(form.compareAtPrice) > Number(form.price) ? Number(form.compareAtPrice) : Number(form.price);
-            if (!(base > 0)) return;
-            setForm((x) => ({ ...x, compareAtPrice: String(base), price: String(Math.round(base * (1 - Number(pct) / 100))) })); setPct("");
-          }} style={{ padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", opacity: Number(pct) > 0 ? 1 : 0.4 }}>Aplicar % de descuento</button>
-          {Number(form.compareAtPrice) > Number(form.price) && <button type="button" onClick={() => setForm((x) => ({ ...x, price: String(x.compareAtPrice), compareAtPrice: "" }))} style={{ background: "none", border: "none", textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>Quitar oferta</button>}
+        {product && <button type="button" disabled={!canSave} onClick={handleSave} className="ed-save-top" style={{ ...edBtn, background: C.ink, color: C.paper, opacity: canSave ? 1 : 0.4 }}><Check size={16} /> Guardar</button>}
+      </div>
+
+      <EdSection icon={TagIcon} title="Datos de la prenda" open={!!open.datos} onToggle={() => toggle("datos")}
+        summary={[form.name || "Falta el nombre", form.category, statusLabel, form.tag].filter(Boolean).join(" · ")} warn={!form.name.trim()}>
+        <Field label="Nombre del producto"><input style={inputStyle} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Ej. Vestido Midi Coralina" /></Field>
+        <div className="ed-row">
+          <Field label="Categoría">
+            <select style={inputStyle} value={form.category} onChange={(e) => set("category", e.target.value)}>{[...new Set([...CATEGORY_OPTIONS, form.category].filter(Boolean))].map((c) => <option key={c} value={c}>{c}</option>)}</select>
+          </Field>
+          <Field label="Estado">
+            <select style={inputStyle} value={form.status} onChange={(e) => set("status", e.target.value)}>
+              <option value="active">Activo</option><option value="agotado">Agotado (manual)</option><option value="borrador">Borrador</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Descripción"><textarea style={{ ...inputStyle, minHeight: 80, resize: "vertical" }} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Detalles, tela, cuidado…" /></Field>
+        <span style={labelStyle}>Etiqueta sobre la foto</span>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+          {[["", "Ninguna"], ["Nuevo", "Nuevo"], ["Oferta", "Oferta"], ["Bestseller", "Bestseller"]].map(([v, l]) => <Chip key={l} active={form.tag === v} onClick={() => set("tag", v)}>{l}</Chip>)}
+        </div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, lineHeight: 1.4 }}>«Agotado» y «Outlet» salen solos.</div>
+      </EdSection>
+
+      <EdSection icon={BadgePercent} title="Precio y oferta" open={!!open.precio} onToggle={() => toggle("precio")}
+        summary={form.price ? `S/ ${form.price}${onSale ? ` (antes S/ ${form.compareAtPrice}, −${salePct}%)` : ""}${Number(cost.value) > 0 ? ` · costo S/ ${cost.value}` : ""}` : "Falta el precio"} warn={form.price === ""}>
+        <div className="ed-row">
+          <Field label="Precio (S/)"><input inputMode="decimal" type="number" style={{ ...inputStyle, fontSize: 18, fontWeight: 700 }} value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="189" /></Field>
+          <Field label="Precio anterior (tachado, opcional)"><input inputMode="decimal" type="number" style={inputStyle} value={form.compareAtPrice} onChange={(e) => set("compareAtPrice", e.target.value)} placeholder="—" /></Field>
+        </div>
+        <span style={labelStyle}>Poner en oferta</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+          {[10, 20, 30, 40, 50].map((p) => <button key={p} type="button" onClick={() => applyPct(p)} disabled={!(Number(form.price) > 0)} style={{ ...edChip, borderStyle: "solid", opacity: Number(form.price) > 0 ? 1 : 0.4 }}>−{p}%</button>)}
+          <input inputMode="numeric" value={pct} onChange={(e) => setPct(e.target.value.replace(/\D/g, "").slice(0, 2))} placeholder="%" aria-label="Porcentaje de descuento" style={{ ...inputStyle, width: 64, padding: "9px 8px", textAlign: "center" }} />
+          <button type="button" disabled={!(Number(pct) > 0)} onClick={() => applyPct(Number(pct))} style={{ ...edBtn, opacity: Number(pct) > 0 ? 1 : 0.4 }}>Aplicar % de descuento</button>
+          {onSale && <button type="button" onClick={() => setForm((x) => ({ ...x, price: String(x.compareAtPrice), compareAtPrice: "" }))} style={{ ...edBtn, borderColor: C.line }}><X size={14} /> Quitar oferta</button>}
         </div>
         {!cost.unavailable && (
-          <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginTop: 4 }}>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ flex: "1 1 120px" }}><Field label="Costo de compra (privado)"><input inputMode="decimal" style={inputStyle} value={cost.value} onChange={(e) => setCost((c) => ({ ...c, value: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="Ej. 45" /></Field></div>
-              <div style={{ flex: "2 1 160px" }}><Field label="Proveedor (opcional)"><input style={inputStyle} maxLength={120} value={cost.supplier} onChange={(e) => setCost((c) => ({ ...c, supplier: e.target.value }))} placeholder="Ej. Gamarra · Taller Rosa" /></Field></div>
+          <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 12px 2px" }}>
+            <div className="ed-row">
+              <Field label="Costo de compra (privado)"><input inputMode="decimal" style={inputStyle} value={cost.value} onChange={(e) => setCost((c) => ({ ...c, value: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="Ej. 45" /></Field>
+              <Field label="Proveedor (opcional)"><input style={inputStyle} maxLength={120} value={cost.supplier} onChange={(e) => setCost((c) => ({ ...c, supplier: e.target.value }))} placeholder="Ej. Gamarra · Taller Rosa" /></Field>
             </div>
-            <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: -4 }}>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, margin: "-6px 0 10px" }}>
               Solo lo ven Super Admin y Administración. {Number(cost.value) > 0 && Number(form.price) > 0 ? `Margen por prenda: S/ ${(Number(form.price) - Number(cost.value)).toFixed(2)} (${Math.round((1 - Number(cost.value) / Number(form.price)) * 100)}%).` : "Sirve para calcular tu ganancia real en Reportes."}
             </div>
           </div>
         )}
-        <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <Field label="Estado">
-              <select style={inputStyle} value={form.status} onChange={(e) => set("status", e.target.value)}>
-                <option value="active">Activo</option><option value="agotado">Agotado (manual)</option><option value="borrador">Borrador</option>
-              </select>
-            </Field>
-          </div>
-          <div style={{ flex: 1 }}>
-            <Field label="Etiqueta">
-              <select style={inputStyle} value={form.tag} onChange={(e) => set("tag", e.target.value)}>
-                <option value="">Ninguna</option><option value="Nuevo">Nuevo</option><option value="Oferta">Oferta</option><option value="Bestseller">Bestseller</option>
-              </select>
-              <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 4, lineHeight: 1.4 }}>Sale arriba a la izquierda de la foto. «Ninguna» la quita. «Agotado» y «Outlet» salen solos.</div>
-            </Field>
-          </div>
-        </div>
-        <Field label="Stock mínimo (alerta cuando cualquier combinación baje de este número)">
-          <input type="number" min="0" style={{ ...inputStyle, maxWidth: 120 }} value={form.minStock} onChange={(e) => set("minStock", Math.max(0, parseInt(e.target.value || "0", 10)))} />
-        </Field>
-        <div style={{ marginTop: 6 }}>
-          <Switch on={form.showOnline} onClick={() => set("showOnline", !form.showOnline)} label={form.showOnline ? "Visible en tienda online / web" : "Solo venta en tienda física (oculto en web)"} />
-          <div style={{ height: 10 }} />
-          <Switch on={form.outlet === true} onClick={() => set("outlet", !(form.outlet === true))} label={form.outlet ? "Outlet (liquidación): solo en la sección Outlet" : "Colección normal"} />
-          {form.outlet && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 6, lineHeight: 1.5 }}>Sale del inicio y del catálogo y aparece solo en «Outlet». Precio final: sin cupones ni puntos, el envío lo paga el cliente y sin cambios. Pon el precio de liquidación en «Precio» y, si quieres mostrar el tachado, el precio original en «Precio anterior».</div>}
-        </div>
-      </AdminCard>
+      </EdSection>
 
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Imágenes y videos</span>
-        <div style={{ background: C.paperDeep, borderRadius: 8, padding: "10px 12px", marginBottom: 10, fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, lineHeight: 1.6 }}>
-          <strong>Medida recomendada:</strong> fotos verticales 1000×1300px (proporción 3:4), formato JPG, menos de 500 KB. Para video: misma proporción vertical (ej. 1080×1440), 5-15 segundos, en bucle, menos de 15 MB para que cargue rápido.
+      <EdSection icon={Images} title="Fotos y videos" open={!!open.fotos} onToggle={() => toggle("fotos")}
+        summary={form.images.length ? `${photos} foto${photos === 1 ? "" : "s"}${videos ? ` · ${videos} video${videos === 1 ? "" : "s"}` : ""}${noPhotoColors.length ? ` · falta foto de: ${noPhotoColors.join(", ")}` : ""}` : "Sin fotos"} warn={!form.images.length || noPhotoColors.length > 0}>
+        <div className={`ed-drop${dragOver ? " is-over" : ""}`} onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
+          style={{ border: `1.5px dashed ${dragOver ? C.ink : C.stone}`, borderRadius: 12, padding: 14, marginBottom: 12, background: dragOver ? C.paper : "transparent", textAlign: "center" }}>
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} style={{ ...edBtn, background: C.ink, color: C.paper, minHeight: 48, padding: "0 20px" }}>
+            {uploading ? <Loader2 size={16} className="spin" /> : <Upload size={16} />} {uploading ? "Subiendo…" : "Subir fotos o videos"}
+          </button>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 8, lineHeight: 1.5 }}>Puedes elegir varias a la vez{canHover() ? " o arrastrarlas aquí" : ""}. Fotos verticales 3:4 (ej. 1000×1300), JPG. Videos 5–15 s, hasta 50 MB.</div>
         </div>
-        {form.colors.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 10 }}>Asigna cada foto o video a un color para que cambie solo cuando el cliente elija ese color. Puedes subir varias fotos y videos a la vez (videos de hasta 50 MB).</div>}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-          {form.images.map((img) => (
-            <div key={img.id} style={{ width: 64 }}>
-              <div style={{ position: "relative", width: 64, height: 80 }}>
-                {img.type === "video" ? (
-                  <video src={img.url} muted style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6 }} />
-                ) : (
-                  <ProductImg src={imgThumb(img)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6 }} />
-                )}
-                {img.type === "video" && <div style={{ position: "absolute", bottom: 3, left: 3, background: "rgba(0,0,0,0.6)", borderRadius: 4, padding: "1px 4px", fontFamily: FONT_BODY, fontSize: 8, color: "#fff", fontWeight: 600 }}>VIDEO</div>}
-                <button onClick={() => removeImage(img.id)} style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: C.ink, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={11} color={C.paper} /></button>
+        <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={handleFile} style={{ display: "none" }} />
+        {form.colors.length > 1 && form.images.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, marginBottom: 10 }}>Debajo de cada foto elige su color: al tocar ese color en la tienda, se ve esa foto. La primera es la portada.</div>}
+        <div className="ed-photos" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))", gap: 10, marginBottom: 12 }}>
+          {form.images.map((img, i) => (
+            <div key={img.id} className="ed-photo" style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 6 }}>
+              <div style={{ position: "relative", aspectRatio: "3 / 4", borderRadius: 7, overflow: "hidden", background: C.paperDeep }}>
+                {img.type === "video" ? <video src={`${img.url}#t=0.1`} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  : <ProductImg src={imgThumb(img)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+                {i === 0 && <span style={{ position: "absolute", top: 5, left: 5, background: C.ink, color: C.paper, borderRadius: 4, padding: "2px 6px", fontFamily: FONT_BODY, fontSize: 9.5, fontWeight: 700 }}>PORTADA</span>}
+                {img.type === "video" && <span style={{ position: "absolute", bottom: 5, left: 5, background: "rgba(0,0,0,0.65)", borderRadius: 4, padding: "2px 6px", fontFamily: FONT_BODY, fontSize: 9.5, color: "#fff", fontWeight: 700 }}>VIDEO</span>}
+                <button type="button" aria-label="Quitar foto" onClick={() => removeImage(img.id)} style={{ position: "absolute", top: 4, right: 4, width: 32, height: 32, borderRadius: "50%", background: "rgba(0,0,0,0.7)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={15} color="#fff" /></button>
+              </div>
+              <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                <button type="button" aria-label="Mover a la izquierda" disabled={i === 0} onClick={() => moveImage(img.id, -1)} style={{ flex: 1, height: 34, borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", opacity: i === 0 ? 0.35 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}><ArrowLeft size={14} color={C.ink} /></button>
+                <button type="button" aria-label="Mover a la derecha" disabled={i === form.images.length - 1} onClick={() => moveImage(img.id, 1)} style={{ flex: 1, height: 34, borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", opacity: i === form.images.length - 1 ? 0.35 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}><ChevronRight size={15} color={C.ink} /></button>
               </div>
               {form.colors.length > 0 && (
-                <select value={img.colorName || ""} onChange={(e) => set("images", form.images.map((i) => (i.id === img.id ? { ...i, colorName: e.target.value || null } : i)))}
-                  style={{ width: "100%", fontSize: 9, marginTop: 4, padding: "3px 2px", borderRadius: 4, border: `1px solid ${C.line}`, color: C.stone }}>
-                  <option value="">General</option>
+                <select aria-label="Color de la foto" value={img.colorName || ""} onChange={(e) => set("images", form.images.map((x) => (x.id === img.id ? { ...x, colorName: e.target.value || null } : x)))}
+                  style={{ width: "100%", height: 34, fontSize: 12, marginTop: 6, padding: "0 4px", borderRadius: 7, border: `1px solid ${img.colorName ? C.ink : C.line}`, color: C.ink, background: C.paper, fontFamily: FONT_BODY }}>
+                  <option value="">Todos</option>
                   {form.colors.map((c) => <option key={c.n} value={c.n}>{c.n}</option>)}
                 </select>
               )}
             </div>
           ))}
-          {form.images.length === 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Aún no hay imágenes.</div>}
         </div>
-        <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>
-          {uploading ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {uploading ? "Subiendo…" : "Subir fotos o videos"}
-        </button>
-        <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={handleFile} style={{ display: "none" }} />
-        <div style={{ display: "flex", gap: 8 }}>
-          <input style={inputStyle} value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder="o pega una URL de imagen" />
-          <button onClick={addImageUrl} style={{ padding: "0 14px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer" }}><LinkIcon size={14} color={C.ink} /></button>
-        </div>
-      </AdminCard>
+        {form.images.length === 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginBottom: 10 }}>Aún no hay imágenes.</div>}
+        {!showUrl ? <button type="button" onClick={() => setShowUrl(true)} style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, cursor: "pointer" }}>Pegar el enlace de una foto</button> : (
+          <div style={{ display: "flex", gap: 8 }}>
+            <input style={inputStyle} value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder="o pega una URL de imagen" onKeyDown={(e) => e.key === "Enter" && addImageUrl()} />
+            <button type="button" aria-label="Agregar enlace" onClick={addImageUrl} style={{ ...edBtn, padding: "0 14px" }}><LinkIcon size={15} /></button>
+          </div>
+        )}
+      </EdSection>
 
-      {collections.length > 0 && (
-        <AdminCard style={{ marginBottom: 14 }}>
+      <EdSection icon={Ruler} title="Tallas y colores" open={!!open.tallas} onToggle={() => toggle("tallas")}
+        summary={`${form.sizes.length ? form.sizes.join(" · ") : "Sin tallas"}  |  ${form.colors.length ? form.colors.map((c) => c.n).join(", ") : "sin colores"}`} warn={!form.sizes.length || !form.colors.length}>
+        <span style={labelStyle}>Tallas (se ordenan solas de menor a mayor)</span>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          {form.sizes.map((s) => (
+            <span key={s} className="ed-size" style={{ display: "inline-flex", alignItems: "center", gap: 2, minHeight: 40, padding: "0 4px 0 14px", borderRadius: 999, background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: 700 }}>{s}
+              <button type="button" aria-label={`Quitar talla ${s}`} onClick={() => removeSize(s)} style={{ width: 32, height: 32, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={14} color={C.paper} /></button></span>
+          ))}
+          {!form.sizes.length && <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, alignSelf: "center" }}>Toca las tallas que tiene la prenda:</span>}
+        </div>
+        {SIZE_GROUPS.map(([g, list]) => { const rest = list.filter((q) => !form.sizes.includes(q)); return rest.length ? (
+          <div key={g} style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, width: 58 }}>{g}</span>
+            {rest.map((q) => <button key={q} type="button" onClick={() => addSizeVal(q)} style={edChip}>+ {q}</button>)}
+          </div>) : null; })}
+        <div style={{ display: "flex", gap: 8, margin: "4px 0 18px" }}>
+          <input style={inputStyle} value={newSize} onChange={(e) => setNewSize(e.target.value)} placeholder="Otra talla: 38, 40…" onKeyDown={(e) => e.key === "Enter" && addSize()} />
+          <button type="button" aria-label="Agregar talla" onClick={addSize} style={{ ...edBtn, background: C.ink, color: C.paper, padding: "0 16px" }}><Plus size={16} /></button>
+        </div>
+
+        <span style={labelStyle}>Colores</span>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          {form.colors.map((c) => (
+            <span key={c.n} className="ed-color" style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 40, padding: "0 4px 0 6px", borderRadius: 999, border: `1px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 13 }}>
+              <label title="Cambiar el tono" style={{ position: "relative", width: 28, height: 28, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}`, cursor: "pointer", flexShrink: 0 }}>
+                <input type="color" aria-label={`Tono de ${c.n}`} value={/^#[0-9a-f]{6}$/i.test(c.h) ? c.h : "#999999"} onChange={(e) => setColorHex(c.n, e.target.value)} style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }} />
+              </label>
+              {c.n}
+              <button type="button" aria-label={`Quitar color ${c.n}`} onClick={() => removeColor(c.n)} style={{ width: 32, height: 32, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={14} color={C.stone} /></button>
+            </span>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {QUICK_COLORS.filter((n) => !form.colors.some((c) => c.n.toLowerCase() === n.toLowerCase())).map((n) => (
+            <button key={n} type="button" onClick={() => addColorVal(n)} style={{ ...edChip, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 12px 0 8px" }}><span style={{ width: 16, height: 16, borderRadius: "50%", background: colorHexFor(n), border: `1px solid ${C.line}` }} />{n}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input type="color" aria-label="Tono del color nuevo" value={colorHexFor(newColorName) || newColorHex} onChange={(e) => setNewColorHex(e.target.value)} style={{ width: 44, height: 44, border: `1px solid ${C.line}`, borderRadius: 10, padding: 2, background: C.paperDeep, cursor: "pointer", flexShrink: 0 }} />
+          <input style={inputStyle} value={newColorName} onChange={(e) => setNewColorName(e.target.value)} placeholder="Nombre del color" onKeyDown={(e) => e.key === "Enter" && addColor()} />
+          <button type="button" aria-label="Agregar color" onClick={addColor} style={{ ...edBtn, background: C.ink, color: C.paper, padding: "0 16px", flexShrink: 0 }}><Plus size={16} /></button>
+        </div>
+      </EdSection>
+
+      <EdSection icon={Package} title="Stock por talla" open={!!open.stock} onToggle={() => toggle("stock")}
+        summary={form.sizes.length && form.colors.length ? `${totalUnits} unidades · ${form.colors.map((c) => `${c.n} ${colorUnits(c.n)}`).join(" · ")}` : "Primero elige tallas y colores"}>
+        {!(form.sizes.length && form.colors.length) ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Agrega al menos una talla y un color en «Tallas y colores».</div> : (
+          <>
+            <div className="ed-stock-grid">
+            {form.colors.map((c) => (
+              <div key={c.n} className="ed-stock-color" style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 12, padding: "10px 12px", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ width: 16, height: 16, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} />
+                  <strong style={{ fontFamily: FONT_BODY, fontSize: 13.5, color: C.ink, flex: 1 }}>{c.n}</strong>
+                  <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>{colorUnits(c.n)} u.</span>
+                </div>
+                {form.sizes.map((s) => (
+                  <div key={s} className="ed-stock-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderTop: `1px solid ${C.line}` }}>
+                    <span style={{ minWidth: 44, fontFamily: FONT_BODY, fontSize: 15, fontWeight: 700, color: C.ink }}>{s}</span>
+                    <StepNum label={`Stock ${s} ${c.n}`} value={form.stock[`${s}|${c.n}`] ?? 0} onChange={(v) => setStockVal(s, c.n, v)} />
+                    <input aria-label={`Código ${s} ${c.n}`} value={form.skus[`${s}|${c.n}`] || ""} onChange={(e) => setSkuVal(s, c.n, e.target.value)} placeholder="código" style={{ flex: 1, minWidth: 0, height: 42, padding: "0 10px", borderRadius: 10, border: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, background: C.paperDeep }} />
+                  </div>
+                ))}
+              </div>
+            ))}
+            </div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft }}>Total de unidades: <strong>{totalUnits}</strong>. Si se vende algo mientras editas, no se pierde: solo se suma o resta lo que cambies aquí.</div>
+          </>
+        )}
+      </EdSection>
+
+      <EdSection icon={Eye} title="Dónde se ve y alertas" open={!!open.ver} onToggle={() => toggle("ver")}
+        summary={[form.showOnline ? "Web y tienda" : "Solo tienda física", form.outlet ? "Outlet" : null, `alerta si baja de ${form.minStock}`, form.collectionIds.length ? `${form.collectionIds.length} colección(es)` : null].filter(Boolean).join(" · ")}>
+        <Switch on={form.showOnline} onClick={() => set("showOnline", !form.showOnline)} label={form.showOnline ? "Visible en tienda online / web" : "Solo venta en tienda física (oculto en web)"} />
+        <div style={{ height: 12 }} />
+        <Switch on={form.outlet === true} onClick={() => set("outlet", !(form.outlet === true))} label={form.outlet ? "Outlet (liquidación): solo en la sección Outlet" : "Colección normal"} />
+        {form.outlet && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 6, lineHeight: 1.5 }}>Sale del inicio y del catálogo y aparece solo en «Outlet». Precio final: sin cupones ni puntos, el envío lo paga el cliente y sin cambios. Pon el precio de liquidación en «Precio» y, si quieres mostrar el tachado, el precio original en «Precio anterior».</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "16px 0" }}>
+          <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, flex: "1 1 180px" }}>Avisar «stock bajo» cuando una talla/color baje de</span>
+          <StepNum label="Stock mínimo" value={form.minStock} onChange={(v) => set("minStock", v)} />
+        </div>
+        {collections.length > 0 && (<>
           <span style={labelStyle}>Colecciones</span>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {collections.map((c) => <Chip key={c.id} active={form.collectionIds.includes(c.id)} onClick={() => toggleCollection(c.id)}>{c.name}</Chip>)}
           </div>
-        </AdminCard>
-      )}
+        </>)}
+      </EdSection>
 
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Tallas</span>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-          {form.sizes.map((s) => (
-            <span key={s} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 999, border: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12 }}>{s}<button onClick={() => removeSize(s)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={11} color={C.stone} /></button></span>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          {QUICK_SIZES.filter((q) => !form.sizes.includes(q)).map((q) => (
-            <button key={q} onClick={() => set("sizes", sortSizes([...form.sizes, q]))} style={{ padding: "6px 11px", borderRadius: 999, border: `1px dashed ${C.stone}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer" }}>+ {q}</button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input style={inputStyle} value={newSize} onChange={(e) => setNewSize(e.target.value)} placeholder="Otra talla: 38, 40…" onKeyDown={(e) => e.key === "Enter" && addSize()} />
-          <button onClick={addSize} style={{ padding: "0 14px", borderRadius: 8, border: "none", background: C.ink, color: C.paper, cursor: "pointer" }}><Plus size={14} /></button>
-        </div>
-      </AdminCard>
-
-      <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Colores</span>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-          {form.colors.map((c) => (
-            <span key={c.n} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px 5px 6px", borderRadius: 999, border: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12 }}>
-              <span style={{ width: 14, height: 14, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} />{c.n}
-              <button onClick={() => removeColor(c.n)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><X size={11} color={C.stone} /></button>
-            </span>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input type="color" value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)} style={{ width: 40, height: 40, border: `1px solid ${C.line}`, borderRadius: 8, padding: 2, background: C.paperDeep, cursor: "pointer" }} />
-          <input style={inputStyle} value={newColorName} onChange={(e) => setNewColorName(e.target.value)} placeholder="Nombre del color" onKeyDown={(e) => e.key === "Enter" && addColor()} />
-          <button onClick={addColor} style={{ padding: "0 14px", height: 40, borderRadius: 8, border: "none", background: C.ink, color: C.paper, cursor: "pointer", flexShrink: 0 }}><Plus size={14} /></button>
-        </div>
-      </AdminCard>
-
-      {form.sizes.length > 0 && form.colors.length > 0 && (
-        <AdminCard style={{ marginBottom: 14 }}>
-          <span style={labelStyle}>Stock por talla y color</span>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 90 * (form.colors.length + 1) }}>
-              <thead><tr><th style={thStyle}></th>{form.colors.map((c) => <th key={c.n} style={thStyle}><span style={{ display: "flex", alignItems: "center", gap: 5, justifyContent: "center" }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: c.h }} />{c.n}</span></th>)}</tr></thead>
-              <tbody>
-                {form.sizes.map((s) => (
-                  <tr key={s}>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>{s}</td>
-                    {form.colors.map((c) => (
-                      <td key={c.n} style={tdStyle}>
-                        <input type="number" min="0" value={form.stock[`${s}|${c.n}`] ?? 0} onChange={(e) => setStockVal(s, c.n, e.target.value)} style={{ width: 62, padding: "7px 6px", textAlign: "center", borderRadius: 6, border: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12, marginBottom: 4 }} />
-                        <input value={form.skus[`${s}|${c.n}`] || ""} onChange={(e) => setSkuVal(s, c.n, e.target.value)} placeholder="código" style={{ width: 62, padding: "4px 6px", textAlign: "center", borderRadius: 6, border: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 9.5, color: C.stone }} />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginTop: 10 }}>Total de unidades: {Object.values(form.stock).reduce((s, v) => s + Number(v || 0), 0)}</div>
-        </AdminCard>
-      )}
+      <EdSection icon={Globe} title="En inglés (tienda EN)" open={!!open.en} onToggle={() => toggle("en")}
+        summary={form.descriptionEn ? `${form.nameEn || autoNameEn(form.name) || "—"} · descripción lista` : `${form.nameEn || (form.name ? `Automático: ${autoNameEn(form.name)}` : "—")}${form.description ? " · falta la descripción" : ""}`}>
+        <Field label="Nombre en inglés (opcional)"><input style={inputStyle} value={form.nameEn} onChange={(e) => set("nameEn", e.target.value)} placeholder={form.name ? `Automático: ${autoNameEn(form.name)}` : "Ej. Coralina Midi Dress"} /></Field>
+        <Field label="Descripción en inglés (opcional)"><textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.descriptionEn} onChange={(e) => set("descriptionEn", e.target.value)} placeholder="Se muestra cuando la tienda está en inglés. Si lo dejas vacío, se ve en español." /></Field>
+        {form.description?.trim() && <button type="button" onClick={async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = "Traduciendo…"; try { set("descriptionEn", await translateEsEn(form.description)); if (!form.nameEn) set("nameEn", autoNameEn(form.name)); b.textContent = "Traducido ✓ (revísalo)"; } catch (err) { b.textContent = "No se pudo traducir ahora"; } b.disabled = false; }} style={edBtn}>Traducir al inglés</button>}
+      </EdSection>
 
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-        <button onClick={onCancel} style={{ flex: 1, padding: "14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
-        <PrimaryButton disabled={!canSave} onClick={handleSave} style={{ flex: 2, width: "auto" }}>Guardar producto</PrimaryButton>
+        <button type="button" onClick={onCancel} style={{ flex: 1, minHeight: 50, borderRadius: 10, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+        <PrimaryButton disabled={!canSave} onClick={handleSave} style={{ flex: 2, width: "auto", minHeight: 50 }}>Guardar producto</PrimaryButton>
       </div>
       <Faltan center items={[!form.name.trim() && "escribe el nombre", form.price === "" && "pon el precio", !form.sizes.length && "elige al menos una talla", !form.colors.length && "agrega al menos un color"]} />
     </div>
@@ -11752,6 +11849,11 @@ export default function FlyBoutiqueApp() {
         :is(.sheet-panel, .fold-body, .help-panel) :is([style*="line-height: 1.5"], [style*="line-height: 1.6"], [style*="line-height: 1.7"], [style*="line-height: 1.8"]):not([style*="text-align"]):not(:has(input, button, select, textarea)) { text-align: justify; hyphens: auto; -webkit-hyphens: auto; }
         .fold-chev { transition: transform .25s ease; flex-shrink: 0; }
         .fold-card.is-open .fold-chev { transform: rotate(180deg); }
+        .ed-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+        @media (max-width: 520px) { .ed-row { grid-template-columns: 1fr; } }
+        .ed-stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 0 10px; }
+        @media (max-width: 420px) { .ed-stock-grid { grid-template-columns: 1fr; } }
+        .ed-sec-btn:active, .ed-step button:active { transform: scale(0.97); }
         .fold-body { animation: groupIn .28s ease both; }
         @media (prefers-reduced-motion: reduce) { .fold-body { animation: none; } .fold-chev { transition: none; } }
         .more-group { border: 1px solid ${C.line}; border-radius: 14px; margin-bottom: 10px; background: ${C.paper}; overflow: hidden; }

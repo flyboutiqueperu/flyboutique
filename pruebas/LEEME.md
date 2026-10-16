@@ -8,6 +8,7 @@ psql -h /var/lib/flypgtest -p 5499 -U postgres -d prueba1 -f pruebas/sql/t22.sql
 - `mock2.sql`: tablas como producción (store_data, sales, customers, staff_profiles…).
 - `setup.sql`: datos de prueba (staff, productos).
 - `tNN.sql`: prueba del SQL número NN.
+- `t30-inventario.sql`: prueba completa del stock (ventas, anulaciones, devoluciones, pedidos web, traslados, compras, catálogo, permisos y carreras con dos conexiones). Correr en una base recién creada: `bash pruebas/sql/build.sh inv && psql … -d inv -f pruebas/sql/t30-inventario.sql` → debe terminar en «TODO OK».
 - Al crear un SQL nuevo: agrégalo a la lista de `build.sh` y crea su `tNN.sql`.
 - Si falta PostgreSQL: `apt-get install -y postgresql-16`. El script crea la base de datos si no existe.
 
