@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,700;0,800;0,900&family=Jost:wght@300;400;500;600&display=swap" media="print" onload="this.media='all'" />
     <meta name="description" content="Fly Boutique Perú: moda femenina elegante. Compra online con envío a todo el Perú o recoge en tienda." />
     <meta name="theme-color" content="#000000" />
-    <!-- Tres apps instalables (tienda «Fly», «Fly Staff», «Fly Caja»): el manifiesto correcto se elige aquí, mientras se lee
+    <!-- Dos apps instalables (tienda «Fly» y «Fly Staff»; /caja abre «Fly Staff» en la caja): el manifiesto correcto se elige aquí, mientras se lee
          la página, porque el iPhone toma la dirección de inicio del manifiesto que encuentra al cargar.
          Si la app instalada de staff/caja se abre en «/» (instalada antes de este arreglo), vuelve sola a su pantalla. -->
     <script>
@@ -22,13 +22,12 @@
           var home = standalone ? localStorage.getItem("fly:homeApp") : null;
           if ((p === "" || p === "/") && !h && (home === "staff" || home === "caja")) { history.replaceState(null, "", home === "caja" ? "/#caja" : "/#staff"); h = location.hash; }
         } catch (e) {}
-        if (p === "/caja" || h === "#caja") app = "caja";
-        else if (p === "/staff" || p.indexOf("/staff/") === 0 || h.indexOf("#staff") === 0) app = "staff";
+        if (p === "/caja" || h === "#caja" || p === "/staff" || p.indexOf("/staff/") === 0 || h.indexOf("#staff") === 0) app = "staff";
         window.__flyBootApp = app;
         var d = document;
         d.write('<link rel="manifest" href="/manifest' + (app ? "-" + app : "") + '.webmanifest" />');
         d.write('<link rel="apple-touch-icon" href="/icons/' + (app ? app + "-" : "") + 'apple-touch-icon.png" />');
-        d.write('<meta name="apple-mobile-web-app-title" content="' + (app === "caja" ? "Fly Caja" : app === "staff" ? "Fly Staff" : "Fly") + '" />');
+        d.write('<meta name="apple-mobile-web-app-title" content="' + (app === "staff" ? "Fly Staff" : "Fly") + '" />');
       })();
     </script>
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />

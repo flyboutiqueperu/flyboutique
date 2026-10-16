@@ -10669,15 +10669,14 @@ export default function FlyBoutiqueApp() {
   setStaffMode(mode !== "store");
   useEffect(() => { try { document.documentElement.lang = mode === "store" ? lang : "es"; } catch (e) { /* nada */ } }, [lang, mode]);
   // En el panel del staff, «Agregar a pantalla de inicio» instala otra app: «Fly Staff» (abre directo en el acceso del staff)
-  // Si se entró por /caja, se ofrece «Fly Caja» (app aparte que abre directo en la caja).
+  // Una sola app del personal: «Fly Staff» (también si se entró por /caja; cada usuario ve lo que su rol permite).
   useEffect(() => {
     const staff = mode !== "store";
-    let caja = false; try { caja = staff && sessionStorage.getItem("fly:app") === "caja"; } catch (e) { /* nada */ }
-    const app = caja ? "caja" : staff ? "staff" : "";
+    const app = staff ? "staff" : "";
     const link = document.querySelector('link[rel="manifest"]');
     if (link) link.setAttribute("href", app ? `/manifest-${app}.webmanifest` : "/manifest.webmanifest");
     const title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-    if (title) title.setAttribute("content", caja ? "Fly Caja" : staff ? "Fly Staff" : "Fly");
+    if (title) title.setAttribute("content", staff ? "Fly Staff" : "Fly");
     const icon = document.querySelector('link[rel="apple-touch-icon"]');
     if (icon) icon.setAttribute("href", app ? `/icons/${app}-apple-touch-icon.png` : "/icons/apple-touch-icon.png");
     // App instalada: se recuerda que es la de staff/caja, así al abrirla vuelve a su pantalla aunque el celular la abra en «/»
@@ -11115,18 +11114,17 @@ export default function FlyBoutiqueApp() {
   // Al pasar de la tienda al staff cambia el manifiesto: el aviso guardado era de la otra app, se descarta
   // (el navegador vuelve a ofrecer la instalación con el manifiesto nuevo).
   useEffect(() => {
-    let caja = false; try { caja = sessionStorage.getItem("fly:app") === "caja"; } catch (e) { /* nada */ }
-    const app = mode === "store" ? "" : caja ? "caja" : "staff";
+    const app = mode === "store" ? "" : "staff";
     if (window.__flyBootApp !== undefined && window.__flyBootApp !== app) setInstallEvt(null);
   }, [mode]);
-  const staffAppName = () => { try { return sessionStorage.getItem("fly:app") === "caja" ? "Fly Caja" : "Fly Staff"; } catch (e) { return "Fly Staff"; } };
+  const staffAppName = () => "Fly Staff";
   // Aviso automático de instalación (una vez cada cierto tiempo por app; nunca dentro de la app ya instalada)
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
   const isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
   const isAppleTouch = isIOS || isIPad;
   const isIOSSafari = isAppleTouch && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA|Instagram|FBAN|FBAV|TikTok|Line\//i.test(ua);
   const [installSheet, setInstallSheet] = useState(null); // null | "store" | "staff" | "caja"
-  const sheetApp = mode === "staffLogin" || mode === "staff" ? (staffAppName() === "Fly Caja" ? "caja" : "staff") : mode === "store" ? "store" : null;
+  const sheetApp = mode === "staffLogin" || mode === "staff" ? "staff" : mode === "store" ? "store" : null;
   useEffect(() => {
     if (isStandalone || !catalog || !sheetApp) { setInstallSheet(null); return; }
     const key = `fly:installAsk:${sheetApp}`;
@@ -11151,7 +11149,7 @@ export default function FlyBoutiqueApp() {
     const name = staffAppName();
     // Si la página se cargó como tienda (se entró al staff sin recargar), el celular instalaría con la dirección de la tienda:
     // se recarga en /staff o /caja y se vuelve a tocar «Instalar».
-    const key = name === "Fly Caja" ? "caja" : "staff";
+    const key = "staff";
     if (window.__flyBootApp !== undefined && window.__flyBootApp !== key) { try { sessionStorage.setItem("fly:installHint", "1"); } catch (e) { /* nada */ } window.location.assign(`/${key}`); return; }
     if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (e) { /* cancelado */ } setInstallEvt(null); return; }
     if (isIOS) alert(`Para instalar «${name}» en el iPhone:\n\n1. Abre flyboutique.vercel.app/${key} en Safari.\n2. Toca Compartir (el cuadrado con flecha hacia arriba).\n3. Elige «Agregar a pantalla de inicio» y toca «Agregar».`);
