@@ -17,7 +17,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 import { supabase, setStaffSessionMode, clearStaffSessionMode } from "./supabaseClient.js";
 import { t, getLang, setLang, setStaffMode } from "./i18n.js";
-import { parseTumiSoft, isTumiSoft, matchPhoto, COLOR_HEX, keyOf } from "./importar-tumisoft.js";
+import { parseTumiSoft, isTumiSoft, matchPhoto, COLOR_HEX, keyOf, titleCase } from "./importar-tumisoft.js";
 
 /* ------------------------------------------------------------------ */
 /*  DESIGN TOKENS — monochrome editorial, one burgundy accent          */
@@ -5580,12 +5580,20 @@ const emptyProductForm = () => ({
 const SIZE_GROUPS = [["Letras", ["XS", "S", "M", "L", "XL", "XXL"]], ["Números", ["24", "26", "28", "30", "32", "34", "36", "38", "40", "42", "44"]], ["Otras", ["Única"]]];
 // Colores frecuentes: un toque y queda con su tono
 const QUICK_COLORS = ["Negro", "Blanco", "Beige", "Camel", "Marrón", "Gris", "Azul", "Celeste", "Verde", "Rojo", "Rosado", "Vino"];
-const colorHexFor = (name) => {
+// Tono de un color por su nombre, mientras se escribe: primero los colores que ya usa la tienda (mismo tono),
+// luego el diccionario (~250 tonos); «Dor» ya sugiere Dorado.
+const colorHexFor = (name, known = {}) => {
   const k = keyOf(name); if (!k) return null;
+  if (known[k]) return known[k];
   if (COLOR_HEX[k]) return COLOR_HEX[k];
-  const w = k.split(" ").find((x) => COLOR_HEX[x]);
-  return w ? COLOR_HEX[w] : null;
+  if (k.length >= 3) {
+    const pre = Object.keys(known).find((x) => x.startsWith(k)) || Object.keys(COLOR_HEX).find((x) => x.startsWith(k));
+    if (pre) return known[pre] || COLOR_HEX[pre];
+  }
+  const w = k.split(" ").find((x) => known[x] || COLOR_HEX[x]);
+  return w ? known[w] || COLOR_HEX[w] : null;
 };
+const EDITOR_DRAFT = (id) => `fly:borrador-prenda:${id || "nuevo"}`;
 // Sección desplegable del editor: ícono, título y resumen (lo que tiene) cuando está cerrada
 const EdSection = ({ icon: Icon, title, summary, open, onToggle, warn, children }) => (
   <div className={`ed-sec${open ? " is-open" : ""}`} style={{ background: C.paperDeep, border: `1px solid ${open ? C.ink : C.line}`, borderRadius: 14, marginBottom: 10 }}>
@@ -5638,7 +5646,13 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
   const [showUrl, setShowUrl] = useState(false);
   const [newSize, setNewSize] = useState("");
   const [newColorName, setNewColorName] = useState("");
-  const [newColorHex, setNewColorHex] = useState("#7C2A2F");
+  const [newColorHex, setNewColorHex] = useState("#999999");
+  const [hexManual, setHexManual] = useState(false); // si eligió el tono a mano, ya no se cambia solo
+  const knownColors = useMemo(() => { const m = {}; (allProducts || []).forEach((p) => (p.variants || []).forEach((v) => { if (v.colorName && /^#[0-9a-f]{6}$/i.test(v.colorHex || "")) m[keyOf(v.colorName)] = v.colorHex; })); return m; }, [allProducts]);
+  const typedHex = hexManual ? newColorHex : colorHexFor(newColorName, knownColors) || newColorHex;
+  // Borrador en este equipo: si sales de la pantalla o se cierra la app sin guardar, se recupera al volver
+  const baseline = useRef("");
+  const [draftAt, setDraftAt] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef(null);
@@ -5646,6 +5660,28 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
   const [open, setOpen] = useState(() => (product ? {} : { datos: true, precio: true, tallas: true, stock: true }));
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
 
+  const loadForm = (f) => {
+    baseline.current = JSON.stringify(f);
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(EDITOR_DRAFT(product?.id)) || "null"); } catch (e) { d = null; }
+    if (d?.form && Date.now() - (d.at || 0) < 14 * 864e5 && JSON.stringify(d.form) !== baseline.current) {
+      if (d.stockAtOpen) stockAtOpen.current = d.stockAtOpen;
+      setDraftAt(d.at); setForm(d.form);
+    } else { setDraftAt(null); setForm(f); }
+  };
+  const dirty = !!baseline.current && JSON.stringify(form) !== baseline.current;
+  const clearDraft = () => { try { localStorage.removeItem(EDITOR_DRAFT(product?.id)); } catch (e) { /* sin almacenamiento */ } };
+  useEffect(() => {
+    if (!baseline.current) return;
+    const t = setTimeout(() => {
+      try { if (dirty) localStorage.setItem(EDITOR_DRAFT(product?.id), JSON.stringify({ form, stockAtOpen: stockAtOpen.current, at: Date.now() })); else localStorage.removeItem(EDITOR_DRAFT(product?.id)); } catch (e) { /* sin almacenamiento */ }
+    }, 300);
+    const warn = (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => { clearTimeout(t); window.removeEventListener("beforeunload", warn); };
+  }, [form]);
+  const discardDraft = () => { clearDraft(); setDraftAt(null); stockAtOpen.current = product ? Object.fromEntries(product.variants.map((v) => [`${v.size}|${v.colorName}`, v.stock])) : {}; setForm(JSON.parse(baseline.current)); };
+  const leave = () => { if (dirty && !confirm("Tienes cambios sin guardar. ¿Salir y perderlos?")) return; clearDraft(); onCancel(); };
   useEffect(() => {
     if (product) {
       const sizes = productSizes(product);
@@ -5653,11 +5689,11 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
       const stock = {}; const skus = {};
       product.variants.forEach((v) => { stock[`${v.size}|${v.colorName}`] = v.stock; skus[`${v.size}|${v.colorName}`] = v.sku || ""; });
       stockAtOpen.current = { ...stock };
-      setForm({ id: product.id, name: product.name, nameEn: product.nameEn || "", category: product.category, description: product.description || "", descriptionEn: product.descriptionEn || "",
+      loadForm({ id: product.id, name: product.name, nameEn: product.nameEn || "", category: product.category, description: product.description || "", descriptionEn: product.descriptionEn || "",
         price: String(product.price), compareAtPrice: product.compareAtPrice ? String(product.compareAtPrice) : "",
         status: product.status, tag: product.tag || "", minStock: product.minStock ?? 3, showOnline: product.showOnline !== false, outlet: product.outlet === true, images: product.images, collectionIds: product.collectionIds || [],
         sizes, colors, stock, skus });
-    } else { stockAtOpen.current = {}; setForm(emptyProductForm()); }
+    } else { stockAtOpen.current = {}; loadForm(emptyProductForm()); }
     // Solo al abrir otra prenda: la recarga automática del panel (cada 45 s) no borra lo que se está escribiendo
   }, [product?.id]);
 
@@ -5666,8 +5702,8 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
   const addSizeVal = (raw) => { const s = String(raw || "").trim(); if (!s) return; setForm((f) => (f.sizes.some((x) => x.toUpperCase() === s.toUpperCase()) ? f : { ...f, sizes: sortSizes([...f.sizes, s]) })); };
   const addSize = () => { addSizeVal(newSize.toUpperCase() === "UNICA" ? "Única" : /^[a-z]{1,4}$/i.test(newSize.trim()) ? newSize.trim().toUpperCase() : newSize); setNewSize(""); };
   const removeSize = (s) => { set("sizes", form.sizes.filter((x) => x !== s)); const st = { ...form.stock }; const sk = { ...form.skus }; Object.keys(st).forEach((k) => k.startsWith(s + "|") && delete st[k]); Object.keys(sk).forEach((k) => k.startsWith(s + "|") && delete sk[k]); setForm((f) => ({ ...f, stock: st, skus: sk })); };
-  const addColorVal = (name, hex) => { const n = String(name || "").trim(); if (!n) return; setForm((f) => (f.colors.some((c) => c.n.toLowerCase() === n.toLowerCase()) ? f : { ...f, colors: [...f.colors, { n, h: hex || colorHexFor(n) || "#999999" }] })); };
-  const addColor = () => { addColorVal(newColorName, colorHexFor(newColorName) || newColorHex); setNewColorName(""); };
+  const addColorVal = (name, hex) => { const n = String(name || "").trim(); if (!n) return; setForm((f) => (f.colors.some((c) => c.n.toLowerCase() === n.toLowerCase()) ? f : { ...f, colors: [...f.colors, { n, h: hex || colorHexFor(n, knownColors) || "#999999" }] })); };
+  const addColor = () => { if (!newColorName.trim()) return; addColorVal(titleCase(newColorName.toUpperCase()), typedHex); setNewColorName(""); setHexManual(false); setNewColorHex("#999999"); };
   const setColorHex = (n, h) => set("colors", form.colors.map((c) => (c.n === n ? { ...c, h } : c)));
   const removeColor = (n) => { set("colors", form.colors.filter((c) => c.n !== n)); const st = { ...form.stock }; const sk = { ...form.skus }; Object.keys(st).forEach((k) => k.endsWith("|" + n) && delete st[k]); Object.keys(sk).forEach((k) => k.endsWith("|" + n) && delete sk[k]); setForm((f) => ({ ...f, stock: st, skus: sk })); };
   const setStockVal = (size, colorName, val) => setForm((f) => ({ ...f, stock: { ...f.stock, [`${size}|${colorName}`]: Math.max(0, parseInt(val || "0", 10) || 0) } }));
@@ -5735,6 +5771,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
       createdAt: product?.createdAt || Date.now(), updatedAt: Date.now(),
     };
     saveCost(record.id);
+    clearDraft(); baseline.current = "";
     onSave(record);
   };
 
@@ -5756,7 +5793,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
     <div className="prod-editor" style={{ padding: "18px 18px 100px", maxWidth: 860, margin: "0 auto" }}>
       {/* Cabecera: foto, nombre y guardar a la mano */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <button type="button" onClick={onCancel} aria-label="Volver" style={{ width: 42, height: 42, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><ArrowLeft size={18} color={C.ink} /></button>
+        <button type="button" onClick={leave} aria-label="Volver" style={{ width: 42, height: 42, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><ArrowLeft size={18} color={C.ink} /></button>
         <div style={{ width: 46, height: 58, borderRadius: 8, overflow: "hidden", background: C.paperDeep, border: `1px solid ${C.line}`, flexShrink: 0 }}>{cover ? <ProductImg src={imgThumb(cover)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><ImageIcon size={18} color={C.stone} /></div>}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 17, color: C.ink, fontWeight: 800, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{form.name || (product ? "Editar producto" : "Nuevo producto")}</h1>
@@ -5765,6 +5802,14 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
         {product && <button type="button" disabled={!canSave} onClick={handleSave} className="ed-save-top" style={{ ...edBtn, background: C.ink, color: C.paper, opacity: canSave ? 1 : 0.4 }}><Check size={16} /> Guardar</button>}
       </div>
 
+      {draftAt && (
+        <div className="ed-draft" role="status" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: C.ink, color: C.paper, borderRadius: 12, padding: "12px 14px", marginBottom: 12, fontFamily: FONT_BODY, fontSize: 13 }}>
+          <History size={18} color={C.paper} />
+          <span style={{ flex: "1 1 200px" }}>Recuperamos lo que no guardaste ({new Date(draftAt).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}). Revísalo y toca <strong>Guardar</strong>.</span>
+          <button type="button" onClick={discardDraft} style={{ minHeight: 40, padding: "0 14px", borderRadius: 10, border: `1px solid ${C.paper}`, background: "transparent", color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Descartar cambios</button>
+        </div>
+      )}
+      {dirty && !draftAt && <div className="ed-dirty" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, margin: "-6px 0 10px" }}>● Cambios sin guardar (quedan guardados en este equipo hasta que toques «Guardar»)</div>}
       <EdSection icon={TagIcon} title="Datos de la prenda" open={!!open.datos} onToggle={() => toggle("datos")}
         summary={[form.name || "Falta el nombre", form.category, statusLabel, form.tag].filter(Boolean).join(" · ")} warn={!form.name.trim()}>
         <Field label="Nombre del producto"><input style={inputStyle} value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Ej. Vestido Midi Coralina" /></Field>
@@ -5890,11 +5935,13 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
           {QUICK_COLORS.filter((n) => !form.colors.some((c) => c.n.toLowerCase() === n.toLowerCase())).map((n) => (
-            <button key={n} type="button" onClick={() => addColorVal(n)} style={{ ...edChip, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 12px 0 8px" }}><span style={{ width: 16, height: 16, borderRadius: "50%", background: colorHexFor(n), border: `1px solid ${C.line}` }} />{n}</button>
+            <button key={n} type="button" onClick={() => addColorVal(n, colorHexFor(n, knownColors))} style={{ ...edChip, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 12px 0 8px" }}><span style={{ width: 16, height: 16, borderRadius: "50%", background: colorHexFor(n, knownColors), border: `1px solid ${C.line}` }} />{n}</button>
           ))}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input type="color" aria-label="Tono del color nuevo" value={colorHexFor(newColorName) || newColorHex} onChange={(e) => setNewColorHex(e.target.value)} style={{ width: 44, height: 44, border: `1px solid ${C.line}`, borderRadius: 10, padding: 2, background: C.paperDeep, cursor: "pointer", flexShrink: 0 }} />
+          <label className="ed-new-swatch" title="Tocar para elegir el tono a mano" style={{ position: "relative", width: 44, height: 44, borderRadius: "50%", background: typedHex, border: `2px solid ${C.line}`, boxShadow: `inset 0 0 0 2px ${C.paper}`, cursor: "pointer", flexShrink: 0, transition: "background .2s" }}>
+            <input type="color" aria-label="Tono del color nuevo" value={typedHex} onChange={(e) => { setNewColorHex(e.target.value); setHexManual(true); }} style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }} />
+          </label>
           <input style={inputStyle} value={newColorName} onChange={(e) => setNewColorName(e.target.value)} placeholder="Nombre del color" onKeyDown={(e) => e.key === "Enter" && addColor()} />
           <button type="button" aria-label="Agregar color" onClick={addColor} style={{ ...edBtn, background: C.ink, color: C.paper, padding: "0 16px", flexShrink: 0 }}><Plus size={16} /></button>
         </div>
@@ -5953,7 +6000,7 @@ const AdminProductEditor = ({ product, collections, allProducts, onSave, onCance
       </EdSection>
 
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-        <button type="button" onClick={onCancel} style={{ flex: 1, minHeight: 50, borderRadius: 10, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+        <button type="button" onClick={leave} style={{ flex: 1, minHeight: 50, borderRadius: 10, border: `1px solid ${C.line}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
         <PrimaryButton disabled={!canSave} onClick={handleSave} style={{ flex: 2, width: "auto", minHeight: 50 }}>Guardar producto</PrimaryButton>
       </div>
       <Faltan center items={[!form.name.trim() && "escribe el nombre", form.price === "" && "pon el precio", !form.sizes.length && "elige al menos una talla", !form.colors.length && "agrega al menos un color"]} />
@@ -10955,7 +11002,9 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   useEffect(() => { scrollAllTop(); requestAnimationFrame(() => scrollAllTop()); }, [screen]);
-  const [editingProductId, setEditingProductId] = useState(undefined);
+  // Se recuerda qué prenda se editaba: si la app se recarga (iPhone en segundo plano), vuelve a esa misma prenda
+  const [editingProductId, setEditingProductIdRaw] = useState(() => { try { return sessionStorage.getItem("fly:editando") || undefined; } catch (e) { return undefined; } });
+  const setEditingProductId = (id) => { setEditingProductIdRaw(id); try { if (id) sessionStorage.setItem("fly:editando", id); else sessionStorage.removeItem("fly:editando"); } catch (e) { /* sin almacenamiento */ } };
   const [returnSale, setReturnSale] = useState(null);
   const [editingBannerId, setEditingBannerId] = useState(undefined);
   const [editingCollectionId, setEditingCollectionId] = useState(undefined);

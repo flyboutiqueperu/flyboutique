@@ -90,6 +90,29 @@ let ok = true; const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if
   await p.locator("button", { hasText: /^\s*Nuevo\s*$/ }).first().click(); await p.waitForTimeout(600);
   check("Nuevo: «Datos», «Precio», «Tallas» y «Stock» abiertas", (await p.locator(".ed-sec.is-open").count()) === 4);
   await p.screenshot({ path: `${out}/editor${movil ? "-movil" : ""}.png`, fullPage: true });
+  // El círculo del color nuevo sigue lo que se escribe y lo escrito no se pierde al salir
+  await p.goto("http://localhost:4416/#staff/products"); await p.waitForTimeout(1200);
+  const openJean = async () => { await p.locator("div", { has: p.locator("text=Jean Mom") }).filter({ has: p.locator('button[title="Duplicar"]') }).last().locator("button:has(svg.lucide-pencil)").click(); await p.waitForTimeout(600); };
+  await openJean();
+  await p.locator(".ed-sec-btn", { hasText: "Tallas y colores" }).click();
+  const sw = () => p.locator(".ed-new-swatch").evaluate((e) => getComputedStyle(e).backgroundColor);
+  await p.fill('input[placeholder="Nombre del color"]', "dor"); await p.waitForTimeout(250);
+  check("Escribir «dor»: el círculo ya es dorado (" + await sw() + ")", (await sw()) === "rgb(201, 165, 74)");
+  await p.fill('input[placeholder="Nombre del color"]', "verde oliva"); await p.waitForTimeout(250);
+  const olive = await sw();
+  await p.fill('input[placeholder="Nombre del color"]', "dorado"); await p.press('input[placeholder="Nombre del color"]', "Enter"); await p.waitForTimeout(300);
+  check("«verde oliva» cambia el círculo y «dorado» se agrega como «Dorado» con su tono", olive !== "rgb(201, 165, 74)" && (await p.inputValue('input[aria-label="Tono de Dorado"]')) === "#c9a54a");
+  check("Avisa «Cambios sin guardar»", await p.locator(".ed-dirty").count() === 1);
+  await p.waitForTimeout(500);
+  // Sale de la app (recarga) sin guardar → al volver, lo recupera
+  await p.reload(); await p.waitForTimeout(2500);
+  if (!(await p.locator(".ed-sec").count())) { await p.evaluate(() => { location.hash = "#staff/products"; }); await p.waitForTimeout(1000); await openJean(); }
+  check("Al volver: «Recuperamos lo que no guardaste» con el color Dorado", await p.locator(".ed-draft").count() === 1 && (await p.locator(".ed-sec", { hasText: "Tallas y colores" }).locator(".ed-sec-sum").innerText()).includes("Dorado"));
+  await p.locator("button", { hasText: "Descartar cambios" }).click(); await p.waitForTimeout(300);
+  check("«Descartar cambios» vuelve a lo guardado", await p.locator(".ed-draft").count() === 0 && !(await p.locator(".ed-sec", { hasText: "Tallas y colores" }).locator(".ed-sec-sum").innerText()).includes("Dorado"));
+  await p.reload(); await p.waitForTimeout(2500);
+  if (!(await p.locator(".ed-sec").count())) { await p.evaluate(() => { location.hash = "#staff/products"; }); await p.waitForTimeout(1000); await openJean(); }
+  check("Después de descartar ya no aparece el aviso", await p.locator(".ed-draft").count() === 0);
   console.log(ok ? "TODO OK" : "HAY FALLAS");
   await b.close(); srv.close(); process.exit(ok ? 0 : 1);
 })().catch((e) => { console.log("FALLO:", e.message); process.exit(1); });
