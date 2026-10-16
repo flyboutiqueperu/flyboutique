@@ -62,6 +62,23 @@ check("no confunde nombres con colores: «ALMOND CROISSANT LIP GLOSS VS»", spli
   check("no aprende como color una palabra que es parte del nombre («DRESS»)", r6.products.some((p) => p.name === "Zoe Dress")); }
 check("prendas nuevas quedan ocultas «Esperando fotos» (borrador) hasta tener foto", r.products.every((p) => p.status === "borrador" && p.awaitingPhotos === true));
 check("stock 0 en combinaciones nuevas (el stock se carga aparte)", r.products.every((p) => p.variants.every((v) => v.stock === 0)));
+// Ortografía, nombres casi iguales y «Unir»
+{ const row = (n, cod) => Object.fromEntries(H.map((h, i) => [h, [99, n, 149, 0, "NIU", cod, cod + "0001", "", "Activo", "", "VESTIDOS", 149][i]]));
+  let k = 0; const g = (p) => `${p}_o${++k}`;
+  const ro = parseTumiSoft([row("PANTALON PALAZZO AURORA NEGRO M", "PPANM"), row("CAMISÓN SEDA ROSA S", "CSRS"), row("PIJAMA NIÑA LUNARES M", "PNLM")], [], { genId: g });
+  const names2 = ro.products.map((p) => p.name);
+  check("tildes: «PANTALON» → «Pantalón» (sin tilde en el Excel)", names2.includes("Pantalón Palazzo Aurora"));
+  check("tildes y Ñ del Excel se respetan («CAMISÓN», «NIÑA»)", names2.includes("Camisón Seda") && names2.some((n) => n.startsWith("Pijama Niña")));
+  check("la vista previa lista las tildes corregidas", ro.summary.tildes.some((x) => x.startsWith("PANTALON")));
+  const rd = parseTumiSoft([row("ALDANA DRESS NEGRO M", "A1"), row("ALDANA DRESS PERLA S", "A2"), row("ALDANA DRES VINO M", "A3")], [], { genId: g });
+  check("avisa nombre casi igual («Aldana Dres» ≈ «Aldana Dress»)", rd.summary.parecidos.length === 1 && rd.summary.parecidos[0].desde === "Aldana Dres" && rd.summary.parecidos[0].hacia === "Aldana Dress");
+  const ru = parseTumiSoft([row("ALDANA DRESS NEGRO M", "A1"), row("ALDANA DRESS PERLA S", "A2"), row("ALDANA DRES VINO M", "A3")], [], { genId: g, aliases: { "ALDANA DRES": "ALDANA DRESS" } });
+  const al2 = ru.products.find((p) => p.name === "Aldana Dress");
+  check("«Unir»: la fila mal escrita pasa a ser otro color de la misma prenda", ru.products.length === 1 && al2.variants.length === 3 && al2.variants.some((v) => v.colorName === "Vino" && v.barcode === "A30001"));
+  const rr = parseTumiSoft([row("ALDANA DRESS NEGRO M", "A1")], [], { genId: g, renames: { "aldana-dress": "Vestido Aldana" } });
+  check("cambiar el nombre en la vista previa", rr.products[0].name === "Vestido Aldana" && rr.newIds.length === 1);
+  const rx = parseTumiSoft([row("ACTIVE TOP NEGRO M", "B1"), row("ACTIVE TOPS BEIGE S", "B2"), row("ALMIRA TOP ACERO M", "B3")], [], { genId: g });
+  check("no avisa entre prendas distintas (Active Top / Almira Top)", !rx.summary.parecidos.some((x) => /Almira/.test(x.desde + x.hacia))); }
 // Segunda importación: actualiza en vez de duplicar, conserva stock y fotos
 jeans.variants[0].stock = 7; jeans.images = [{ id: "i1", url: "x.jpg", colorName: "Azul" }];
 const r2 = parseTumiSoft(rows.map((x) => (x.NOMBRE === "90S LOW RISE JEANS AZUL 34" ? { ...x, "PRECIO DE VENTA": 159 } : x)), r.products, { genId });

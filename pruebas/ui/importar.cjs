@@ -20,6 +20,11 @@ const data = [["", "", "", "", "", "", "", "", "", "", "CATEGORÍAS", "LISTAS DE
   [5, "ALYSA TOP BURGUNDY M", "71,2", 0, "NIU", "ALTOBUM", "ALTOBUM000369162", "", "Activo", "", "TOPS", "71,2"]];
 const xlsxPath = path.join(out, "tumisoft-prueba.xlsx");
 const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), "Worksheet"); XLSX.writeFile(wb, xlsxPath);
+// Segundo Excel con un nombre mal escrito («ALDANA DRES») y sin tilde («PANTALON»)
+const xlsx2 = path.join(out, "tumisoft-prueba-2.xlsx");
+{ const w2 = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(w2, XLSX.utils.aoa_to_sheet([data[0], H,
+  [1, "ALDANA DRES VINO M", 149, 60, "NIU", "ALDRVIM", "ALDRVIMO03692234", "", "Activo", "", "VESTIDOS", 149],
+  [2, "PANTALON PALAZZO AURORA NEGRO M", 145, 0, "NIU", "PPANM", "PPANM0001", "", "Activo", "", "PANTALONES", 145]]), "Worksheet"); XLSX.writeFile(w2, xlsx2); }
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGP8z8DAwMDAxMDAwAAAGwABAF8hY2AAAAAASUVORK5CYII=", "base64");
 (async () => {
   const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
@@ -46,9 +51,13 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR
   await p.waitForTimeout(2200);
   await p.goto("http://localhost:4398/#staff/products"); await p.waitForTimeout(1500);
   await p.setInputFiles('input[type=file][accept=".xlsx,.xls,.csv"]', xlsxPath); await p.waitForTimeout(2500);
-  const conf = dialogs.find((d) => d.startsWith("Excel de TumiSoft")) || "";
-  console.log("  vista previa:", conf.split("\n").slice(0, 6).join(" / "));
-  check("reconoce el Excel de TumiSoft y muestra vista previa", conf.includes("5 filas → 3 prendas") && conf.includes("ALDANA DRESS NEGRO M → Aldana Dress · Negro · M"));
+  const conf = await p.locator(".tumi-preview").innerText().catch(() => "");
+  console.log("  vista previa:", conf.split("\n").slice(0, 3).join(" / "));
+  const aldPrev = await p.locator(".tumi-prenda", { has: p.locator('input[value="Aldana Dress"]') }).innerText().catch(() => "");
+  check("reconoce el Excel de TumiSoft y muestra la pantalla de revisión", conf.includes("5 filas → 3 prendas") && /Negro\s*· M/.test(aldPrev) && /Perla\s*· S/.test(aldPrev));
+  check("nada se guarda antes de tocar «Importar»", saves.filter((x) => !x.cost).length === 0);
+  await p.screenshot({ path: `${out}/importar-revision.png` });
+  await p.click(".tumi-importar"); await p.waitForTimeout(2500);
   let t = await p.evaluate(() => [...document.querySelectorAll(".app-content")].pop().innerText);
   check("crea las prendas agrupadas", t.includes("90S Low Rise Jeans") && t.includes("Aldana Dress") && t.includes("Alysa Top") && t.includes("3 prendas"));
   const last = JSON.stringify(saves.filter((x) => !x.cost));
@@ -94,6 +103,20 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR
   await sp.goto("http://localhost:4398/catalogo"); await sp.waitForTimeout(1800);
   check("Tienda: la tarjeta de Aldana muestra los 2 círculos de color", (await sp.locator(".pcard", { hasText: "Aldana Dress" }).first().locator(".pcard-colors button").count()) === 2);
   await sp.close();
+  // Segundo Excel: avisa del nombre casi igual, «Unir» lo deja como otro color de Aldana Dress, y corrige «Pantalón»
+  await p.goto("http://localhost:4398/#staff/products"); await p.waitForTimeout(1200);
+  const nSaves = saves.length;
+  await p.setInputFiles('input[type=file][accept=".xlsx,.xls,.csv"]', xlsx2); await p.waitForTimeout(2000);
+  let pv = await p.locator(".tumi-preview").innerText().catch(() => "");
+  check("revisión: «¿Es la misma prenda?» Aldana Dres ≈ Aldana Dress (ya en la tienda)", pv.includes("¿Es la misma prenda?") && pv.includes("«Aldana Dres» ≈ «Aldana Dress»"));
+  check("revisión: ortografía corregida (PANTALON → Pantalón)", pv.includes("PANTALON → Pantalón") && (await p.locator('.tumi-prenda input[value="Pantalón Palazzo Aurora"]').count()) === 1);
+  await p.click(".tumi-parecidos button:has-text('Unir')"); await p.waitForTimeout(400);
+  pv = await p.locator(".tumi-preview").innerText();
+  const ald2 = await p.locator(".tumi-prenda", { has: p.locator('input[value="Aldana Dress"]') }).innerText().catch(() => "");
+  check("«Unir»: Vino pasa a ser un color de Aldana Dress (ya existía), no otra prenda", /Vino\s*· M/.test(ald2) && /ya existía/i.test(ald2) && (await p.locator('.tumi-prenda input[value="Aldana Dres"]').count()) === 0 && pv.includes("2 prendas"));
+  await p.screenshot({ path: `${out}/importar-unir.png` });
+  await p.click(".tumi-preview button:has-text('Cancelar')"); await p.waitForTimeout(400);
+  check("«Cancelar» no guarda nada", saves.length === nSaves && (await p.locator(".tumi-preview").count()) === 0);
   await p.screenshot({ path: `${out}/importar.png` });
   console.log(ok ? "TODO OK" : "HAY FALLAS");
   await b.close(); srv.close(); process.exit(ok ? 0 : 1);

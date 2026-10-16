@@ -5225,6 +5225,79 @@ const productMatches = (p, q) => { const n = normQ(q).trim(); if (!n) return tru
 const PROD_FILTERS = [["todos", "Todos"], ["agotados", "Agotados"], ["bajo", "Stock bajo"], ["sinfoto", "Sin fotos"], ["colorsinfoto", "Colores sin foto"], ["borrador", "Borradores"], ["outlet", "Outlet"]];
 // Colores de una prenda (con 2+ colores) que todavía no tienen foto propia: en la tienda salen como círculo y con «foto referencial»
 const colorsWithoutPhoto = (p) => { const cs = productColors(p); return cs.length > 1 ? cs.filter((c) => !hasColorPhoto(p, c.n)).map((c) => c.n) : []; };
+// Vista previa del Excel de TumiSoft: cada prenda con sus colores y tallas, nombres casi iguales para «Unir»,
+// ortografía corregida y nombres que se pueden cambiar. Nada se guarda hasta tocar «Importar».
+const TumiPreview = ({ rows, existing, fileName, onCancel, onConfirm }) => {
+  const [aliases, setAliases] = useState({});
+  const [renames, setRenames] = useState({});
+  const [dismissed, setDismissed] = useState([]);
+  const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(40);
+  const [busy, setBusy] = useState(false);
+  const r = useMemo(() => parseTumiSoft(rows, existing, { genId, slugify, aliases, renames }), [rows, existing, aliases, renames]);
+  const sm = r.summary;
+  const isNew = new Set(r.newIds);
+  const pares = (sm.parecidos || []).filter((x) => !dismissed.includes(x.desdeKey + "|" + x.haciaKey));
+  const qk = q.trim().toLowerCase();
+  const list = [...r.products].sort((a, b) => Number(isNew.has(b.id)) - Number(isNew.has(a.id))).filter((p) => !qk || p.name.toLowerCase().includes(qk) || p.variants.some((v) => `${v.sku} ${v.barcode || ""} ${v.colorName}`.toLowerCase().includes(qk)));
+  const box = { background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, lineHeight: 1.5 };
+  const smallBtn = (dark) => ({ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, border: `1px solid ${C.ink}`, background: dark ? C.ink : "transparent", color: dark ? C.paper : C.ink, cursor: "pointer" });
+  return (
+    <div className="tumi-preview" role="dialog" aria-label="Revisar antes de importar" style={{ position: "fixed", inset: 0, zIndex: 80, background: C.paper, display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${C.line}` }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: C.ink }}>Revisar antes de importar</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.stone, marginTop: 2 }}>{fileName} · {sm.filas} filas → <strong style={{ color: C.ink }}>{r.products.length} {r.products.length === 1 ? "prenda" : "prendas"}</strong> ({sm.nuevas} {sm.nuevas === 1 ? "nueva" : "nuevas"}, {sm.actualizadas} ya {sm.actualizadas === 1 ? "existía" : "existían"}) · {sm.combinaciones} combinaciones de color y talla</div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px 90px" }}>
+        {pares.length > 0 && (
+          <div className="tumi-parecidos" style={{ ...box, background: C.white, borderColor: C.ink }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>¿Es la misma prenda? ({pares.length})</div>
+            <div style={{ color: C.inkSoft, marginBottom: 8 }}>Estos nombres son casi iguales (quizá mal escritos en TumiSoft). «Unir» los deja como una sola prenda con todos sus colores y códigos.</div>
+            {pares.map((x) => (
+              <div key={x.desdeKey + x.haciaKey} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 0", borderTop: `1px solid ${C.line}` }}>
+                <span style={{ flex: "1 1 180px" }}>«{x.desde}» ≈ «{x.hacia}»{x.haciaExiste ? " (ya está en la tienda)" : ""}</span>
+                <button style={smallBtn(true)} onClick={() => setAliases((a) => ({ ...a, [x.desdeKey]: x.haciaKey }))}>Unir</button>
+                <button style={smallBtn(false)} onClick={() => setDismissed((d) => [...d, x.desdeKey + "|" + x.haciaKey])}>Son distintas</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {Object.keys(aliases).length > 0 && <div style={box}>Unidas: {Object.entries(aliases).map(([a, b]) => `${a} → ${b}`).join(" · ")} <button style={{ ...smallBtn(false), padding: "3px 8px", marginLeft: 6 }} onClick={() => setAliases({})}>Deshacer</button></div>}
+        {sm.tildes?.length > 0 && <div style={box}>Ortografía corregida: {sm.tildes.slice(0, 12).join(" · ")}{sm.tildes.length > 12 ? "…" : ""}</div>}
+        {sm.sinColor?.length > 0 && <div style={box}>Sin color en el nombre (quedan como «Único»): {sm.sinColor.slice(0, 6).join(" · ")}{sm.sinColor.length > 6 ? "…" : ""}</div>}
+        {sm.precioDistinto?.length > 0 && <div style={box}>Precios distintos dentro de una prenda (se usa el más común): {sm.precioDistinto.slice(0, 4).join(" · ")}{sm.precioDistinto.length > 4 ? "…" : ""}</div>}
+        <div style={box}>{sm.conStock ? `Stock: ${sm.conStock} combinaciones con cantidad.` : "Este archivo no trae stock: las prendas nuevas quedan en 0 y las que ya existían conservan su stock."} Las nuevas quedan ocultas («Esperando fotos») hasta que subas sus fotos. No se borra nada.</div>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar prenda, color o código" aria-label="Buscar en la vista previa" style={{ ...inputStyle, marginBottom: 10 }} />
+        {list.slice(0, limit).map((p) => {
+          const colors = [...new Map(p.variants.map((v) => [v.colorName, v.colorHex])).entries()];
+          return (
+            <div key={p.id} className="tumi-prenda" style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: 12, marginBottom: 8, background: C.white }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input aria-label={`Nombre de ${p.name}`} defaultValue={p.name} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== p.name) setRenames((m) => ({ ...m, [p.slug]: v })); }}
+                  style={{ ...inputStyle, flex: 1, padding: "8px 10px", fontWeight: 600, background: C.white }} />
+                <span style={{ fontFamily: FONT_BODY, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase", padding: "3px 7px", borderRadius: 4, background: isNew.has(p.id) ? C.ink : C.line, color: isNew.has(p.id) ? C.paper : C.inkSoft, fontWeight: 600, whiteSpace: "nowrap" }}>{isNew.has(p.id) ? "Nueva" : "Ya existía"}</span>
+              </div>
+              <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, margin: "6px 0" }}>{p.category} · {money(p.price)} · {p.variants.length} {p.variants.length === 1 ? "combinación" : "combinaciones"}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {colors.map(([c, h]) => (
+                  <span key={c} className="tumi-color" style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${C.line}`, borderRadius: 999, padding: "3px 9px 3px 4px", fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink }}>
+                    <span style={{ width: 13, height: 13, borderRadius: "50%", background: h, border: `1px solid ${C.line}` }} />
+                    {c} <span style={{ color: C.stone }}>· {p.variants.filter((v) => v.colorName === c).map((v) => v.size).join(", ")}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {list.length > limit && <button style={{ ...smallBtn(false), width: "100%" }} onClick={() => setLimit((l) => l + 60)}>Ver más ({list.length - limit})</button>}
+      </div>
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, display: "flex", gap: 10, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: C.paper, borderTop: `1px solid ${C.line}` }}>
+        <button onClick={onCancel} disabled={busy} style={{ ...smallBtn(false), flex: 1, padding: "12px" }}>Cancelar</button>
+        <button className="tumi-importar" disabled={busy} onClick={async () => { setBusy(true); try { await onConfirm(r); } finally { setBusy(false); } }} style={{ ...smallBtn(true), flex: 2, padding: "12px" }}>{busy ? "Importando…" : `Importar ${r.products.length} prendas`}</button>
+      </div>
+    </div>
+  );
+};
 const PROD_SORTS = [["nuevos", "Más nuevos primero"], ["antiguos", "Más antiguos primero"], ["nombre", "Nombre (A-Z)"], ["menosstock", "Menos stock primero"]];
 const filterSortProducts = (products, q, filter, sort) => {
   const idx = new Map(products.map((p, i) => [p.id, i])); // el orden guardado: los nuevos van primero y editar no cambia el sitio
@@ -5281,15 +5354,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
     try {
       const sheet = await readSheetRows(file);
       if (isTumiSoft(sheet.headers) && onImportTumi) {
-        const r = parseTumiSoft(sheet.rows, catalog.products, { genId, slugify });
-        const sm = r.summary;
-        const ejemplos = r.samples.slice(0, 6).map((x) => `• ${x.nombre} → ${x.prenda} · ${x.color} · ${x.talla}`).join("\n");
-        const msg = `Excel de TumiSoft: ${sm.filas} filas → ${r.products.length} prendas (${sm.nuevas} nuevas, ${sm.actualizadas} ya existían) con ${sm.combinaciones} combinaciones (talla y color).\n\nAsí se separan:\n${ejemplos}\n\nColores (${Object.keys(sm.colores || {}).length}): ${Object.entries(sm.colores || {}).sort((a, b) => b[1] - a[1]).map(([c, k]) => `${c} (${k})`).join(", ")}.${sm.sinColor?.length ? `\nSin color en el nombre (quedan como «Único»): ${sm.sinColor.slice(0, 5).join("; ")}${sm.sinColor.length > 5 ? "…" : ""}` : ""}\n\nCategorías: ${sm.categorias.join(", ")}.${sm.conStock ? `\nStock: ${sm.conStock} combinaciones con cantidad.` : "\nEl stock no viene en este archivo: las prendas nuevas quedan en 0 y las que ya existían conservan su stock."}${sm.precioDistinto.length ? `\nOjo, precios distintos dentro de una prenda (se usa el más común): ${sm.precioDistinto.slice(0, 3).join("; ")}${sm.precioDistinto.length > 3 ? "…" : ""}` : ""}\n\nNo se borra nada. ¿Importar?`;
-        if (confirm(msg)) {
-          await onImportTumi(r.products, r.costs);
-          staffLog("catalogo_importado", { archivo: file.name.slice(0, 80), filas: sm.filas, nuevas: sm.nuevas, actualizadas: sm.actualizadas, combinaciones: sm.combinaciones, costos: r.costs.length });
-          alert(`Listo: ${sm.nuevas} prendas nuevas y ${sm.actualizadas} actualizadas.${r.costs.length ? ` Costos guardados: ${r.costs.length}.` : ""}\nNo se borró nada.${sm.nuevas ? `\nLas ${sm.nuevas} nuevas quedan OCULTAS («Esperando fotos») hasta que subas sus fotos en lote: al recibir su foto se publican solas.` : ""}\nQueda en Más → Registro de actividad.`);
-        }
+        setTumi({ rows: sheet.rows, fileName: file.name });
         setImporting(false); if (fileRef.current) fileRef.current.value = ""; return;
       }
       const { toUpsert, toDelete, movements } = parseImportRows(sheet.rows);
@@ -5301,6 +5366,15 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
     } catch (err) { console.error(err); alert("No se pudo leer el archivo. Verifica que uses la plantilla de Excel/CSV."); }
     setImporting(false);
     if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const [tumi, setTumi] = useState(null);
+  const applyTumi = async (r) => {
+    const sm = r.summary;
+    await onImportTumi(r.products, r.costs);
+    staffLog("catalogo_importado", { archivo: String(tumi?.fileName || "").slice(0, 80), filas: sm.filas, nuevas: sm.nuevas, actualizadas: sm.actualizadas, combinaciones: sm.combinaciones, costos: r.costs.length });
+    setTumi(null);
+    alert(`Listo: ${sm.nuevas} prendas nuevas y ${sm.actualizadas} actualizadas.${r.costs.length ? ` Costos guardados: ${r.costs.length}.` : ""}\nNo se borró nada.${sm.nuevas ? `\nLas ${sm.nuevas} nuevas quedan OCULTAS («Esperando fotos») hasta que subas sus fotos en lote: al recibir su foto se publican solas.` : ""}\nQueda en Más → Registro de actividad.`);
   };
 
   const handleBulkPhotos = async (e) => {
@@ -5351,6 +5425,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
         <FileSpreadsheet size={15} /> {importing ? "Importando…" : "Importar catálogo desde Excel/CSV"}
       </button>
       <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleImportFile} style={{ display: "none" }} />
+      {tumi && createPortal(<TumiPreview rows={tumi.rows} existing={catalog.products} fileName={tumi.fileName} onCancel={() => setTumi(null)} onConfirm={applyTumi} />, document.body)}
 
       <button onClick={() => photoRef.current?.click()} disabled={matchingPhotos} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 14px", borderRadius: 9, border: `1px dashed ${C.line}`, background: C.paperDeep, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 6 }}>
         <ImageIcon size={15} /> {matchingPhotos ? "Asignando fotos…" : "Subir fotos en lote (coincidencia automática)"}
