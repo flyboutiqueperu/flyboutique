@@ -70,11 +70,24 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
   const costs = new Map();
   const summary = { filas: 0, ignoradas: 0, nuevas: 0, actualizadas: 0, combinaciones: 0, combinacionesNuevas: 0, conStock: 0, categorias: new Set(), precioDistinto: [] };
   const samples = [];
+  // Colores que no están en el diccionario (ej. «ALDANA DRESS AZULINO M»): si la misma prenda ya aparece con otro
+  // color conocido («ALDANA DRESS NEGRO M»), la palabra que sobra es el color y la fila se une a esa prenda.
+  const knownBases = new Set(norm.map((r) => splitName(String(r.nombre || "").trim())).filter((s) => s.color && s.base).map((s) => keyOf(s.base)));
+  const splitSmart = (nombre) => {
+    const s = splitName(nombre);
+    if (s.color || !s.base) return s;
+    const w = keyOf(s.base).split(" ");
+    for (let k = 1; k <= 2 && k < w.length; k++) {
+      const head = w.slice(0, -k).join(" ");
+      if (knownBases.has(head)) return { base: head, color: w.slice(-k).join(" "), size: s.size };
+    }
+    return s;
+  };
   for (const r of norm) {
     const nombre = String(r.nombre || "").trim();
     if (!nombre) { summary.ignoradas++; continue; }
     summary.filas++;
-    const { base, color, size } = splitName(nombre);
+    const { base, color, size } = splitSmart(nombre);
     const interno = String(r.interno || "").trim(), barras = String(r.barras || "").trim();
     const hit = byCode.get(keyOf(interno)) || byCode.get(keyOf(barras));
     const slug = hit ? (hit.p.slug || slugify(hit.p.name)) : slugify(base || nombre);

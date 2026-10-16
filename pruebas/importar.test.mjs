@@ -37,6 +37,11 @@ check("guarda código interno (sku) y de barras", jeans.variants[0].sku === "90L
 check("precio con coma 71,2 → 71.2", r.products.find((p) => p.name === "Alysa Top").price === 71.2);
 check("categorías mapeadas", r.products.find((p) => p.name === "Aldana Dress").category === "Vestidos" && r.products.find((p) => p.name === "Active Top").category === "Teen Life");
 check("tono de color para Negro", r.products.find((p) => p.name === "Aldana Dress").variants.find((v) => v.colorName === "Negro").colorHex === "#111111");
+{ const extra = [...rows, Object.fromEntries(H.map((h, i) => [h, [99, "ALDANA DRESS AZULINO M", 149, 0, "NIU", "ALDRAZM", "ALDRAZMO03699999", "", "Activo", "", "VESTIDOS", 149][i]]))];
+  let k2 = 0; const r2 = parseTumiSoft(extra, [], { genId: (p) => `${p}_x${++k2}` });
+  const al = r2.products.find((p) => p.name === "Aldana Dress");
+  check("color que no está en el diccionario («AZULINO») se une a la misma prenda", r2.products.length === 9 && al && al.variants.some((v) => v.colorName === "Azulino" && v.barcode === "ALDRAZMO03699999"));
+  check("«ACCESORIO GRIEGA BRAZO» sigue siendo su propia prenda", r2.products.some((p) => p.name === "Accesorio Griega Brazo")); }
 check("prendas nuevas quedan ocultas «Esperando fotos» (borrador) hasta tener foto", r.products.every((p) => p.status === "borrador" && p.awaitingPhotos === true));
 check("stock 0 en combinaciones nuevas (el stock se carga aparte)", r.products.every((p) => p.variants.every((v) => v.stock === 0)));
 // Segunda importación: actualiza en vez de duplicar, conserva stock y fotos
