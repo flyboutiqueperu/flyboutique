@@ -84,8 +84,8 @@ let ok = true; const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if
   await p.fill('input[aria-label="Buscar prendas"]', "valentina s"); await p.waitForTimeout(300); t = await names();
   check("Productos: búsqueda en vivo («valentina s»)", t.includes("Blusa Seda Valentina") && !t.includes("Falda Plisada Marina"));
   await p.goto("http://localhost:4397/#staff/stock"); await p.waitForTimeout(1500);
-  await p.click(".tile-btn >> nth=1"); await p.waitForTimeout(400); t = await names();
-  check("Stock: tocar «Productos agotados» filtra", t.includes("Falda Plisada Marina") && t.includes("1 de 3 prendas") && t.includes("agotada"));
+  await p.click(".tile-btn >> nth=2"); await p.waitForTimeout(400); t = await names();
+  check("Stock: tocar «prendas agotadas» filtra", t.includes("Falda Plisada Marina") && t.includes("1 de 3 prendas") && t.includes("agotada"));
   check("Stock: no se desborda de lado", await noOverflow());
   await p.screenshot({ path: `${out}/prendas-stock.png` });
   console.log(ok ? "TODO OK" : "HAY FALLAS");

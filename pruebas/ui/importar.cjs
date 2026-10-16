@@ -67,7 +67,7 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR
   check("historial: «catálogo importado»", logs.some((l) => l.p_action === "catalogo_importado" && l.p_details.nuevas === 3));
   check("guarda el costo (privado)", JSON.stringify(saves.filter((x) => x.cost)).includes("60"));
   // Fotos: por código interno, por código con orden y por nombre + color
-  await p.setInputFiles('input[type=file][accept="image/*"][multiple]', [
+  await p.setInputFiles('input[type=file][accept^="image/*,video"][multiple]', [
     { name: "ALDANA DRESS NEGRO 2.png", mimeType: "image/png", buffer: PNG },
     { name: "ALDRNEM.png", mimeType: "image/png", buffer: PNG },
     { name: "9LRJC28.png", mimeType: "image/png", buffer: PNG },
@@ -83,12 +83,12 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR
   check("la prenda con foto se publica sola (Activo) y deja de esperar", aldana.status === "active" && aldana.awaitingPhotos === false && msg.includes("Publicadas en la tienda"));
   check("historial: «fotos subidas» con 3 fotos y 1 sin reconocer", logs.some((l) => l.p_action === "fotos_subidas" && l.p_details.fotos === 3 && l.p_details.sin_reconocer === 1));
   const nAldana = (aldana.images || []).length;
-  await p.setInputFiles('input[type=file][accept="image/*"][multiple]', [{ name: "ALDANA DRESS NEGRO 2.png", mimeType: "image/png", buffer: PNG }]);
+  await p.setInputFiles('input[type=file][accept^="image/*,video"][multiple]', [{ name: "ALDANA DRESS NEGRO 2.png", mimeType: "image/png", buffer: PNG }]);
   await p.waitForTimeout(2500);
   const again = (saves.filter((x) => !x.cost).pop()?.p_data?.products || []).find((x) => x.name === "Aldana Dress") || {};
   check("subir otra vez la misma foto la reemplaza (no la duplica)", (again.images || []).length === nAldana && dialogs.some((d) => d.includes("reemplazaron a una foto con el mismo nombre")));
   // Camino completo: foto del otro color por código de barras → en la tienda los dos colores salen como miniatura con foto
-  await p.setInputFiles('input[type=file][accept="image/*"][multiple]', [{ name: "ALDRPESO03692236.png", mimeType: "image/png", buffer: PNG }]);
+  await p.setInputFiles('input[type=file][accept^="image/*,video"][multiple]', [{ name: "ALDRPESO03692236.png", mimeType: "image/png", buffer: PNG }]);
   await p.waitForTimeout(2500);
   const store = saves.filter((x) => !x.cost).pop()?.p_data || {};
   const ald = (store.products || []).find((x) => x.name === "Aldana Dress") || {};

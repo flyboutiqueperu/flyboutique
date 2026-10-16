@@ -7,7 +7,7 @@ import {
   Layers, AlertCircle, ArrowLeft, Link as LinkIcon, ShieldCheck, Loader2,
   FileText, Truck, ArrowLeftRight, UserCog, Images, FolderArchive, ClipboardList, History, Share, SquarePlus, Contact, BadgePercent, Wallet, BookOpenCheck, HardDriveDownload,
   MessageCircle, Download, FileSpreadsheet, Users, ShoppingCart, Menu, BarChart3, Undo2, Receipt, Scan, Ruler, Navigation, Cookie, BookOpen, Globe, Store, Banknote, Smartphone, Landmark, RotateCcw, DatabaseBackup, Play, EyeOff,
-  Snowflake, Leaf, Sun, Flower2, Ghost, Flag, Wind, Tag as TagIcon,
+  Snowflake, Leaf, Sun, Flower2, Ghost, Flag, Wind, Tag as TagIcon, CalendarDays,
 } from "lucide-react";
 // Excel y códigos de barras solo se descargan cuando el staff los usa (la tienda abre más rápido en celular)
 const loadXLSX = () => import("xlsx");
@@ -479,7 +479,7 @@ function resizeImageFile(file, maxW = 1000, quality = 0.82) {
   });
 }
 
-const mainImageUrl = (product) => imgThumb(product?.images?.[0]) || null;
+const mainImageUrl = (product) => imgThumb((product?.images || []).find((i) => i.type !== "video") || product?.images?.[0]) || null; // la portada nunca es un video
 // Fotos de un color para la tarjeta: la principal y "otro ángulo" del MISMO color
 const colorPhotos = (product, colorName) => {
   const imgs = (product?.images || []).filter((im) => im.type !== "video" && im.url);
@@ -4538,13 +4538,120 @@ const StaffAccess = ({ onDone, onCancel, installName, onInstall, installHint }) 
   );
 };
 
-const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
-  <div className="admin-topbar" style={{ position: "sticky", top: 0, zIndex: 15, background: C.ink, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+// ---- Calendario desplegable (en vez del cuadro de fecha del navegador): mes con días, el día de la semana arriba,
+// hoy marcado, y para rangos: primer toque = desde, segundo = hasta. Fechas como texto «AAAA-MM-DD».
+const CAL_DOW = ["L", "M", "M", "J", "V", "S", "D"];
+const CAL_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const calYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const fromYmd = (s) => { const [y, m, d] = String(s || "").split("-").map(Number); return y ? new Date(y, (m || 1) - 1, d || 1, 12) : null; };
+const fmtDay = (s, long) => { const d = fromYmd(s); return d ? d.toLocaleDateString("es-PE", long ? { weekday: "short", day: "numeric", month: "short", year: "numeric" } : { weekday: "short", day: "numeric", month: "short" }) : ""; };
+const CalendarPanel = ({ value, from, to, range, onPick, max, min, onClose }) => {
+  const start = fromYmd(range ? from || to : value) || new Date();
+  const [view, setView] = useState(new Date(start.getFullYear(), start.getMonth(), 1, 12));
+  const today = calYmd(new Date());
+  const first = (view.getDay() + 6) % 7; // lunes = 0
+  const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+  const cells = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => calYmd(new Date(view.getFullYear(), view.getMonth(), i + 1, 12)))];
+  const move = (k) => setView(new Date(view.getFullYear(), view.getMonth() + k, 1, 12));
+  const off = (d) => (max && d > max) || (min && d < min);
+  const quick = range ? [["Hoy", 0, 0], ["Ayer", 1, 1], ["7 días", 6, 0], ["30 días", 29, 0]] : [["Hoy", 0], ["Ayer", 1]];
+  const ago = (n) => calYmd(new Date(Date.now() - n * 864e5));
+  return (
+    <div className="cal-panel" role="dialog" aria-label="Calendario" style={{ width: 300, maxWidth: "calc(100vw - 32px)", background: C.paper, border: `1px solid ${C.ink}`, borderRadius: 14, padding: 12, boxShadow: "0 12px 32px rgba(0,0,0,.18)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <button type="button" aria-label="Mes anterior" onClick={() => move(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ArrowLeft size={16} /></button>
+        <div className="cal-title" style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink }}>{CAL_MONTHS[view.getMonth()]} {view.getFullYear()}</div>
+        <button type="button" aria-label="Mes siguiente" onClick={() => move(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ChevronRight size={18} /></button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
+        {CAL_DOW.map((d, i) => <div key={i} style={{ textAlign: "center", fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: i > 4 ? C.ink : C.stone }}>{d}</div>)}
+      </div>
+      <div className="cal-grid" style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+        {cells.map((d, i) => {
+          if (!d) return <span key={`e${i}`} />;
+          const isSel = range ? d === from || d === to : d === value;
+          const inRange = range && from && to && d > from && d < to;
+          const dis = off(d);
+          return (
+            <button type="button" key={d} data-day={d} disabled={dis} onClick={() => onPick(d)} aria-label={fmtDay(d, true)} aria-pressed={isSel}
+              style={{ height: 38, borderRadius: inRange ? 6 : "50%", border: d === today && !isSel ? `1.5px solid ${C.ink}` : "1.5px solid transparent", background: isSel ? C.ink : inRange ? C.paperDeep : "transparent", color: isSel ? C.paper : dis ? C.line : C.ink, fontFamily: FONT_BODY, fontSize: 14, fontWeight: isSel || d === today ? 700 : 500, cursor: dis ? "default" : "pointer" }}>
+              {Number(d.slice(8))}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
+        {quick.map(([l, a, b]) => <button key={l} type="button" onClick={() => (range ? onPick(ago(a), ago(b)) : onPick(ago(a)))} style={{ minHeight: 34, padding: "0 12px", borderRadius: 999, border: `1px solid ${C.line}`, background: C.paperDeep, fontFamily: FONT_BODY, fontSize: 12, cursor: "pointer", color: C.ink }}>{l}</button>)}
+        <span style={{ flex: 1 }} />
+        <button type="button" onClick={onClose} style={{ minHeight: 34, padding: "0 12px", borderRadius: 999, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Listo</button>
+      </div>
+      {range && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 8 }}>{!from ? "Toca el primer día" : !to ? "Ahora toca el último día" : `Del ${fmtDay(from)} al ${fmtDay(to)}`}</div>}
+    </div>
+  );
+};
+// Botón que abre el calendario debajo (flotando sobre todo, así nunca queda cortado); en celular, centrado
+const CalPop = ({ label, active, children, open, setOpen, style }) => {
+  const ref = useRef(null);
+  const pop = useRef(null);
+  const [pos, setPos] = useState(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const place = () => {
+      const r = ref.current?.getBoundingClientRect(); if (!r) return;
+      const w = Math.min(300, window.innerWidth - 32);
+      const narrow = window.innerWidth < 560;
+      const left = narrow ? (window.innerWidth - w) / 2 : Math.max(16, Math.min(r.left, window.innerWidth - w - 16));
+      const below = r.bottom + 6, h = 420;
+      const top = narrow ? Math.max(16, window.innerHeight - h - 16) : below + h > window.innerHeight ? Math.max(16, r.top - h - 6) : below;
+      setPos({ left, top });
+    };
+    place();
+    const close = (e) => { if (!ref.current?.contains(e.target) && !pop.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", close); document.addEventListener("keydown", esc); window.addEventListener("resize", place);
+    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", esc); window.removeEventListener("resize", place); };
+  }, [open]);
+  return (
+    <div ref={ref} className="cal-pop" style={{ position: "relative", display: "inline-block", ...style }}>
+      <button type="button" className="cal-btn" aria-expanded={open} onClick={() => setOpen(!open)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 40, width: "100%", padding: "0 14px", borderRadius: 999, border: `1px solid ${active ? C.ink : C.line}`, background: active ? C.ink : C.paper, color: active ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+        <CalendarDays size={15} />{label}
+      </button>
+      {open && pos && createPortal(<div ref={pop} className="cal-drop fold-in" style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 120 }}>{children}</div>, document.body)}
+    </div>
+  );
+};
+const DateField = ({ value, onChange, max, min, placeholder = "Elegir día", ariaLabel, style }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <CalPop open={open} setOpen={setOpen} active={!!value} label={value ? fmtDay(value) : placeholder} style={style}>
+      <CalendarPanel value={value} max={max} min={min} onClose={() => setOpen(false)} onPick={(d) => { onChange(d); setOpen(false); }} />
+      {ariaLabel && <span className="sr-only" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>{ariaLabel}</span>}
+    </CalPop>
+  );
+};
+const DateRangeField = ({ from, to, onChange, max, placeholder = "Elegir fechas", style }) => {
+  const [open, setOpen] = useState(false);
+  const [tmp, setTmp] = useState(null); // primer día elegido, esperando el segundo
+  const pick = (a, b) => {
+    if (b) { onChange(a < b ? a : b, a < b ? b : a); setTmp(null); setOpen(false); return; }
+    if (!tmp) { setTmp(a); onChange(a, ""); return; }
+    onChange(tmp < a ? tmp : a, tmp < a ? a : tmp); setTmp(null); setOpen(false);
+  };
+  const label = from && to ? `${fmtDay(from)} – ${fmtDay(to)}` : from ? `Desde ${fmtDay(from)}` : placeholder;
+  return (
+    <CalPop open={open} setOpen={(o) => { setOpen(o); if (!o) setTmp(null); }} active={!!from} label={label} style={style}>
+      <CalendarPanel range from={tmp || from} to={tmp ? "" : to} max={max} onClose={() => { setOpen(false); setTmp(null); }} onPick={pick} />
+    </CalPop>
+  );
+};
+const AdminTopBar = ({ title, onBack, onExit, onHome, onClock }) => (
+  <div className="admin-topbar" style={{ position: "sticky", top: 0, zIndex: 15, background: C.ink, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
       {onBack && <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><ArrowLeft size={18} color={C.paper} /></button>}
       <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, color: C.paper, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
     </div>
     <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+    {onClock && <button onClick={onClock} className="tb-clock" style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.25)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }} aria-label="Marcar asistencia"><Clock size={12} /><span className="tb-label">Marcar</span></button>}
     {onHome && <button onClick={onHome} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.25)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }} aria-label="Inicio del panel"><Home size={12} /><span className="tb-label">Inicio</span></button>}
     <button onClick={onExit} title="Cierra tu sesión. La caja sigue abierta para el siguiente turno." style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }} aria-label="Cerrar sesión"><LogOut size={12} /><span className="tb-label">Cerrar sesión</span><span className="tb-short">Salir</span></button>
     </div>
@@ -4567,7 +4674,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
   const topIds = new Set(items.map((x) => x[0]));
   const side = STAFF_ADMIN.includes(role) ? MORE_ITEMS.filter((it) => !topIds.has(it.id) && (it.id === "backup" ? role === "superadmin" : canOpenScreen(role, it.id)) && (!it.only || it.only === role)) : [];
   const sideIds = new Set(side.map((it) => it.id));
-  const moreScreens = ["impresora", "transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["sueldos", "asistencia", "impresora", "transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       <div className="side-brand"><FlyLogo height={21} /><span>Panel del staff</span></div>
@@ -5315,8 +5422,24 @@ const TranslateTool = ({ products, onPatch }) => {
 
 // Buscar y ordenar prendas en el panel (Productos y Stock): por nombre, código, categoría o color; sin acentos.
 const normQ = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-const productMatches = (p, q) => { const n = normQ(q).trim(); if (!n) return true; const hay = normQ(`${p.name} ${p.nameEn || ""} ${p.category} ${(p.variants || []).map((v) => `${v.sku || ""} ${v.barcode || ""} ${v.colorName || ""} ${v.size || ""}`).join(" ")}`); return n.split(/\s+/).every((w) => hay.includes(w)); };
-const PROD_FILTERS = [["todos", "Todos"], ["agotados", "Agotados"], ["bajo", "Stock bajo"], ["sinfoto", "Sin fotos"], ["colorsinfoto", "Colores sin foto"], ["borrador", "Borradores"], ["outlet", "Outlet"]];
+// Buscar: cada palabra debe ser el COMIENZO de una palabra del nombre, categoría, color o talla («rojo» no trae «Rojizo» ni otras cosas);
+// los códigos (interno o de barras) se buscan en cualquier parte.
+const productMatches = (p, q) => {
+  const n = normQ(q).trim(); if (!n) return true;
+  const words = normQ(`${p.name} ${p.nameEn || ""} ${p.category} ${(p.variants || []).map((v) => `${v.colorName || ""} ${v.size || ""}`).join(" ")}`).split(/[^a-z0-9ñ]+/).filter(Boolean);
+  const codes = normQ((p.variants || []).map((v) => `${v.sku || ""} ${v.barcode || ""}`).join(" "));
+  return n.split(/\s+/).every((w) => words.some((x) => x.startsWith(w)) || (w.length >= 3 && codes.includes(w)));
+};
+// Colores de la prenda que coinciden con lo que se busca (para resaltarlos en la lista)
+const matchedColors = (p, q) => { const ws = normQ(q).split(/\s+/).filter((w) => w.length >= 2); return ws.length ? productColors(p).filter((c) => normQ(c.n).split(/[^a-z0-9ñ]+/).some((x) => ws.some((w) => x.startsWith(w)))).map((c) => c.n) : []; };
+const PROD_FILTERS = [["todos", "Todos"], ["agotados", "Agotados"], ["bajo", "Stock bajo"], ["sinfoto", "Sin fotos"], ["colorsinfoto", "Colores sin foto"], ["esperando", "Esperando fotos"], ["borrador", "Borradores"], ["outlet", "Outlet"]];
+// Qué significa cada estado (se muestra al elegir el filtro)
+const FILTER_NOTES = {
+  esperando: "«Esperando fotos»: prendas nuevas que llegaron con el Excel y todavía no tienen foto. Están ocultas en la web y se publican solas cuando les subes su foto en lote.",
+  borrador: "«Borrador»: prendas ocultas en la web porque alguien las apagó o aún no están listas (incluye las que esperan fotos). Se venden en caja si tienen stock. Para publicarlas, enciende «Visible».",
+  sinfoto: "Prendas sin ninguna foto: en la web salen con el logo FLY.",
+  colorsinfoto: "Prendas con 2 o más colores donde algún color no tiene su foto: en la web ese color muestra una foto de otro color.",
+};
 // Colores de una prenda (con 2+ colores) que todavía no tienen foto propia: en la tienda salen como círculo y con «foto referencial»
 const colorsWithoutPhoto = (p) => { const cs = productColors(p); return cs.length > 1 ? cs.filter((c) => !hasColorPhoto(p, c.n)).map((c) => c.n) : []; };
 // Vista previa del Excel de TumiSoft: cada prenda con sus colores y tallas, nombres casi iguales para «Unir»,
@@ -5346,7 +5469,7 @@ const TumiPreview = ({ rows, existing, fileName, onCancel, onConfirm }) => {
         {pares.length > 0 && (
           <div className="tumi-parecidos" style={{ ...box, background: C.white, borderColor: C.ink }}>
             <div style={{ fontWeight: 700, marginBottom: 6 }}>¿Es la misma prenda? ({pares.length})</div>
-            <div style={{ color: C.inkSoft, marginBottom: 8 }}>Estos nombres son casi iguales (quizá mal escritos en TumiSoft). «Unir» los deja como una sola prenda con todos sus colores y códigos.</div>
+            <div style={{ color: C.inkSoft, marginBottom: 8 }}>Estos nombres son casi iguales (quizá mal escritos en el archivo). «Unir» los deja como una sola prenda con todos sus colores y códigos.</div>
             {pares.map((x) => (
               <div key={x.desdeKey + x.haciaKey} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 0", borderTop: `1px solid ${C.line}` }}>
                 <span style={{ flex: "1 1 180px" }}>«{x.desde}» ≈ «{x.hacia}»{x.haciaExiste ? " (ya está en la tienda)" : ""}</span>
@@ -5393,9 +5516,11 @@ const TumiPreview = ({ rows, existing, fileName, onCancel, onConfirm }) => {
   );
 };
 const PROD_SORTS = [["nuevos", "Más nuevos primero"], ["antiguos", "Más antiguos primero"], ["nombre", "Nombre (A-Z)"], ["menosstock", "Menos stock primero"]];
-const filterSortProducts = (products, q, filter, sort) => {
+const filterSortProducts = (products, q, filter, sort, cats) => {
   const idx = new Map(products.map((p, i) => [p.id, i])); // el orden guardado: los nuevos van primero y editar no cambia el sitio
   let list = products.filter((p) => productMatches(p, q));
+  if (Array.isArray(cats) && cats.length) list = list.filter((p) => cats.includes(p.category));
+  if (filter === "esperando") list = list.filter((p) => p.awaitingPhotos && p.status === "borrador");
   if (filter === "agotados") list = list.filter(productSoldOut);
   if (filter === "bajo") list = list.filter((p) => p.variants.some((v) => v.stock > 0 && v.stock <= (p.minStock ?? 3)));
   if (filter === "sinfoto") list = list.filter((p) => !(p.images || []).length);
@@ -5405,7 +5530,32 @@ const filterSortProducts = (products, q, filter, sort) => {
   const by = { nuevos: (a, b) => idx.get(a.id) - idx.get(b.id), antiguos: (a, b) => idx.get(b.id) - idx.get(a.id), nombre: (a, b) => a.name.localeCompare(b.name, "es"), menosstock: (a, b) => productTotalStock(a) - productTotalStock(b) }[sort] || (() => 0);
   return [...list].sort(by);
 };
-const ProductFilterBar = ({ q, setQ, filter, setFilter, sort, setSort, count, total, onKeyDown, placeholder, filters = PROD_FILTERS }) => (
+// Categorías con casillas: se pueden marcar varias a la vez (con cuántas prendas tiene cada una)
+const CategoryPicker = ({ products, cats, setCats }) => {
+  const [open, setOpen] = useState(false);
+  const counts = useMemo(() => { const m = new Map(); products.forEach((p) => m.set(p.category || "Sin categoría", (m.get(p.category || "Sin categoría") || 0) + 1)); return [...m].sort((a, b) => a[0].localeCompare(b[0], "es")); }, [products]);
+  const toggle = (c) => setCats(cats.includes(c) ? cats.filter((x) => x !== c) : [...cats, c]);
+  return (
+    <div className="cat-picker" style={{ marginBottom: 8 }}>
+      <button type="button" className="cat-picker-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minHeight: 44, padding: "0 14px", borderRadius: 10, border: `1px solid ${cats.length ? C.ink : C.line}`, background: cats.length ? C.ink : C.paperDeep, color: cats.length ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
+        <LayoutGrid size={16} /><span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cats.length ? `Categorías: ${cats.join(", ")}` : "Todas las categorías"}</span>
+        {cats.length > 0 && <span role="button" tabIndex={0} aria-label="Quitar categorías" onClick={(e) => { e.stopPropagation(); setCats([]); }} style={{ display: "flex", padding: 4 }}><X size={15} /></span>}
+        <ChevronDown size={16} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+      </button>
+      {open && (
+        <div className="cat-picker-list fold-in" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6, padding: 10, marginTop: 6, border: `1px solid ${C.line}`, borderRadius: 12, background: C.paper }}>
+          {counts.map(([c, n]) => (
+            <label key={c} className="check-row" style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 42, padding: "0 10px", borderRadius: 8, background: cats.includes(c) ? C.paperDeep : "transparent", cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>
+              <input type="checkbox" checked={cats.includes(c)} onChange={() => toggle(c)} style={{ width: 20, height: 20, accentColor: C.ink, flexShrink: 0 }} />
+              <span style={{ flex: 1 }}>{c}</span><span style={{ color: C.stone, fontSize: 12 }}>{n}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+const ProductFilterBar = ({ q, setQ, filter, setFilter, sort, setSort, count, total, onKeyDown, placeholder, filters = PROD_FILTERS, products, cats, setCats }) => (
   <div style={{ marginBottom: 14 }}>
     <div style={{ position: "relative" }}>
       <Search size={16} color={C.stone} style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)" }} />
@@ -5415,6 +5565,8 @@ const ProductFilterBar = ({ q, setQ, filter, setFilter, sort, setSort, count, to
     <div className="hscroll" style={{ display: "flex", gap: 6, overflowX: "auto", margin: "10px 0 8px", scrollbarWidth: "none" }}>
       {filters.map(([k, l]) => <Chip key={k} active={filter === k} onClick={() => setFilter(k)}>{l}</Chip>)}
     </div>
+    {products && setCats && <CategoryPicker products={products} cats={cats || []} setCats={setCats} />}
+    {FILTER_NOTES[filter] && <div className="filter-note" style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 8, lineHeight: 1.5 }}>{FILTER_NOTES[filter]}</div>}
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>
       <span>{count === total ? `${total} prendas` : `${count} de ${total} prendas`}</span>
       <select aria-label="Ordenar" value={sort} onChange={(e) => setSort(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "7px 10px", fontSize: 12 }}>{PROD_SORTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
@@ -5428,7 +5580,105 @@ const useProdFilters = (key) => {
   const [sort, setS] = useState(() => { try { return localStorage.getItem("fly:orden-prendas") || "nuevos"; } catch (e) { return "nuevos"; } });
   const setFilter = (v) => { setF(v); try { sessionStorage.setItem(`fly:${key}:filtro`, v); } catch (e) { /* nada */ } };
   const setSort = (v) => { setS(v); try { localStorage.setItem("fly:orden-prendas", v); } catch (e) { /* nada */ } };
-  return { q, setQ, filter, setFilter, sort, setSort };
+  const [cats, setC] = useState(() => { try { return JSON.parse(sessionStorage.getItem(`fly:${key}:cats`) || "[]"); } catch (e) { return []; } });
+  const setCats = (v) => { setC(v); try { sessionStorage.setItem(`fly:${key}:cats`, JSON.stringify(v)); } catch (e) { /* nada */ } };
+  return { q, setQ, filter, setFilter, sort, setSort, cats, setCats };
+};
+
+// Foto de la prenda en la lista: al pasar el mouse (PC) o deslizar el dedo se ven sus otras fotos; puntitos abajo
+const PhotoScrub = ({ product, onOpen, w = 64, h = 80 }) => {
+  const pics = (product.images || []).filter((i) => i.type !== "video");
+  const [i, setI] = useState(0);
+  const sx = useRef(null);
+  const n = pics.length;
+  const pick = (x, el) => { if (n < 2) return; const r = el.getBoundingClientRect(); setI(Math.min(n - 1, Math.max(0, Math.floor(((x - r.left) / r.width) * n)))); };
+  return (
+    <div className="photo-scrub" onClick={onOpen} onMouseMove={(e) => pick(e.clientX, e.currentTarget)} onMouseLeave={() => setI(0)}
+      onTouchStart={(e) => { sx.current = e.touches[0].clientX; }} onTouchEnd={(e) => { if (sx.current == null || n < 2) return; const d = e.changedTouches[0].clientX - sx.current; if (Math.abs(d) > 20) { e.preventDefault(); setI((v) => (v + (d < 0 ? 1 : -1) + n) % n); } sx.current = null; }}
+      title={n > 1 ? `${n} fotos: pasa el mouse o desliza` : undefined}
+      style={{ position: "relative", width: w, height: h, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: C.paper, cursor: "pointer" }}>
+      <ProductImg src={imgThumb(pics[i] || pics[0]) || mainImageUrl(product)} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      {n > 1 && <div style={{ position: "absolute", left: 0, right: 0, bottom: 4, display: "flex", justifyContent: "center", gap: 3 }}>{pics.slice(0, 6).map((_, k) => <span key={k} style={{ width: 5, height: 5, borderRadius: "50%", background: k === Math.min(i, 5) ? "#fff" : "rgba(255,255,255,.5)", boxShadow: "0 0 2px rgba(0,0,0,.5)" }} />)}</div>}
+      {pics[i]?.colorName && n > 1 && <div style={{ position: "absolute", top: 3, left: 3, right: 3, fontFamily: FONT_BODY, fontSize: 8.5, color: "#fff", background: "rgba(0,0,0,.55)", borderRadius: 4, padding: "1px 4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pics[i].colorName}</div>}
+    </div>
+  );
+};
+// Colores (con sus unidades) y tallas de la prenda; resalta los colores que coinciden con la búsqueda
+const ColorLine = ({ product, hits = [] }) => {
+  const colors = productColors(product);
+  const units = (n) => product.variants.filter((v) => v.colorName === n).reduce((a, v) => a + (Number(v.stock) || 0), 0);
+  return (
+    <div className="color-line" style={{ margin: "0 0 6px" }}>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 3 }}>
+        {colors.map((c) => { const hit = hits.includes(c.n); return (
+          <span key={c.n} className={hit ? "color-hit" : undefined} title={`${c.n}: ${units(c.n)} u.`} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px 2px 3px", borderRadius: 999, border: `1px solid ${hit ? C.ink : C.line}`, background: hit ? C.ink : C.paper, color: hit ? C.paper : C.inkSoft, fontFamily: FONT_BODY, fontSize: 10.5 }}>
+            <span style={{ width: 12, height: 12, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} />{c.n} · {units(c.n)}
+          </span>); })}
+      </div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>Tallas: {productSizes(product).join(" · ")}</div>
+    </div>
+  );
+};
+// Guía para subir muchas fotos de una vez: con ejemplos reales del catálogo y la lista de nombres para descargar
+const PhotoGuideSheet = ({ products, onClose, onPick }) => {
+  const sample = products.find((p) => productColors(p).length > 1 && p.variants.some((v) => v.sku)) || products.find((p) => p.variants.some((v) => v.sku)) || products[0];
+  const cs = sample ? productColors(sample) : [];
+  const codeOf = (color) => (sample?.variants.find((v) => v.colorName === color && v.sku) || {}).sku || "CODIGO";
+  const c1 = cs[0]?.n || "Negro", c2 = cs[1]?.n || c1;
+  const ex = [
+    { file: `${codeOf(c1)}.jpg`, to: `${sample?.name || "Prenda"} · ${c1}`, note: "1.ª foto = portada" },
+    { file: `${codeOf(c1)}-2.jpg`, to: `${sample?.name || "Prenda"} · ${c1}`, note: "2.ª foto" },
+    { file: `${codeOf(c2)}.jpg`, to: `${sample?.name || "Prenda"} · ${c2}`, note: "foto del otro color" },
+    { file: `${(sample?.name || "Prenda").toUpperCase()} ${c1.toUpperCase()} 3.mp4`, to: `${sample?.name || "Prenda"} · ${c1}`, note: "video, por nombre + color" },
+  ];
+  const waiting = products.filter((p) => (p.awaitingPhotos && p.status === "borrador") || !(p.images || []).length || colorsWithoutPhoto(p).length);
+  const downloadList = () => {
+    const rows = [["Prenda", "Color", "Nombre para la 1.ª foto", "2.ª foto", "Ya tiene foto"]];
+    waiting.forEach((p) => productColors(p).forEach((c) => { const code = (p.variants.find((v) => v.colorName === c.n && v.sku) || {}).sku; const name = code || `${p.name} ${c.n} 1`.toUpperCase(); rows.push([p.name, c.n, `${name}.jpg`, code ? `${code}-2.jpg` : `${p.name} ${c.n} 2`.toUpperCase() + ".jpg", hasColorPhoto(p, c.n) ? "sí" : "no"]); }));
+    const csv = "\ufeff" + rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(";")).join("\n");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); a.download = "nombres-de-fotos.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+  const step = (n, title, children) => (
+    <div className="guide-step" style={{ display: "flex", gap: 12, marginBottom: 18 }}>
+      <span style={{ width: 30, height: 30, borderRadius: "50%", background: C.ink, color: C.paper, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT_DISPLAY, fontWeight: 800, flexShrink: 0 }}>{n}</span>
+      <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontFamily: FONT_BODY, fontSize: 14.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>{title}</div>{children}</div>
+    </div>
+  );
+  const txt = { fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, lineHeight: 1.55 };
+  return (
+    <div className="overlay-sheet photo-guide" role="dialog" aria-label="Guía para subir fotos" style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: `${C.scrim}88` }} />
+      <div className="sheet-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", maxHeight: "92dvh", overflowY: "auto", padding: "20px 20px 28px", animation: "slideUp .25s ease", width: "100%", maxWidth: 720, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink }}>Subir muchas fotos de una vez</div>
+          <button type="button" aria-label="Cerrar" onClick={onClose} style={{ width: 40, height: 40, borderRadius: "50%", border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={18} /></button>
+        </div>
+        {step(1, "Ponle a cada foto el código de su prenda y color", <>
+          <div style={txt}>El código sale en Productos debajo del nombre («Cód: …») y en la etiqueta de la prenda. Con el código de <strong>cualquier talla</strong> de ese color basta.</div>
+          <div className="guide-examples" style={{ display: "grid", gap: 8, marginTop: 10 }}>
+            {ex.map((x) => (
+              <div key={x.file} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: C.paperDeep, borderRadius: 10, padding: "10px 12px" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "ui-monospace, Menlo, monospace", fontSize: 12.5, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 6, padding: "4px 8px", color: C.ink }}>{x.file.endsWith(".mp4") ? <Play size={13} /> : <ImageIcon size={13} />}{x.file}</span>
+                <ChevronRight size={16} color={C.stone} />
+                <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, fontWeight: 600 }}>{x.to}</span>
+                <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>({x.note})</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ ...txt, marginTop: 8 }}>Sin código también sirve: <strong>NOMBRE + COLOR + número</strong> (ej. «ALDANA DRESS NEGRO 1.jpg»). El número dice el orden: 1 = portada.</div>
+        </>)}
+        {step(2, "¿Muchas prendas? Descarga la lista de nombres", <>
+          <div style={txt}>Te da en Excel cada prenda y color que todavía necesita foto, con el nombre exacto que debe tener el archivo. Úsala para renombrar (o pásala a quien toma las fotos).</div>
+          <button type="button" onClick={downloadList} style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 8, minHeight: 44, padding: "0 16px", borderRadius: 10, border: `1px solid ${C.ink}`, background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}><Download size={16} /> Descargar lista ({waiting.length} prendas)</button>
+        </>)}
+        {step(3, "Elige todas las fotos y videos juntos", <>
+          <div style={txt}>Fotos verticales (3:4, ej. 1000×1300), JPG. Videos MP4 verticales de 5 a 15 segundos, hasta 50 MB. La app las achica sola, las pone en su prenda y color, y <strong>publica</strong> las prendas que esperaban foto. Si una foto ya existía con el mismo nombre, la reemplaza (no duplica).</div>
+          <button type="button" onClick={onPick} style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, minHeight: 48, padding: "0 20px", borderRadius: 10, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, cursor: "pointer" }}><Upload size={17} /> Elegir fotos y videos</button>
+        </>)}
+        {step(4, "Revisa lo que faltó", <div style={txt}>Al terminar te dice qué archivos no encontraron su prenda (renómbralos y vuelve a subirlos). Luego usa el filtro <strong>«Colores sin foto»</strong> y <strong>«Esperando fotos»</strong>.</div>)}
+      </div>
+    </div>
+  );
 };
 
 const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImportTumi, onBulkPhotos, onAddThumbs, onToggleActive, onToggleFeatured, onToggleOnline, onDuplicate, onPatchProduct }) => {
@@ -5440,7 +5690,10 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
   const searchRef = useRef(null);
 
   const pf = useProdFilters("productos");
-  const filtered = filterSortProducts(catalog.products, q, pf.filter, pf.sort);
+  const filtered = filterSortProducts(catalog.products, q, pf.filter, pf.sort, pf.cats);
+  const [shown, more] = useShowMore(filtered, 30, `${q}|${pf.filter}|${pf.sort}|${pf.cats.join(",")}`);
+  const [guide, setGuide] = useState(false);
+  useBackStep(guide, () => setGuide(false));
 
   const handleImportFile = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -5463,6 +5716,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
   };
 
   const [tumi, setTumi] = useState(null);
+  useBackStep(!!tumi, () => setTumi(null));
   const applyTumi = async (r) => {
     const sm = r.summary;
     await onImportTumi(r.products, r.costs);
@@ -5482,7 +5736,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
       if (!match) { unmatched.push(file.name); continue; }
       planned.push({ file, match, order: match.order || 0 });
     }
-    planned.sort((a, b) => a.match.product.id.localeCompare(b.match.product.id) || String(a.match.colorName || "").localeCompare(String(b.match.colorName || "")) || a.order - b.order || a.file.name.localeCompare(b.file.name, "es", { numeric: true }));
+    planned.sort((a, b) => a.match.product.id.localeCompare(b.match.product.id) || String(a.match.colorName || "").localeCompare(String(b.match.colorName || "")) || Number(/^video\//.test(a.file.type)) - Number(/^video\//.test(b.file.type)) || a.order - b.order || a.file.name.localeCompare(b.file.name, "es", { numeric: true }));
     for (const { file, match } of planned) {
       try { const m = await uploadMedia(file, "productos"); matches.push({ productId: match.product.id, url: m.url, type: m.type, thumb: m.thumb || null, colorName: match.colorName, src: file.name.replace(/\.[^.]+$/, "").trim().toUpperCase() }); }
       catch (err) { console.error(err); unmatched.push(file.name); }
@@ -5524,28 +5778,31 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
       <button onClick={() => photoRef.current?.click()} disabled={matchingPhotos} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 14px", borderRadius: 9, border: `1px dashed ${C.line}`, background: C.paperDeep, color: C.ink, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 6 }}>
         <ImageIcon size={15} /> {matchingPhotos ? "Asignando fotos…" : "Subir fotos en lote (coincidencia automática)"}
       </button>
-      <input ref={photoRef} type="file" accept="image/*" multiple onChange={handleBulkPhotos} style={{ display: "none" }} />
+      <input ref={photoRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={handleBulkPhotos} style={{ display: "none" }} />
+      <button type="button" className="guide-btn" onClick={() => setGuide(true)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 44, borderRadius: 9, border: "none", background: "none", color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, textDecoration: "underline", cursor: "pointer", marginBottom: 10 }}><AlertCircle size={15} /> ¿Cómo nombrar las fotos para subirlas de una vez? (guía con ejemplos)</button>
+      {guide && createPortal(<PhotoGuideSheet products={catalog.products} onClose={() => setGuide(false)} onPick={() => { setGuide(false); setTimeout(() => photoRef.current?.click(), 50); }} />, document.body)}
       {onAddThumbs && <ThumbsTool products={catalog.products} onDone={onAddThumbs} onEdit={openEditor} onPatch={onPatchProduct} />}
       {onPatchProduct && <TranslateTool products={catalog.products} onPatch={onPatchProduct} />}
 
-      <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginBottom: 16, textAlign: "center", lineHeight: 1.5 }}>
-        <strong>Importar:</strong> sirve el Excel que descarga TumiSoft (Listado de productos) tal cual, o la plantilla. Importar de nuevo actualiza, no duplica ni borra.<br />
-        <strong>Fotos:</strong> nombra cada foto con el <em>código interno</em> (ej. <em>9LRJC28.jpg</em>, <em>9LRJC28-2.jpg</em> para la 2.ª) o con <em>nombre + color + número</em> (ej. <em>ALDANA DRESS NEGRO 1.jpg</em>). Se asigna sola a la prenda y a su color, en ese orden. Puedes elegir muchas a la vez.
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 16, textAlign: "center", lineHeight: 1.5 }}>
+        Importar de nuevo el mismo Excel <strong>actualiza</strong>: no duplica ni borra.
       </div>
 
-      <ProductFilterBar q={q} setQ={setQ} filter={pf.filter} setFilter={pf.setFilter} sort={pf.sort} setSort={pf.setSort} count={filtered.length} total={catalog.products.length} onKeyDown={handleSearchKeyDown} placeholder="Nombre, código, color… (o escanea + Enter)" />
+      <ProductFilterBar q={q} setQ={setQ} filter={pf.filter} setFilter={pf.setFilter} sort={pf.sort} setSort={pf.setSort} products={catalog.products} cats={pf.cats} setCats={pf.setCats} count={filtered.length} total={catalog.products.length} onKeyDown={handleSearchKeyDown} placeholder="Nombre, código, color… (o escanea + Enter)" />
       {pf.filter === "agotados" && filtered.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12, lineHeight: 1.5 }}>Prendas sin stock. Puedes apagar «Web» para que no se vean en la tienda, pasarlas a borrador, reponer stock o borrarlas con el tacho.</div>}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {filtered.map((p) => {
+        {shown.map((p) => {
           const soldOut = productSoldOut(p);
+          const hits = q ? matchedColors(p, q) : [];
           const statusMap = { active: { l: "Activo", bg: C.ink, fg: C.paper }, agotado: { l: "Agotado", bg: C.accent, fg: C.white }, borrador: { l: "Borrador", bg: C.line, fg: C.inkSoft } };
           const st = p.awaitingPhotos && p.status === "borrador" ? { l: "Esperando fotos", bg: C.paperDeep, fg: C.ink } : statusMap[soldOut && p.status !== "borrador" ? "agotado" : p.status];
           return (
             <AdminCard key={p.id} style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <div style={{ width: 52, height: 64, borderRadius: 6, overflow: "hidden", flexShrink: 0 }}><ProductImg src={mainImageUrl(p)} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+              <PhotoScrub product={p} onOpen={() => openEditor(p.id)} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, margin: "3px 0 6px" }}>{p.category} · {money(p.price)} · {productTotalStock(p)} u.</div>
+                <ColorLine product={p} hits={hits} />
                 {p.variants[0]?.sku && <div style={{ fontFamily: FONT_BODY, fontSize: 9.5, color: C.stone, marginBottom: 6, wordBreak: "break-all" }}>Cód: {p.variants.map((v) => v.sku).slice(0, 2).join(" · ")}{p.variants.length > 2 ? "…" : ""}</div>}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontFamily: FONT_BODY, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase", background: st.bg, color: st.fg, padding: "3px 8px", borderRadius: 4, fontWeight: 600 }}>{st.l}</span>
@@ -5565,6 +5822,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
           );
         })}
         {filtered.length === 0 && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Sin resultados.</div>}
+        {more}
       </div>
     </div>
   );
@@ -6911,7 +7169,7 @@ const ACTIVITY_GROUPS = [
   ["inventario", "Inventario y compras", (a) => /^(guia_|traslado_|compra_|costo_|gasto_)/.test(a)],
   ["equipo", "Equipo y configuración", (a) => /^(usuario_|vendedor_|consulta_doc_config|permiso_publicidad)/.test(a)],
 ];
-const ACTIVITY_EXTRA = { catalogo_importado: "Catálogo importado (Excel)", fotos_subidas: "Fotos subidas en lote", caja_entrada: "Entrada de dinero", caja_salida: "Salida de dinero", devolucion: "Devolución", cambio_prendas: "Cambio de prendas", vale_creado: "Vale creado", vale_anulado: "Vale anulado", puntos_canjeados: "Puntos canjeados", comprobante_aceptado: "Comprobante aceptado por SUNAT", comprobante_enviado: "Comprobante enviado", comprobante_rechazado: "Comprobante rechazado", comprobante_error: "Comprobante con error", comprobante_anulado: "Comprobante anulado", nota_credito_aceptado: "Nota de crédito aceptada", nota_credito_enviado: "Nota de crédito enviada", nota_credito_rechazado: "Nota de crédito rechazada", nota_credito_error: "Nota de crédito con error", facturacion_config: "Configuración de facturación", consulta_doc_config: "Configuración DNI/RUC", permiso_publicidad: "Permiso de publicidad", vendedor_guardado: "Vendedor guardado" };
+const ACTIVITY_EXTRA = { asistencia_codigo_invalido: "Asistencia: código no reconocido", asistencia_persona: "Asistencia: persona guardada", asistencia_pin: "Asistencia: PIN cambiado", asistencia_corregida: "Asistencia: marca agregada a mano", asistencia_anulada: "Asistencia: marca anulada", asistencia_ajuste: "Sueldos: ajuste", asistencia_ajuste_anulado: "Sueldos: ajuste quitado", catalogo_importado: "Catálogo importado (Excel)", fotos_subidas: "Fotos subidas en lote", caja_entrada: "Entrada de dinero", caja_salida: "Salida de dinero", devolucion: "Devolución", cambio_prendas: "Cambio de prendas", vale_creado: "Vale creado", vale_anulado: "Vale anulado", puntos_canjeados: "Puntos canjeados", comprobante_aceptado: "Comprobante aceptado por SUNAT", comprobante_enviado: "Comprobante enviado", comprobante_rechazado: "Comprobante rechazado", comprobante_error: "Comprobante con error", comprobante_anulado: "Comprobante anulado", nota_credito_aceptado: "Nota de crédito aceptada", nota_credito_enviado: "Nota de crédito enviada", nota_credito_rechazado: "Nota de crédito rechazada", nota_credito_error: "Nota de crédito con error", facturacion_config: "Configuración de facturación", consulta_doc_config: "Configuración DNI/RUC", permiso_publicidad: "Permiso de publicidad", vendedor_guardado: "Vendedor guardado" };
 const activityLabel = (a) => ACTION_LABELS[a] || ACTIVITY_EXTRA[a] || String(a || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const ACTIVITY_KEYS = { archivo: "Archivo", filas: "Filas", nuevas: "Nuevas", actualizadas: "Actualizadas", combinaciones: "Tallas y colores", costos: "Costos", fotos: "Fotos", prendas: "Prendas", publicadas: "Publicadas", reemplazadas: "Reemplazadas", sin_reconocer: "Sin reconocer", venta: "Venta", comprobante: "Comprobante", nota: "Nota", modifica: "Modifica", guia: "Guía", motivo: "Motivo", total: "Total", monto: "Monto", amount: "Monto", detalle: "Detalle", codigo: "Código", code: "Código", reason: "Motivo", token: "Token", sede: "Sede", diferencia: "Diferencia", difference: "Diferencia", serie: "Serie", numero: "Número" };
 const activityDetail = (d) => {
@@ -6963,10 +7221,7 @@ const ActivityScreen = () => {
       <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.inkSoft, marginBottom: 14, lineHeight: 1.5 }}>Quién hizo cada cambio importante: cajas, anulaciones, devoluciones, comprobantes, guías, compras y configuración. Solo lectura.</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
         {[["1", "Hoy"], ["7", "7 días"], ["30", "30 días"], ["todo", "Todo"]].map(([k, l]) => <Chip key={k} active={!day && period === k} onClick={() => { setDay(""); setPeriod(k); }}>{l}</Chip>)}
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, border: `1px solid ${day ? C.ink : C.line}`, background: day ? C.ink : C.paper, borderRadius: 999, padding: "0 4px 0 12px" }}>
-          <span style={{ color: day ? C.paper : C.ink }}>{day ? new Date(`${day}T12:00:00`).toLocaleDateString("es-PE", { weekday: "short", day: "numeric", month: "short" }) : "Elegir día"}</span>
-          <input type="date" aria-label="Elegir día" value={day} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDay(e.target.value)} style={{ border: "none", background: "transparent", color: day ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, padding: "8px 4px", width: 34, colorScheme: day ? "dark" : "light" }} />
-        </label>
+        <DateField value={day} onChange={setDay} max={new Date().toISOString().slice(0, 10)} placeholder="Elegir día" ariaLabel="Elegir día" />
       </div>
       <div className="activity-filters" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
         <select aria-label="Persona" value={who} onChange={(e) => setWho(e.target.value)} style={sel}><option value="">Todas las personas</option>{people.map((p) => <option key={p} value={p}>{p}</option>)}</select>
@@ -7620,95 +7875,174 @@ const LabelsScreen = ({ catalog, onBack }) => {
 };
 
 /* ---- Stock: main screen (shared by Vendedor + Administrador) ---- */
+// «Atrás» paso a paso dentro de una pantalla: al abrir algo (historial, una prenda desplegada, una hoja)
+// se anota en el historial; la flecha atrás del celular o del navegador lo cierra y vuelve al paso anterior,
+// en vez de saltar a otra pantalla.
+const useBackStep = (open, close) => {
+  const closeRef = useRef(close); closeRef.current = close;
+  useEffect(() => {
+    if (!open) return undefined;
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    let pushed = false;
+    try { window.history.pushState({ ...(window.history.state || {}), step: id }, "", window.location.href); pushed = true; } catch (e) { /* sin historial */ }
+    // Atrás: si el paso actual ya no es este, se cierra (si se volvió de un paso de encima, este sigue abierto)
+    const onPop = () => { if (pushed && window.history.state?.step !== id) { pushed = false; closeRef.current(); } };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      // Se cerró con un botón: se quita ese paso del historial. Si ya se fue a otra pantalla, no se toca.
+      if (pushed && window.history.state?.step === id) { try { window.history.back(); } catch (e) { /* nada */ } }
+    };
+  }, [open]);
+};
+// Listas largas por partes: muestra 30 y carga más al llegar abajo (o con «Mostrar más»)
+const useShowMore = (list, step = 30, resetKey = "") => {
+  const [n, setN] = useState(step);
+  const ref = useRef(null);
+  useEffect(() => { setN(step); }, [resetKey]);
+  useEffect(() => {
+    const el = ref.current; if (!el || typeof IntersectionObserver === "undefined") return undefined;
+    const io = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) setN((v) => v + step); }, { rootMargin: "400px" });
+    io.observe(el); return () => io.disconnect();
+  });
+  const more = list.length > n ? (
+    <div ref={ref} style={{ textAlign: "center", padding: "6px 0 2px" }}>
+      <button type="button" className="show-more" onClick={() => setN((v) => v + step)} style={{ minHeight: 44, padding: "0 18px", borderRadius: 999, border: `1px solid ${C.ink}`, background: C.paper, color: C.ink, fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Mostrar más ({Math.min(n, list.length)} de {list.length})</button>
+    </div>
+  ) : null;
+  return [list.slice(0, n), more];
+};
+const stockTone = (st, min) => (st <= 0 ? "out" : st <= min ? "low" : "ok");
+
+// Una prenda en Stock: foto, colores y unidades; al tocarla se despliega con sus tallas por color (de menor a mayor)
+const StockProductCard = ({ p, open, onToggle, canEdit, locations, onMove, onHistory }) => {
+  const total = productTotalStock(p);
+  const min = p.minStock ?? 3;
+  const colors = productColors(p);
+  const sizes = productSizes(p);
+  const lows = p.variants.filter((v) => v.stock > 0 && v.stock <= min).length;
+  const outs = p.variants.filter((v) => !(v.stock > 0)).length;
+  const tone = total <= 0 ? "out" : lows || outs ? "low" : "ok";
+  return (
+    <div className={`stock-card${open ? " is-open" : ""}`} style={{ background: C.paperDeep, border: `1px solid ${open ? C.ink : C.line}`, borderRadius: 14, overflow: "hidden" }}>
+      <button type="button" className="stock-card-btn" aria-expanded={open} onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: 10, background: "none", border: "none", cursor: "pointer", textAlign: "left", minHeight: 84 }}>
+        <div style={{ width: 54, height: 68, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: C.paper }}><ProductImg src={mainImageUrl(p)} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 1 }}>{p.category}{p.status === "borrador" ? (p.awaitingPhotos ? " · Esperando fotos" : " · Borrador") : ""}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+            {colors.slice(0, 6).map((c) => <span key={c.n} title={c.n} style={{ width: 13, height: 13, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} />)}
+            {colors.length > 6 && <span style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone }}>+{colors.length - 6}</span>}
+            <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginLeft: 4 }}>{sizes.join(" · ")}</span>
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div className={`stock-badge t-${tone}`} style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, color: tone === "ok" ? C.ink : C.accent }}>{total}</div>
+          <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: tone === "ok" ? C.stone : C.accent }}>{total <= 0 ? "agotado" : lows || outs ? `${lows + outs} por reponer` : "unidades"}</div>
+        </div>
+        <ChevronDown size={18} color={C.ink} style={{ flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s ease" }} />
+      </button>
+      {open && (
+        <div className="stock-card-body" style={{ padding: "4px 12px 12px", borderTop: `1px solid ${C.line}` }}>
+          {canEdit && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, margin: "10px 0 8px" }}>Toca una talla para registrar <strong>entrada, salida o conteo</strong>.</div>}
+          {colors.map((c) => {
+            const vs = sizes.map((s) => p.variants.find((v) => v.size === s && v.colorName === c.n)).filter(Boolean);
+            const cu = vs.reduce((a, v) => a + (Number(v.stock) || 0), 0);
+            return (
+              <div key={c.n} className="stock-color" style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ width: 14, height: 14, borderRadius: "50%", background: c.h, border: `1px solid ${C.line}` }} />
+                  <strong style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, flex: 1 }}>{c.n}</strong>
+                  <span style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone }}>{cu} u.</span>
+                </div>
+                <div className="stock-sizes" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: 8 }}>
+                  {vs.map((v) => {
+                    const t = stockTone(Number(v.stock) || 0, min);
+                    const by = variantStockBy(v);
+                    return (
+                      <button type="button" key={v.id} className={`stock-size t-${t}`} disabled={!canEdit} onClick={() => onMove(p, v)} aria-label={`${v.size} ${c.n}: ${v.stock} unidades`}
+                        style={{ minHeight: 74, padding: "8px 6px", borderRadius: 10, border: `1.5px solid ${t === "ok" ? C.line : C.accent}`, background: t === "out" ? C.accentSoft : C.paper, cursor: canEdit ? "pointer" : "default", textAlign: "center", color: C.ink }}>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 700, color: C.inkSoft }}>{v.size}</div>
+                        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, lineHeight: 1.1, color: t === "ok" ? C.ink : C.accent }}>{v.stock}</div>
+                        <div style={{ fontFamily: FONT_BODY, fontSize: 9.5, color: C.stone, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{locations.length > 1 ? locations.map((l) => `${l.name.slice(0, 5)} ${Number(by[l.id]) || 0}`).join(" · ") : t === "out" ? "agotado" : t === "low" ? "stock bajo" : (v.sku || "")}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <button type="button" onClick={() => onHistory(p)} style={{ ...quickLinkStyle, width: "100%", justifyContent: "center", marginTop: 12, minHeight: 46 }}><History size={15} /> Historial de esta prenda</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, canEdit }) => {
   const [showLabels, setShowLabels] = useState(false);
-  const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [activeMove, setActiveMove] = useState(null); // {product, variant}
   const [showHistory, setShowHistory] = useState(false);
+  // Cada paso abierto se puede cerrar con «atrás» del celular o del navegador
+  useBackStep(!!showLabels, () => setShowLabels(false));
+  useBackStep(!!showHistory, () => setShowHistory(false));
+  useBackStep(!!expanded, () => setExpanded(null));
+  useBackStep(!!activeMove, () => setActiveMove(null));
 
   const lowStock = [];
   catalog.products.forEach((p) => p.variants.forEach((v) => { if (v.stock > 0 && v.stock <= (p.minStock ?? 3)) lowStock.push({ p, v }); }));
   const agotadosCount = catalog.products.filter(productSoldOut).length;
+  const units = catalog.products.reduce((a, p) => a + productTotalStock(p), 0);
 
   const pf = useProdFilters("stock");
-  const filtered = filterSortProducts(catalog.products, q, pf.filter, pf.sort);
+  const filtered = filterSortProducts(catalog.products, pf.q, pf.filter, pf.sort, pf.cats);
+  const [shown, more] = useShowMore(filtered, 30, `${pf.q}|${pf.filter}|${pf.sort}|${pf.cats.join(",")}`);
+  const locations = stockLocations(catalog.settings);
 
   const handleSearchKeyDown = (e) => {
     if (e.key !== "Enter") return;
-    const val = q.trim().toLowerCase();
+    const val = pf.q.trim().toLowerCase();
     if (!val) return;
     const found = catalog.products.find((p) => p.variants.some((v) => codeIs(v, val)));
-    if (found) { setExpanded(found.id); setQ(""); }
+    if (found) { setExpanded(found.id); pf.setQ(found.name); }
   };
 
   if (showLabels) return <LabelsScreen catalog={catalog} onBack={() => setShowLabels(false)} />;
   if (showHistory) return <StockHistory product={showHistory === true ? null : showHistory} catalog={catalog} onBack={() => setShowHistory(false)} />;
 
+  const tile = (active, onClick, n, label, red) => (
+    <button type="button" className="tile-btn" onClick={onClick} aria-pressed={active} style={{ width: "100%", padding: "12px 12px", background: active ? C.ink : C.paperDeep, border: `1px solid ${active ? C.ink : C.line}`, borderRadius: 12, textAlign: "left", cursor: "pointer", minHeight: 72 }}>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: active ? C.paper : red ? C.accent : C.ink }}>{n}</div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: active ? C.paper : C.stone }}>{label}</div>
+    </button>
+  );
+
   return (
-    <div style={{ padding: "18px 18px 90px" }}>
-      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 14px" }}>Control de Stock</h1>
+    <div className="stock-screen" style={{ padding: "18px 18px 90px", maxWidth: 980, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Control de Stock</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>Busca o filtra → toca la prenda → toca la talla para registrar un movimiento.</div>
       {!canEdit && <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft }}>Modo solo lectura — para registrar entradas/salidas pide a un Administrador.</div>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        <AdminCard style={{ padding: 0 }}><button className="tile-btn" onClick={() => pf.setFilter(pf.filter === "bajo" ? "todos" : "bajo")} aria-pressed={pf.filter === "bajo"} style={{ width: "100%", height: "100%", padding: 14, background: pf.filter === "bajo" ? C.ink : "none", border: "none", borderRadius: 12, textAlign: "left", cursor: "pointer" }}><div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: pf.filter === "bajo" ? C.paper : C.accent }}>{lowStock.length}</div><div style={{ fontFamily: FONT_BODY, fontSize: 11, color: pf.filter === "bajo" ? C.paper : C.stone }}>Combinaciones con stock bajo</div></button></AdminCard>
-        <AdminCard style={{ padding: 0 }}><button className="tile-btn" onClick={() => pf.setFilter(pf.filter === "agotados" ? "todos" : "agotados")} aria-pressed={pf.filter === "agotados"} style={{ width: "100%", height: "100%", padding: 14, background: pf.filter === "agotados" ? C.ink : "none", border: "none", borderRadius: 12, textAlign: "left", cursor: "pointer" }}><div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: pf.filter === "agotados" ? C.paper : C.ink }}>{agotadosCount}</div><div style={{ fontFamily: FONT_BODY, fontSize: 11, color: pf.filter === "agotados" ? C.paper : C.stone }}>Productos agotados</div></button></AdminCard>
+      <div className="stock-tiles" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
+        {tile(pf.filter === "todos" && !pf.cats.length, () => { pf.setFilter("todos"); pf.setCats([]); }, units, "unidades en total")}
+        {tile(pf.filter === "bajo", () => pf.setFilter(pf.filter === "bajo" ? "todos" : "bajo"), lowStock.length, "tallas con stock bajo", lowStock.length > 0)}
+        {tile(pf.filter === "agotados", () => pf.setFilter(pf.filter === "agotados" ? "todos" : "agotados"), agotadosCount, "prendas agotadas", agotadosCount > 0)}
       </div>
 
-      {lowStock.length > 0 && (
-        <div style={{ background: C.accentSoft, borderRadius: 10, padding: "12px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "flex-start" }}>
-          <AlertCircle size={15} color={C.accent} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.ink, lineHeight: 1.6 }}>
-            Stock bajo: {lowStock.slice(0, 4).map((l) => `${l.p.name} (${l.v.size}/${l.v.colorName}: ${l.v.stock})`).join(" · ")}{lowStock.length > 4 ? "…" : ""}
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-        <button onClick={() => setShowHistory(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><FileSpreadsheet size={15} /> Ver historial de movimientos</button>
-        {onOpenTransfers && <button onClick={onOpenTransfers} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Navigation size={15} /> Traslados entre sedes</button>}
-        {canEdit && <button onClick={() => setShowLabels(true)} style={{ ...quickLinkStyle, flex: "1 1 200px", justifyContent: "center" }}><Scan size={15} /> Imprimir etiquetas</button>}
+      <div className="stock-actions" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 8, marginBottom: 14 }}>
+        {[[true, () => setShowHistory(true), History, "Historial de movimientos"], [!!onOpenTransfers, onOpenTransfers, Navigation, "Traslados entre sedes"], [canEdit, () => setShowLabels(true), Scan, "Imprimir etiquetas"]].filter((x) => x[0]).map(([, fn, Icon, l]) => (
+          <button key={l} onClick={fn} style={{ ...quickLinkStyle, flexDirection: "column", justifyContent: "center", gap: 6, minHeight: 64, padding: "10px 6px", fontSize: 12, textAlign: "center", lineHeight: 1.25 }}><Icon size={18} /> {l}</button>
+        ))}
       </div>
 
-      <ProductFilterBar q={q} setQ={setQ} filter={pf.filter} setFilter={pf.setFilter} sort={pf.sort} setSort={pf.setSort} count={filtered.length} total={catalog.products.length} onKeyDown={handleSearchKeyDown} placeholder="Nombre, código, color… (o escanea + Enter)" filters={PROD_FILTERS.filter(([k]) => k !== "sinfoto" && k !== "colorsinfoto")} />
+      <ProductFilterBar q={pf.q} setQ={pf.setQ} filter={pf.filter} setFilter={pf.setFilter} sort={pf.sort} setSort={pf.setSort} cats={pf.cats} setCats={pf.setCats} products={catalog.products} count={filtered.length} total={catalog.products.length} onKeyDown={handleSearchKeyDown} placeholder="Nombre, código, color… (o escanea + Enter)" filters={PROD_FILTERS.filter(([k]) => k !== "sinfoto" && k !== "colorsinfoto")} />
       {pf.filter === "agotados" && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12, lineHeight: 1.5 }}>{filtered.length ? `${filtered.length} prenda(s) agotada(s). Toca una para reponer stock. Para ocultarla de la web o borrarla: Productos → filtro «Agotados».` : "No hay prendas agotadas. ✓"}</div>}
-      {pf.filter !== "agotados" && !filtered.length && <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, padding: "16px 0", textAlign: "center" }}>No hay prendas con este filtro.</div>}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {filtered.map((p) => {
-          const isOpen = expanded === p.id;
-          return (
-            <AdminCard key={p.id} style={{ padding: 0, overflow: "hidden" }}>
-              <button onClick={() => setExpanded(isOpen ? null : p.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: 12, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
-                <div style={{ width: 44, height: 54, borderRadius: 6, overflow: "hidden", flexShrink: 0 }}><ProductImg src={mainImageUrl(p)} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink }}>{p.name}</div>
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{productTotalStock(p)} u. totales · {p.variants.length} combinaciones</div>
-                </div>
-                <ChevronDown size={16} color={C.stone} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .15s ease" }} />
-              </button>
-              {isOpen && (
-                <div style={{ borderTop: `1px solid ${C.paperDeep}`, padding: 12 }}>
-                  <button onClick={() => setShowHistory(p)} style={{ ...quickLinkStyle, width: "100%", justifyContent: "center", marginBottom: 6 }}><FileSpreadsheet size={14} /> Historial de esta prenda (ventas, reposiciones, devoluciones)</button>
-                  {p.variants.map((v) => (
-                    <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.paperDeep}` }}>
-                      <div>
-                        <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{v.size} · {v.colorName}</div>
-                        <div style={{ fontFamily: FONT_BODY, fontSize: 10, color: C.stone }}>{v.sku} {v.stock <= (p.minStock ?? 3) && v.stock > 0 && <span style={{ color: C.accent }}> · stock bajo</span>}{v.stock === 0 && <span style={{ color: C.accent }}> · agotado</span>}</div>
-                        {v.stock > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.inkSoft }}>{stockLocations(catalog.settings).map((l) => `${l.name} ${Number(variantStockBy(v)[l.id]) || 0}`).join(" · ")}</div>}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, fontWeight: 800, color: C.ink }}>{v.stock}</span>
-                        {canEdit && <button onClick={() => setActiveMove({ product: p, variant: v })} style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 11, cursor: "pointer" }}>Movimiento</button>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </AdminCard>
-          );
-        })}
-        {filtered.length === 0 && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 12, color: C.stone }}>Sin resultados.</div>}
+      <div className="stock-list" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {shown.map((p) => <StockProductCard key={p.id} p={p} open={expanded === p.id} onToggle={() => setExpanded(expanded === p.id ? null : p.id)} canEdit={canEdit} locations={locations} onMove={(prod, v) => setActiveMove({ product: prod, variant: v })} onHistory={(prod) => setShowHistory(prod)} />)}
+        {filtered.length === 0 && pf.filter !== "agotados" && <div style={{ textAlign: "center", padding: 30, fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>No hay prendas con este filtro.</div>}
+        {more}
       </div>
 
       {activeMove && (
@@ -7718,7 +8052,6 @@ const StockScreen = ({ catalog, staffName, onRegisterMovement, onOpenTransfers, 
           onSubmit={(mv) => onRegisterMovement(activeMove.product, activeMove.variant, mv)}
         />
       )}
-
     </div>
   );
 };
@@ -9366,8 +9699,7 @@ const AdminInvoicesScreen = ({ sales, onVoid, storesSettings, onReturn }) => {
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
         <select value={channelF} onChange={(e) => setChannelF(e.target.value)} style={inputStyle}><option value="todos">Tienda física y web</option><option value="tienda">Solo tienda física</option><option value="web">Solo web</option></select>
         <select value={storeF} onChange={(e) => setStoreF(e.target.value)} style={inputStyle}><option value="todas">Todas las sedes</option>{storesOf(storesSettings).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}<option value="web">Tienda online</option></select>
-        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={inputStyle} />
-        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={inputStyle} />
+        <DateRangeField from={dateFrom} to={dateTo} onChange={(a, b) => { setDateFrom(a); setDateTo(b); }} style={{ flex: "1 1 auto" }} />
       </div>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por N° de comprobante, cliente o DNI/RUC" style={{ ...inputStyle, marginBottom: 10 }} />
       <div style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 8, paddingBottom: 2, scrollbarWidth: "none" }}>
@@ -9445,7 +9777,7 @@ const SalesFilterBar = ({ f, setF, stores, sellers, showSeller = true }) => {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {f.period === "mes" && <select value={f.month} onChange={(e) => set("month", Number(e.target.value))} style={sel}>{MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}</select>}
         {(f.period === "mes" || f.period === "anio") && <select value={f.year} onChange={(e) => set("year", Number(e.target.value))} style={sel}>{years.map((y) => <option key={y}>{y}</option>)}</select>}
-        {f.period === "rango" && <><span style={{ fontFamily: FONT_BODY, fontSize: 12 }}>Del</span><input type="date" value={f.from} onChange={(e) => set("from", e.target.value)} style={sel} /><span style={{ fontFamily: FONT_BODY, fontSize: 12 }}>al</span><input type="date" value={f.to} onChange={(e) => set("to", e.target.value)} style={sel} /></>}
+        {f.period === "rango" && <DateRangeField from={f.from} to={f.to} onChange={(a, b) => setF((x) => ({ ...x, from: a, to: b }))} />}
         <select value={f.store} onChange={(e) => set("store", e.target.value)} style={sel}><option value="todas">Todas las sedes</option>{stores.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}<option value="web">Tienda online</option></select>
         <select value={f.channel} onChange={(e) => set("channel", e.target.value)} style={sel}><option value="todos">Tienda física y web</option><option value="tienda">Solo tienda física</option><option value="web">Solo web</option></select>
         <select value={f.tipo} onChange={(e) => set("tipo", e.target.value)} style={sel}><option value="todos">Boletas y facturas</option><option value="boleta">Solo boletas</option><option value="factura">Solo facturas</option></select>
@@ -9534,7 +9866,7 @@ const ProfitSection = ({ catalog, sales, all, range }) => {
         <span style={labelStyle}>Gastos del negocio</span>
         <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 10, lineHeight: 1.5 }}>Alquiler, sueldos, luz, publicidad… La compra de mercadería no va aquí: va como costo de cada prenda.</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-          <input type="date" value={form.spent_on} onChange={(e) => setForm({ ...form, spent_on: e.target.value })} style={{ ...inputStyle, flex: "1 1 140px" }} aria-label="Fecha del gasto" />
+          <DateField value={form.spent_on} onChange={(d) => setForm((x) => ({ ...x, spent_on: d }))} ariaLabel="Fecha del gasto" style={{ flex: "1 1 140px" }} />
           <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} style={{ ...inputStyle, flex: "2 1 180px" }} aria-label="Tipo de gasto">{EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
           <input inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="Monto S/ *" style={{ ...inputStyle, flex: "1 1 110px" }} />
           <input value={form.note} maxLength={200} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Nota (opcional)" style={{ ...inputStyle, flex: "3 1 200px" }} />
@@ -9750,6 +10082,8 @@ const MORE_ITEMS = [
   { id: "banners", g: "tienda", t: "Banners", d: "Las imágenes o videos grandes que rotan en la portada de la tienda.", icon: Images, k: "portada imagen video inicio" },
   { id: "collections", g: "tienda", t: "Colecciones", d: "Agrupar prendas (ej. «Oficina») para mostrarlas juntas en la web.", icon: Layers, k: "coleccion look agrupar" },
   { id: "manual", g: "equipo", t: "Manual del equipo", d: "Cómo se hace cada cosa, paso a paso, con imágenes.", icon: BookOpen, k: "ayuda guia como se hace" },
+  { id: "sueldos", g: "equipo", t: "Asistencia y sueldos", d: "Personas, PIN o llavero para marcar, horas de cada día y el pago de la quincena en Excel.", icon: Wallet, k: "sueldo planilla quincena pago horas extra tardanza asistencia marcar entrada salida pin llavero tag" },
+  { id: "asistencia", g: "equipo", t: "Marcar asistencia", d: "Cada persona marca su entrada o salida con su PIN o llavero.", icon: Clock, k: "marcar entrada salida asistencia hora llegada pin llavero tag reloj" },
   { id: "activity", g: "equipo", t: "Registro de actividad", d: "Quién abrió o cerró la caja, anuló, devolvió o cambió algo, y cuándo.", icon: History, k: "auditoria historial quien cambios log bitacora actividad" },
   { id: "reports", g: "equipo", t: "Reportes", d: "Ventas por día, vendedora, sede y prenda; rentabilidad y gastos.", icon: BarChart3, k: "reporte venta ganancia margen gasto vendedor" },
   { id: "users", g: "equipo", t: "Usuarios y permisos", d: "Crear cuentas del staff, cambiar su rol o contraseña.", icon: UserCog, k: "usuario rol contraseña cajero acceso", only: "superadmin" },
@@ -10962,6 +11296,301 @@ const StaffManual = ({ role }) => {
 // ---- Qué pantallas puede abrir cada rol (una sola lista para el menú, los enlaces y la flecha atrás) ----
 // Si alguien escribe a mano otra dirección (ej. #staff/reports siendo cajero), vuelve a su pantalla de inicio.
 // La base de datos además rechaza cualquier dato que su rol no pueda ver o cambiar.
+// ==================== ASISTENCIA Y SUELDOS (SQL 31) ====================
+// Marcar: PIN de 4–6 números o llavero (el lector USB escribe el número y Enter, como un teclado). La hora la pone el servidor.
+const limaTime = (iso) => new Date(iso).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/Lima" });
+const limaDate = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Lima" }); // AAAA-MM-DD
+const ATT_ERR = { CODIGO_INVALIDO: "Código no reconocido. Revisa tu PIN o vuelve a pasar el llavero.", DEMASIADOS_INTENTOS: "Demasiados intentos fallidos. Espera 10 minutos o avisa a Administración.", SIN_PERMISO: "Este equipo no tiene permiso para marcar.", PGRST202: "Falta correr el SQL 31 en Supabase." };
+const attErr = (e) => { const m = String(e?.message || e?.code || e || ""); const k = Object.keys(ATT_ERR).find((x) => m.includes(x) || e?.code === x); return k ? ATT_ERR[k] : "No se pudo marcar: " + m; };
+
+const AttendanceKiosk = () => {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null); // {ok, name, kind, at, repeat} | {error}
+  const [today, setToday] = useState([]);
+  const [now, setNow] = useState(new Date());
+  const inputRef = useRef(null);
+  const clearT = useRef(null);
+  const loadToday = async () => { const { data, error } = await supabase.rpc("att_today"); if (!error && Array.isArray(data)) setToday(data); };
+  useEffect(() => { loadToday(); const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  // El cuadro siempre listo para el lector de llaveros
+  useEffect(() => { const f = () => { if (document.activeElement?.tagName !== "INPUT") inputRef.current?.focus(); }; f(); const t = setInterval(f, 1500); return () => clearInterval(t); }, []);
+  const submit = async (c = code) => {
+    const v = String(c).trim(); if (!v || busy) return;
+    setBusy(true); setCode("");
+    const { data, error } = await supabase.rpc("att_clock", { p_code: v });
+    setBusy(false);
+    const r = error ? { error: attErr(error) } : data?.ok === false ? { error: attErr(data.error) } : { ok: true, ...data };
+    setRes(r);
+    try { if (r.ok && navigator.vibrate) navigator.vibrate(60); } catch (e) { /* sin vibración */ }
+    clearTimeout(clearT.current); clearT.current = setTimeout(() => setRes(null), r.ok ? 5000 : 6000);
+    if (r.ok) loadToday();
+    inputRef.current?.focus();
+  };
+  const press = (d) => { if (d === "⌫") setCode((x) => x.slice(0, -1)); else if (d === "OK") submit(); else setCode((x) => (x.length < 20 ? x + d : x)); };
+  const inNow = (() => { const last = new Map(); [...today].reverse().forEach((m) => last.set(m.name, m)); return [...last.values()].filter((m) => m.kind === "entrada"); })();
+  return (
+    <div className="att-kiosk" style={{ padding: "18px 18px 90px", maxWidth: 760, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Marcar asistencia</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>Escribe tu PIN y toca <strong>Marcar</strong> (o pasa tu llavero). Entrada o salida se elige sola.</div>
+      <div className="att-clock" style={{ background: C.ink, color: C.paper, borderRadius: 18, padding: "18px 20px", textAlign: "center", marginBottom: 14 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 46, fontWeight: 900, letterSpacing: ".02em", lineHeight: 1 }}>{now.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "America/Lima" })}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, opacity: 0.8, marginTop: 6 }}>{now.toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Lima" }).replace(/^./, (c) => c.toUpperCase())}</div>
+      </div>
+      {res && (
+        <div className={`att-result fold-in ${res.ok ? "is-ok" : "is-err"}`} role="status" style={{ borderRadius: 16, padding: "16px 18px", marginBottom: 14, border: `2px solid ${res.ok ? C.ink : C.accent}`, background: res.ok ? C.paperDeep : C.accentSoft, display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ width: 48, height: 48, borderRadius: "50%", background: res.ok ? C.ink : C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{res.ok ? <Check size={26} /> : <X size={26} />}</span>
+          {res.ok ? (
+            <div style={{ fontFamily: FONT_BODY, color: C.ink }}>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>{res.kind === "entrada" ? "Entrada" : "Salida"} · {limaTime(res.at)}</div>
+              <div style={{ fontSize: 15 }}>{res.kind === "entrada" ? "¡Buen turno" : "¡Hasta luego"}, {res.name}!{res.repeat ? " (ya estaba marcado)" : ""}</div>
+            </div>
+          ) : <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 600, color: C.ink }}>{res.error}</div>}
+        </div>
+      )}
+      <form onSubmit={(e) => { e.preventDefault(); submit(); }} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input ref={inputRef} aria-label="PIN o llavero" value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 20))} type="password" inputMode="numeric" autoComplete="off" placeholder="PIN o llavero"
+          style={{ ...inputStyle, fontSize: 26, letterSpacing: ".3em", textAlign: "center", height: 62, fontWeight: 800 }} />
+        <button type="submit" disabled={!code || busy} className="att-go" style={{ minWidth: 120, borderRadius: 12, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 17, fontWeight: 800, cursor: "pointer", opacity: code && !busy ? 1 : 0.4 }}>{busy ? "…" : "Marcar"}</button>
+      </form>
+      <div className="att-pad" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 18 }}>
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "OK"].map((d) => (
+          <button key={d} type="button" aria-label={d === "⌫" ? "Borrar" : d === "OK" ? "Marcar" : d} onClick={() => press(d)} disabled={d === "OK" && (!code || busy)}
+            style={{ height: 64, borderRadius: 14, border: `1px solid ${d === "OK" ? C.ink : C.line}`, background: d === "OK" ? C.ink : C.paperDeep, color: d === "OK" ? C.paper : C.ink, fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 800, cursor: "pointer" }}>{d}</button>
+        ))}
+      </div>
+      <AdminCard>
+        <span style={labelStyle}>Hoy</span>
+        {inNow.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 8 }}>En la tienda ahora: <strong>{inNow.map((m) => m.name).join(", ")}</strong></div>}
+        {today.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Todavía nadie marcó hoy.</div> : today.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontFamily: FONT_BODY, fontSize: 13.5 }}>
+            <span>{m.name}</span><span style={{ color: m.kind === "entrada" ? C.ink : C.stone, fontWeight: 600 }}>{m.kind === "entrada" ? "Entrada" : "Salida"} · {limaTime(m.at)}</span>
+          </div>
+        ))}
+      </AdminCard>
+    </div>
+  );
+};
+
+// ---- Cálculo de la quincena (misma regla que el Excel de sueldos) ----
+// Por día con marcas: (salida − entrada, se suman los tramos) − break − jornada = minutos de más (+) o de menos (−).
+// Valor hora = base ÷ (15 × jornada) salvo que se ponga otro. Total = base + minutos/60 × valor hora − ausencias + feriados + bonos − adelantos − descuentos.
+const quincenaOf = (d = new Date()) => { const y = d.getFullYear(), m = d.getMonth(); const first = d.getDate() <= 15; const start = new Date(y, m, first ? 1 : 16, 12); const end = first ? new Date(y, m, 15, 12) : new Date(y, m + 1, 0, 12); return { start: calYmd(start), end: calYmd(end) }; };
+const shiftQuincena = (q, k) => { const s = fromYmd(q.start); if (k < 0) { if (s.getDate() === 1) return quincenaOf(new Date(s.getFullYear(), s.getMonth() - 1, 20, 12)); return quincenaOf(new Date(s.getFullYear(), s.getMonth(), 5, 12)); } return quincenaOf(new Date(fromYmd(q.end).getTime() + 2 * 864e5)); };
+const attRate = (p) => (Number(p.hour_rate) > 0 ? Number(p.hour_rate) : Number(p.base_quincena) / (15 * (Number(p.daily_hours) || 8)));
+const calcPayroll = (person, marks, adjustments, q) => {
+  const mine = marks.filter((m) => m.person_id === person.id && !m.voided).sort((a, b) => new Date(a.at) - new Date(b.at));
+  const days = [];
+  for (let d = fromYmd(q.start); calYmd(d) <= q.end; d = new Date(d.getTime() + 864e5)) {
+    const key = calYmd(d);
+    const ms = mine.filter((m) => limaDate(m.at) === key);
+    let worked = 0, open = null, missing = false;
+    ms.forEach((m) => { if (m.kind === "entrada") { if (open) missing = true; open = m; } else if (open) { worked += (new Date(m.at) - new Date(open.at)) / 60000; open = null; } else missing = true; });
+    if (open) missing = true;
+    const has = ms.length > 0;
+    const net = has ? Math.max(0, worked - (Number(person.break_minutes) || 0)) : 0;
+    const diff = has && !missing ? net - (Number(person.daily_hours) || 8) * 60 : 0;
+    days.push({ key, d, marks: ms, entrada: ms.find((m) => m.kind === "entrada"), salida: [...ms].reverse().find((m) => m.kind === "salida"), worked: net, diff, missing, has });
+  }
+  const rate = attRate(person);
+  const diffMin = days.reduce((a, x) => a + x.diff, 0);
+  const extra = (diffMin / 60) * rate;
+  const adj = (k) => adjustments.filter((a) => a.person_id === person.id && a.kind === k).reduce((s, a) => s + Number(a.amount || 0), 0);
+  const base = Number(person.base_quincena) || 0;
+  const total = base + extra - adj("ausencia") + adj("feriado") + adj("bono") - adj("adelanto") - adj("descuento");
+  return { days, rate, diffMin, extra, base, total, ausencia: adj("ausencia"), feriado: adj("feriado"), bono: adj("bono"), adelanto: adj("adelanto"), descuento: adj("descuento"), missing: days.filter((x) => x.missing).length };
+};
+const hhmm = (min) => { const s = min < 0 ? "−" : ""; const a = Math.round(Math.abs(min)); return `${s}${Math.floor(a / 60)}:${String(a % 60).padStart(2, "0")}`; };
+const DOW_ES = ["DOMINGO", "LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"];
+
+const PayrollScreen = () => {
+  const [tab, setTab] = useState("quincena");
+  const [people, setPeople] = useState(null);
+  const [marks, setMarks] = useState([]);
+  const [adjs, setAdjs] = useState([]);
+  const [q, setQ] = useState(() => quincenaOf());
+  const [open, setOpen] = useState(null); // persona desplegada
+  const [edit, setEdit] = useState(null); // persona en edición
+  const [err, setErr] = useState("");
+  const [adj, setAdj] = useState({ kind: "ausencia", amount: "", note: "" });
+  const [fix, setFix] = useState(null); // {person, day, kind, time, note}
+  useBackStep(!!edit, () => setEdit(null));
+  useBackStep(!!fix, () => setFix(null));
+  const load = async () => {
+    setErr("");
+    const [p, m, a] = await Promise.all([supabase.rpc("att_people_list"), supabase.rpc("att_marks_range", { p_from: q.start, p_to: q.end }), supabase.rpc("att_adjustments_list", { p_period: q.start })]);
+    if (p.error) { setErr(p.error.code === "PGRST202" ? "Falta correr el SQL 31 en Supabase (página «Copiar SQL»)." : p.error.message); setPeople([]); return; }
+    setPeople(p.data || []); setMarks(m.data || []); setAdjs(a.data || []);
+  };
+  useEffect(() => { load(); }, [q.start]);
+  const active = (people || []).filter((p) => p.active);
+  const rows = active.map((p) => ({ p, r: calcPayroll(p, marks, adjs, q) }));
+  const grand = rows.reduce((s, x) => s + x.r.total, 0);
+  const qLabel = `${fmtDay(q.start)} – ${fmtDay(q.end)}`;
+
+  const savePerson = async () => {
+    const e = edit;
+    const { data, error } = await supabase.rpc("att_save_person", { p_id: e.id || null, p_name: e.name, p_daily_hours: Number(e.daily_hours) || 8, p_break_minutes: Number(e.break_minutes) || 0, p_base: Number(e.base_quincena) || 0, p_hour_rate: e.hour_rate === "" || e.hour_rate == null ? null : Number(e.hour_rate), p_active: e.active !== false, p_tag: e.tag || null });
+    if (error) { alert(error.message.includes("LLAVERO_REPETIDO") ? "Ese llavero ya lo tiene otra persona." : "No se guardó: " + error.message); return; }
+    if (e.pin) {
+      const { error: pe } = await supabase.rpc("att_set_pin", { p_id: data.id, p_pin: e.pin });
+      if (pe) { alert(pe.message.includes("PIN_REPETIDO") ? "Ese PIN ya lo usa otra persona. Elige otro." : pe.message.includes("PIN_FACIL") ? "PIN muy fácil (1111, 1234…). Elige otro." : "PIN no válido: usa de 4 a 6 números."); return; }
+    }
+    setEdit(null); load();
+  };
+  const addAdj = async (personId) => {
+    const { error } = await supabase.rpc("att_save_adjustment", { p_person: personId, p_period: q.start, p_kind: adj.kind, p_amount: Number(adj.amount), p_note: adj.note });
+    if (error) { alert("No se guardó: " + error.message); return; }
+    setAdj({ kind: "ausencia", amount: "", note: "" }); load();
+  };
+  const voidAdj = async (id) => { if (!confirm("¿Quitar este ajuste?")) return; await supabase.rpc("att_void_adjustment", { p_id: id }); load(); };
+  const saveFix = async () => {
+    const at = new Date(`${fix.day}T${fix.time}:00-05:00`).toISOString();
+    const { error } = await supabase.rpc("att_add_mark", { p_person: fix.person, p_kind: fix.kind, p_at: at, p_note: fix.note });
+    if (error) { alert(error.message.includes("MOTIVO") ? "Escribe el motivo (ej. «olvidó marcar»)." : "No se guardó: " + error.message); return; }
+    setFix(null); load();
+  };
+  const voidMark = async (id) => { const why = prompt("¿Por qué se anula esta marca? (queda en el registro)"); if (!why) return; const { error } = await supabase.rpc("att_void_mark", { p_id: id, p_reason: why }); if (error) alert(error.message); load(); };
+  const exportXlsx = async () => {
+    const XLSX = await loadXLSX();
+    const wb = XLSX.utils.book_new();
+    rows.forEach(({ p, r }) => {
+      const aoa = [["HORAS JORNADA", hhmm(p.daily_hours * 60), "", "VALOR HORA S/", Number(r.rate.toFixed(4))], [], ["FECHA", "DÍA", "INGRESO", "SALIDA", "TRABAJADAS", "BREAK", "DIFERENCIA", "HORAS", "S/"]];
+      r.days.forEach((x) => aoa.push([x.key.split("-").reverse().join("/"), DOW_ES[x.d.getDay()], x.entrada ? limaTime(x.entrada.at) : "", x.salida ? limaTime(x.salida.at) : "", x.has ? hhmm(x.worked) : "", x.has ? hhmm(p.break_minutes || 0) : "", x.has ? (x.missing ? "FALTA MARCA" : hhmm(x.diff)) : "", x.has && !x.missing ? Number((x.diff / 60).toFixed(2)) : "", x.has && !x.missing ? Number(((x.diff / 60) * r.rate).toFixed(2)) : ""]));
+      aoa.push([], ["SUELDO BASE", r.base], ["HORAS +/−", Number(r.extra.toFixed(2))], ["AUSENCIAS", -r.ausencia], ["FERIADOS", r.feriado], ["BONOS", r.bono], ["ADELANTOS", -r.adelanto], ["DESCUENTOS", -r.descuento], ["TOTAL A PAGAR", Number(r.total.toFixed(2))]);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), p.name.slice(0, 28).toUpperCase());
+    });
+    const tot = [["QUINCENA", qLabel], [], ["PERSONA", "BASE", "HORAS +/−", "AJUSTES", "TOTAL"], ...rows.map(({ p, r }) => [p.name, r.base, Number(r.extra.toFixed(2)), Number((r.total - r.base - r.extra).toFixed(2)), Number(r.total.toFixed(2))]), [], ["TOTAL", "", "", "", Number(grand.toFixed(2))]];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tot), "TOTAL QUINCENA");
+    XLSX.writeFile(wb, `sueldos-quincena-${q.start}.xlsx`);
+  };
+
+  const field = (label, k, props = {}) => <Field label={label}><input style={inputStyle} value={edit[k] ?? ""} onChange={(e) => setEdit((x) => ({ ...x, [k]: e.target.value }))} {...props} /></Field>;
+  if (edit) return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 640, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, margin: "0 0 14px" }}>{edit.id ? `Editar a ${edit.name}` : "Nueva persona"}</h1>
+      <AdminCard>
+        {field("Nombre", "name", { placeholder: "Ej. Nicolle" })}
+        <div className="ed-row">
+          <Field label="Jornada por día"><div style={{ display: "flex", gap: 8 }}>{[["8", "8 horas"], ["4", "4 horas"]].map(([v, l]) => <Chip key={v} active={String(edit.daily_hours) === v} onClick={() => setEdit((x) => ({ ...x, daily_hours: v }))}>{l}</Chip>)}</div></Field>
+          {field("Break (minutos que no se cuentan)", "break_minutes", { inputMode: "numeric", placeholder: "0" })}
+        </div>
+        <div className="ed-row">
+          {field("Sueldo base de la quincena (S/)", "base_quincena", { inputMode: "decimal", placeholder: "Ej. 615" })}
+          {field("Valor hora (S/) — vacío = automático", "hour_rate", { inputMode: "decimal", placeholder: edit.base_quincena ? `Auto: ${(Number(edit.base_quincena) / (15 * (Number(edit.daily_hours) || 8))).toFixed(3)}` : "Automático" })}
+        </div>
+        <div className="ed-row">
+          {field(edit.has_pin ? "PIN nuevo (vacío = no cambia)" : "PIN (4 a 6 números)", "pin", { inputMode: "numeric", type: "password", autoComplete: "new-password", placeholder: "••••" })}
+          {field("Llavero (pásalo por el lector o escribe su número)", "tag", { placeholder: "Ej. 0006930684" })}
+        </div>
+        <Switch on={edit.active !== false} onClick={() => setEdit((x) => ({ ...x, active: !(x.active !== false) }))} label={edit.active !== false ? "Activa (puede marcar)" : "Inactiva (ya no trabaja)"} />
+      </AdminCard>
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <button type="button" onClick={() => setEdit(null)} style={{ flex: 1, minHeight: 48, borderRadius: 10, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+        <PrimaryButton disabled={!edit.name?.trim()} onClick={savePerson} style={{ flex: 2, width: "auto", minHeight: 48 }}>Guardar</PrimaryButton>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="payroll" style={{ padding: "18px 18px 90px", maxWidth: 980, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Asistencia y sueldos</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>Cada persona marca con su PIN o llavero en «Marcar asistencia». Aquí se calcula la quincena igual que el Excel: minutos de más suman y de menos restan al valor hora.</div>
+      {err && <div style={{ background: C.accentSoft, borderRadius: 10, padding: "10px 12px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 12 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>{[["quincena", "Quincena"], ["personas", "Personas y PIN"]].map(([k, l]) => <Chip key={k} active={tab === k} onClick={() => setTab(k)}>{l}</Chip>)}</div>
+
+      {tab === "personas" && (
+        <>
+          <button type="button" onClick={() => setEdit({ name: "", daily_hours: "8", break_minutes: "0", base_quincena: "", hour_rate: "", pin: "", tag: "", active: true })} style={{ ...quickLinkStyle, width: "100%", justifyContent: "center", marginBottom: 12, minHeight: 48 }}><Plus size={16} /> Agregar persona</button>
+          {(people || []).map((p) => (
+            <AdminCard key={p.id} style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 12, opacity: p.active ? 1 : 0.55 }}>
+              <div style={{ flex: 1, fontFamily: FONT_BODY }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{p.name}{!p.active ? " (inactiva)" : ""}</div>
+                <div style={{ fontSize: 12, color: C.stone }}>{p.daily_hours} h/día · base S/ {Number(p.base_quincena).toFixed(2)} · valor hora S/ {attRate(p).toFixed(3)} · {p.has_pin ? "PIN ✓" : "sin PIN"} · {p.tag ? "llavero ✓" : "sin llavero"}</div>
+              </div>
+              <button type="button" aria-label={`Editar ${p.name}`} onClick={() => setEdit({ ...p, daily_hours: String(p.daily_hours), break_minutes: String(p.break_minutes), base_quincena: String(p.base_quincena), hour_rate: p.hour_rate == null ? "" : String(p.hour_rate), pin: "", tag: p.tag || "" })} style={{ width: 42, height: 42, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Pencil size={16} /></button>
+            </AdminCard>
+          ))}
+          {people && !people.length && !err && <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, textAlign: "center", padding: 20 }}>Agrega a cada persona con su PIN para que pueda marcar.</div>}
+        </>
+      )}
+
+      {tab === "quincena" && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <button type="button" aria-label="Quincena anterior" onClick={() => setQ(shiftQuincena(q, -1))} style={{ width: 44, height: 44, borderRadius: "50%", border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ArrowLeft size={17} /></button>
+            <div className="q-label" style={{ flex: 1, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14.5, fontWeight: 700 }}>{qLabel}</div>
+            <button type="button" aria-label="Quincena siguiente" onClick={() => setQ(shiftQuincena(q, 1))} style={{ width: 44, height: 44, borderRadius: "50%", border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ChevronRight size={18} /></button>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <div style={{ flex: 1, background: C.ink, color: C.paper, borderRadius: 14, padding: "12px 14px" }}><div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 800 }} className="q-total">S/ {grand.toFixed(2)}</div><div style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.8 }}>total a pagar ({rows.length} personas)</div></div>
+            <button type="button" onClick={exportXlsx} disabled={!rows.length} style={{ ...quickLinkStyle, flexDirection: "column", justifyContent: "center", gap: 4, minWidth: 110, fontSize: 12 }}><FileSpreadsheet size={20} /> Descargar Excel</button>
+          </div>
+          {rows.map(({ p, r }) => (
+            <div key={p.id} className={`pay-person${open === p.id ? " is-open" : ""}`} style={{ background: C.paperDeep, border: `1px solid ${open === p.id ? C.ink : C.line}`, borderRadius: 14, marginBottom: 10, overflow: "hidden" }}>
+              <button type="button" onClick={() => setOpen(open === p.id ? null : p.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left", minHeight: 64 }}>
+                <div style={{ flex: 1, fontFamily: FONT_BODY }}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: r.missing ? C.accent : C.stone }}>Base S/ {r.base.toFixed(2)} · horas {hhmm(r.diffMin)} = S/ {r.extra.toFixed(2)}{r.missing ? ` · ${r.missing} día(s) con marca incompleta` : ""}</div>
+                </div>
+                <div className="pay-total" style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800 }}>S/ {r.total.toFixed(2)}</div>
+                <ChevronDown size={18} style={{ transform: open === p.id ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+              </button>
+              {open === p.id && (
+                <div className="fold-in" style={{ padding: "0 12px 14px", borderTop: `1px solid ${C.line}` }}>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, fontSize: 12.5, minWidth: 520 }}>
+                      <thead><tr>{["Día", "Ingreso", "Salida", "Trabajó", "+/−", "S/", ""].map((h) => <th key={h} style={{ textAlign: "left", padding: "8px 6px", color: C.stone, fontWeight: 600 }}>{h}</th>)}</tr></thead>
+                      <tbody>{r.days.map((x) => (
+                        <tr key={x.key} style={{ borderTop: `1px solid ${C.line}`, background: x.missing ? C.accentSoft : "transparent" }}>
+                          <td style={{ padding: "6px" }}>{fmtDay(x.key)}</td>
+                          <td style={{ padding: "6px" }}>{x.entrada ? limaTime(x.entrada.at) : "—"}{x.entrada?.source === "manual" ? " ✎" : ""}</td>
+                          <td style={{ padding: "6px" }}>{x.salida ? limaTime(x.salida.at) : x.has ? <strong style={{ color: C.accent }}>falta</strong> : "—"}{x.salida?.source === "manual" ? " ✎" : ""}</td>
+                          <td style={{ padding: "6px" }}>{x.has ? hhmm(x.worked) : ""}</td>
+                          <td style={{ padding: "6px", fontWeight: 700, color: x.diff < 0 ? C.accent : C.ink }}>{x.has && !x.missing ? hhmm(x.diff) : ""}</td>
+                          <td style={{ padding: "6px" }}>{x.has && !x.missing ? ((x.diff / 60) * r.rate).toFixed(2) : ""}</td>
+                          <td style={{ padding: "6px", whiteSpace: "nowrap" }}>
+                            <button type="button" title="Agregar marca olvidada" aria-label={`Corregir ${x.key}`} onClick={() => setFix({ person: p.id, day: x.key, kind: x.entrada && !x.salida ? "salida" : "entrada", time: "", note: "" })} style={{ border: `1px solid ${C.line}`, background: C.paper, borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 11.5 }}>+ marca</button>
+                            {x.marks.map((m) => <button key={m.id} type="button" title={`Anular ${m.kind} ${limaTime(m.at)}`} onClick={() => voidMark(m.id)} style={{ marginLeft: 4, border: "none", background: "none", color: C.stone, cursor: "pointer", fontSize: 11 }}>✕{limaTime(m.at).replace(/\s?[ap]\.?\s?m\.?/i, "")}</button>)}
+                          </td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    <span style={labelStyle}>Ajustes de esta quincena</span>
+                    {adjs.filter((a) => a.person_id === p.id).map((a) => <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 13, padding: "4px 0" }}><span>{a.kind[0].toUpperCase() + a.kind.slice(1)}{a.note ? ` · ${a.note}` : ""}</span><span>{["ausencia", "adelanto", "descuento"].includes(a.kind) ? "−" : "+"}S/ {Number(a.amount).toFixed(2)} <button type="button" aria-label="Quitar ajuste" onClick={() => voidAdj(a.id)} style={{ border: "none", background: "none", cursor: "pointer" }}><X size={13} /></button></span></div>)}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                      <select aria-label="Tipo de ajuste" value={adj.kind} onChange={(e) => setAdj((x) => ({ ...x, kind: e.target.value }))} style={{ ...inputStyle, width: "auto" }}><option value="ausencia">Ausencia (resta)</option><option value="adelanto">Adelanto (resta)</option><option value="descuento">Descuento (resta)</option><option value="feriado">Feriado trabajado (suma)</option><option value="bono">Bono (suma)</option></select>
+                      <input aria-label="Monto del ajuste" inputMode="decimal" placeholder="S/" value={adj.amount} onChange={(e) => setAdj((x) => ({ ...x, amount: e.target.value.replace(/[^0-9.]/g, "") }))} style={{ ...inputStyle, width: 90 }} />
+                      {adj.kind === "ausencia" && <button type="button" onClick={() => setAdj((x) => ({ ...x, amount: (attRate(p) * p.daily_hours).toFixed(2), note: x.note || "1 día" }))} style={{ border: `1px solid ${C.line}`, background: C.paper, borderRadius: 8, padding: "0 10px", cursor: "pointer", fontSize: 12 }}>1 día = S/ {(attRate(p) * p.daily_hours).toFixed(2)}</button>}
+                      <input aria-label="Nota del ajuste" placeholder="Nota (opcional)" value={adj.note} onChange={(e) => setAdj((x) => ({ ...x, note: e.target.value }))} style={{ ...inputStyle, flex: "1 1 120px", width: "auto" }} />
+                      <button type="button" disabled={!(Number(adj.amount) > 0)} onClick={() => addAdj(p.id)} style={{ border: "none", background: C.ink, color: C.paper, borderRadius: 8, padding: "0 14px", minHeight: 42, cursor: "pointer", opacity: Number(adj.amount) > 0 ? 1 : 0.4 }}>Agregar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          {people && !rows.length && !err && <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, textAlign: "center", padding: 20 }}>Primero agrega a las personas en «Personas y PIN».</div>}
+        </>
+      )}
+      {fix && createPortal(
+        <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div onClick={() => setFix(null)} style={{ position: "absolute", inset: 0, background: `${C.scrim}88` }} />
+          <div className="sheet-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: 20, maxWidth: 520, width: "100%", margin: "0 auto", animation: "slideUp .25s ease" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Agregar marca olvidada</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 12 }}>{fmtDay(fix.day, true)} · queda como «manual» con tu nombre y el motivo.</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>{["entrada", "salida"].map((k) => <Chip key={k} active={fix.kind === k} onClick={() => setFix((x) => ({ ...x, kind: k }))}>{k === "entrada" ? "Entrada" : "Salida"}</Chip>)}</div>
+            <Field label="Hora"><input type="time" aria-label="Hora de la marca" value={fix.time} onChange={(e) => setFix((x) => ({ ...x, time: e.target.value }))} style={{ ...inputStyle, fontSize: 18 }} /></Field>
+            <Field label="Motivo"><input aria-label="Motivo" value={fix.note} onChange={(e) => setFix((x) => ({ ...x, note: e.target.value }))} placeholder="Ej. olvidó marcar la salida" style={inputStyle} /></Field>
+            <PrimaryButton disabled={!fix.time || !fix.note.trim()} onClick={saveFix}>Guardar marca</PrimaryButton>
+          </div>
+        </div>, document.body)}
+    </div>
+  );
+};
+
 const STAFF_ALL_ROLES = ["superadmin", "administrador", "cajero", "vendedora_tienda", "vendedora_online", "almacen"];
 const STAFF_ADMIN = ["superadmin", "administrador"];
 const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora_tienda"];
@@ -10974,6 +11603,7 @@ const SCREEN_ACCESS = {
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
   impresora: STAFF_STORE_SELLERS,
   avisos: ["superadmin", "administrador", "vendedora_online", "vendedora_tienda", "cajero"],
+  asistencia: STAFF_ALL_ROLES, sueldos: STAFF_ADMIN,
 };
 const canOpenScreen = (role, sc) => (SCREEN_ACCESS[sc] || []).includes(role);
 // Pantalla con la que se abre el panel según el enlace: #caja → Caja; #staff/<pantalla> → esa pantalla (si su rol puede)
@@ -10989,9 +11619,15 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   const [screen, setScreenState] = useState(() => safeScreen(initialScreen));
   const setScreenRaw = (sc) => setScreenState(safeScreen(sc));
   // Historial dentro del panel: la flecha atrás del navegador vuelve a la pantalla anterior del panel
-  const setScreen = (sc0) => { const sc = safeScreen(sc0); setScreenState(sc); try { if (window.location.hash !== `#staff/${sc}`) window.history.pushState({ staff: sc }, "", `#staff/${sc}`); } catch (e) { /* sin historial */ } };
+  // Al cambiar de pantalla: aparece suave (sin corte) y desde arriba
+  const staffMainRef = useRef(null);
+  useEffect(() => { const el = staffMainRef.current; if (!el) return; el.classList.remove("screen-in"); void el.offsetWidth; el.classList.add("screen-in"); }, [screen]);
+  // Cada pantalla anota cuántas hay detrás (depth): «atrás» vuelve a la anterior y no avanza
+  const setScreen = (sc0) => { const sc = safeScreen(sc0); setScreenState(sc); try { if (window.location.hash !== `#staff/${sc}`) window.history.pushState({ staff: sc, depth: (window.history.state?.depth || 0) + 1 }, "", `#staff/${sc}`); } catch (e) { /* sin historial */ } };
+  // Volver: a la pantalla anterior del historial (la lista de donde vino); si se entró directo, a la indicada
+  const goBack = (fallback) => { if ((window.history.state?.depth || 0) > 0 && !window.history.state?.step) window.history.back(); else setScreen(fallback); };
   useEffect(() => {
-    try { window.history.replaceState({ staff: screen }, "", `#staff/${screen}`); } catch (e) { /* nada */ }
+    try { window.history.replaceState({ staff: screen, depth: window.history.state?.depth || 0 }, "", `#staff/${screen}`); } catch (e) { /* nada */ }
     const onPop = () => {
       // Atrás/adelante o una dirección escrita a mano (#caja, #staff/stock…): solo pantallas permitidas para su rol
       const target = safeScreen(staffScreenFromHash(window.location.hash));
@@ -11112,7 +11748,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   };
   const saveProduct = (record) => {
     updateCatalog((c) => { const exists = c.products.some((p) => p.id === record.id); return { ...c, products: exists ? c.products.map((p) => (p.id === record.id ? record : p)) : [record, ...c.products] }; });
-    setScreen("products");
+    goBack("products");
   };
   const deleteProduct = (id) => { if (confirm("¿Eliminar este producto?")) updateCatalog((c) => ({ ...c, products: c.products.filter((p) => p.id !== id), collections: c.collections.map((col) => ({ ...col, productIds: col.productIds.filter((pid) => pid !== id) })) })); };
   const importProducts = (upsertList, deleteSlugs = [], movements = []) => {
@@ -11188,25 +11824,27 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     };
     return { ...c, products: [copy, ...c.products] };
   });
-  const saveBanner = (record) => { updateCatalog((c) => { const exists = c.banners.some((b) => b.id === record.id); return { ...c, banners: exists ? c.banners.map((b) => (b.id === record.id ? record : b)) : [...c.banners, record] }; }); setScreen("banners"); };
+  const saveBanner = (record) => { updateCatalog((c) => { const exists = c.banners.some((b) => b.id === record.id); return { ...c, banners: exists ? c.banners.map((b) => (b.id === record.id ? record : b)) : [...c.banners, record] }; }); goBack("banners"); };
   const toggleBannerActive = (id) => updateCatalog((c) => ({ ...c, banners: c.banners.map((b) => (b.id === id ? { ...b, active: !b.active } : b)) }));
   const deleteBanner = (id) => { if (confirm("¿Eliminar este banner?")) updateCatalog((c) => ({ ...c, banners: c.banners.filter((b) => b.id !== id) })); };
-  const saveCollection = (record) => { updateCatalog((c) => { const exists = c.collections.some((col) => col.id === record.id); return { ...c, collections: exists ? c.collections.map((col) => (col.id === record.id ? record : col)) : [...c.collections, record] }; }); setScreen("collections"); };
+  const saveCollection = (record) => { updateCatalog((c) => { const exists = c.collections.some((col) => col.id === record.id); return { ...c, collections: exists ? c.collections.map((col) => (col.id === record.id ? record : col)) : [...c.collections, record] }; }); goBack("collections"); };
   const deleteCollection = (id) => { if (confirm("¿Eliminar esta colección?")) updateCatalog((c) => ({ ...c, collections: c.collections.filter((col) => col.id !== id) })); };
 
   return (
     <div className="staff-shell" style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", background: C.paper, minHeight: 0 }}>
-      <div className="app-content staff-main" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
-        {screen !== "productEditor" && screen !== "bannerEditor" && screen !== "collectionEditor" && <AdminTopBar title={`Fly · ${ROLE_LABELS[role] || role}`} onExit={onExit} onBack={screen !== homeScreen ? () => window.history.back() : null} onHome={screen !== homeScreen ? () => setScreen(homeScreen) : null} />}
-        {screen === "productEditor" && <AdminTopBar title={editingProductId ? "Editar producto" : "Nuevo producto"} onBack={() => setScreen("products")} onExit={onExit} />}
-        {screen === "bannerEditor" && <AdminTopBar title={editingBannerId ? "Editar banner" : "Nuevo banner"} onBack={() => setScreen("banners")} onExit={onExit} />}
-        {screen === "collectionEditor" && <AdminTopBar title={editingCollectionId ? "Editar colección" : "Nueva colección"} onBack={() => setScreen("collections")} onExit={onExit} />}
+      <div ref={staffMainRef} className="app-content staff-main" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
+        {screen !== "productEditor" && screen !== "bannerEditor" && screen !== "collectionEditor" && <AdminTopBar title={`Fly · ${ROLE_LABELS[role] || role}`} onExit={onExit} onClock={screen !== "asistencia" ? () => setScreen("asistencia") : null} onBack={screen !== homeScreen ? () => window.history.back() : null} onHome={screen !== homeScreen ? () => setScreen(homeScreen) : null} />}
+        {screen === "productEditor" && <AdminTopBar title={editingProductId ? "Editar producto" : "Nuevo producto"} onBack={() => goBack("products")} onExit={onExit} />}
+        {screen === "bannerEditor" && <AdminTopBar title={editingBannerId ? "Editar banner" : "Nuevo banner"} onBack={() => goBack("banners")} onExit={onExit} />}
+        {screen === "collectionEditor" && <AdminTopBar title={editingCollectionId ? "Editar colección" : "Nueva colección"} onBack={() => goBack("collections")} onExit={onExit} />}
 
         {canSellStore && screen === "pos" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="tienda" title="Punto de Venta" role={role} onGoCash={() => setScreen("caja")} />}
         {canSellOnline && screen === "onlinesales" && <PosScreen catalog={catalog} staffName={staffName} onCompleteSale={completeSale} onReserveNumber={reserveNumber} onSaveCustomer={saveCustomer} channel="online" title="Registrar Venta Online" role={role} />}
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} userId={currentUserId} />}
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} onReturns={canOpenScreen(role, "returns") ? () => { setReturnSale(null); setScreen("returns"); } : null} onCredits={canOpenScreen(role, "credits") ? () => setScreen("credits") : null} />}
         {canOpenScreen(role, "avisos") && screen === "avisos" && <StockAlertsScreen catalog={catalog} />}
+        {canOpenScreen(role, "asistencia") && screen === "asistencia" && <AttendanceKiosk />}
+        {canOpenScreen(role, "sueldos") && screen === "sueldos" && <PayrollScreen />}
         {canOpenScreen(role, "credits") && screen === "credits" && <CreditsScreen role={role} settings={catalog.settings} onSaveMonths={STAFF_ADMIN.includes(role) ? (n) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, creditMonths: n } })) : null} />}
         {canOpenScreen(role, "returns") && screen === "returns" && <ReturnsScreen key={returnSale?.id || "nueva"} catalog={catalog} initialSale={returnSale}
           onSaved={(data) => { patchCatalog((c) => ({ ...c, sales: c.sales.some((x) => x.id === data.id) ? c.sales.map((x) => (x.id === data.id ? data : x)) : c.sales })); refreshData && refreshData(); }} />}
@@ -11225,11 +11863,11 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "stock" && <StockScreen catalog={catalog} staffName={staffName} onRegisterMovement={registerMovement} onOpenTransfers={canOpenScreen(role, "transfers") ? () => setScreen("transfers") : null} canEdit={role === "administrador" || role === "superadmin" || role === "almacen"} />}
         {(role === "administrador" || role === "superadmin") && screen === "dashboard" && <AdminDashboard catalog={catalog} updateCatalog={updateCatalog} setAdminScreen={setScreen} role={role} />}
         {(role === "administrador" || role === "superadmin") && screen === "products" && <AdminProductList onPatchProduct={patchProduct} catalog={catalog} openEditor={(id) => { setEditingProductId(id); setScreen("productEditor"); }} deleteProduct={deleteProduct} onImport={importProducts} onImportTumi={importTumi} onBulkPhotos={attachBulkImages} onAddThumbs={addThumbs} onToggleActive={toggleProductActive} onToggleFeatured={toggleProductFeatured} onToggleOnline={toggleProductOnline} onDuplicate={duplicateProduct} />}
-        {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => setScreen("products")} />}
+        {(role === "administrador" || role === "superadmin") && screen === "productEditor" && <AdminProductEditor product={catalog.products.find((p) => p.id === editingProductId) || null} collections={catalog.collections} allProducts={catalog.products} onSave={saveProduct} onCancel={() => goBack("products")} />}
         {(role === "administrador" || role === "superadmin") && screen === "banners" && <AdminBannerList banners={catalog.banners} openEditor={(id) => { setEditingBannerId(id); setScreen("bannerEditor"); }} toggleActive={toggleBannerActive} deleteBanner={deleteBanner} />}
-        {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => setScreen("banners")} />}
+        {(role === "administrador" || role === "superadmin") && screen === "bannerEditor" && <AdminBannerEditor banner={catalog.banners.find((b) => b.id === editingBannerId) || null} onSave={saveBanner} onCancel={() => goBack("banners")} />}
         {(role === "administrador" || role === "superadmin") && screen === "collections" && <AdminCollectionList collections={catalog.collections} openEditor={(id) => { setEditingCollectionId(id); setScreen("collectionEditor"); }} deleteCollection={deleteCollection} />}
-        {(role === "administrador" || role === "superadmin") && screen === "collectionEditor" && <AdminCollectionEditor collection={catalog.collections.find((c) => c.id === editingCollectionId) || null} products={catalog.products} onSave={saveCollection} onCancel={() => setScreen("collections")} />}
+        {(role === "administrador" || role === "superadmin") && screen === "collectionEditor" && <AdminCollectionEditor collection={catalog.collections.find((c) => c.id === editingCollectionId) || null} products={catalog.products} onSave={saveCollection} onCancel={() => goBack("collections")} />}
         {(role === "administrador" || role === "superadmin") && screen === "invoices" && <AdminInvoicesScreen storesSettings={catalog.settings} sales={catalog.sales} onVoid={voidSale} onReturn={(sale) => { setReturnSale(sale); setScreen("returns"); }} />}
         {(role === "administrador" || role === "superadmin") && screen === "reports" && <AdminReportsScreen catalog={catalog} />}
         {(role === "administrador" || role === "superadmin") && screen === "more" && <AdminMoreScreen setScreen={setScreen} role={role} catalog={catalog} />}
@@ -11262,6 +11900,13 @@ const wipePersonalData = () => { PERSONAL_KEYS.forEach((k) => { try { localStora
 export default function FlyBoutiqueApp() {
   // Al abrir: si pasó más de 1 hora sin actividad (o es la primera vez con esta versión), se empieza limpio.
   const [startedStale] = useState(() => { const stale = shopperIsIdle(); if (stale) wipePersonalData(); else markActive(); return stale; });
+  // La barra de desplazamiento fina se ve solo mientras se desplaza (y un momento después se desvanece)
+  useEffect(() => {
+    const timers = new WeakMap();
+    const on = (e) => { const el = e.target; if (!el?.classList || !el.matches(".app-content, .staff-nav")) return; el.classList.add("is-scrolling"); clearTimeout(timers.get(el)); timers.set(el, setTimeout(() => el.classList.remove("is-scrolling"), 900)); };
+    document.addEventListener("scroll", on, { capture: true, passive: true });
+    return () => document.removeEventListener("scroll", on, { capture: true });
+  }, []);
   const [catalog, setCatalog] = useState(null);
   const [catalogError, setCatalogError] = useState(false);
   SHOP_SETTINGS = catalog?.settings || {};
@@ -11838,8 +12483,25 @@ export default function FlyBoutiqueApp() {
         .pay-pick { animation: payPick 1s ease 3; }
         .register-sale button:focus-visible { outline: 3px solid ${C.ink}; outline-offset: 3px; }
         #root { height: 100%; }
-        .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
-        .app-content { scrollbar-width: none; }
+        .hscroll::-webkit-scrollbar { display: none; }
+        /* Barra de desplazamiento fina (como las tiendas grandes): casi invisible y pegada al borde; se ve al desplazar
+           o al pasar el mouse, y luego se desvanece. Ocupa siempre su lugar, así la página no salta de lado al cambiar de pestaña. */
+        .app-content, .staff-nav { scrollbar-width: thin; scrollbar-color: transparent transparent; scrollbar-gutter: stable; }
+        .app-content.is-scrolling, .staff-nav.is-scrolling { scrollbar-color: rgba(0,0,0,.38) transparent; }
+        @media (hover: hover) and (pointer: fine) { .app-content:hover, .staff-nav:hover { scrollbar-color: rgba(0,0,0,.2) transparent; } .app-content.is-scrolling:hover { scrollbar-color: rgba(0,0,0,.45) transparent; } }
+        .app-content::-webkit-scrollbar, .staff-nav::-webkit-scrollbar { width: 8px; height: 8px; }
+        .app-content::-webkit-scrollbar-track, .staff-nav::-webkit-scrollbar-track { background: transparent; }
+        .app-content::-webkit-scrollbar-thumb, .staff-nav::-webkit-scrollbar-thumb { background: transparent; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+        .app-content.is-scrolling::-webkit-scrollbar-thumb, .staff-nav.is-scrolling::-webkit-scrollbar-thumb { background-color: rgba(0,0,0,.38); }
+        @media (hover: hover) and (pointer: fine) { .app-content:hover::-webkit-scrollbar-thumb, .staff-nav:hover::-webkit-scrollbar-thumb { background-color: rgba(0,0,0,.2); } .app-content::-webkit-scrollbar-thumb:hover { background-color: rgba(0,0,0,.5); } }
+        /* Al cambiar de pantalla o desplegar algo: aparece suave, sin cortes */
+        @keyframes foldIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+        .fold-in, .stock-card-body, .ed-sec-body, .fold-body { animation: foldIn .2s ease both; }
+        @keyframes screenIn { from { opacity: 0; } to { opacity: 1; } }
+        .screen-in { animation: screenIn .18s ease; } /* sin «both»: al terminar no deja capa encima (las hojas de cobro quedan por delante del menú) */
+        @media (prefers-reduced-motion: reduce) { .fold-in, .stock-card-body, .ed-sec-body, .fold-body, .screen-in { animation: none; } }
+        .stock-size:not(:disabled):active, .check-row:active, .cal-grid button:active { transform: scale(.96); }
+        .stock-card-btn:hover, .check-row:hover { background: rgba(0,0,0,.03); }
         /* Alto real de la pantalla: en iPhone 100vh es más alto que lo visible (la barra de Safari) y la página podía quedar descuadrada al volver */
         .app-frame { height: 100vh; height: 100dvh; }
         /* Nada puede ser más ancho que la pantalla (antes la lista de Productos se corría de lado en el celular) */
