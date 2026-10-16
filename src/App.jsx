@@ -5027,9 +5027,36 @@ const OutletControl = ({ product, onPatch }) => {
 
 // Crea las miniaturas de las fotos que se subieron antes de existir esta mejora (la tienda carga más rápido en celular).
 // No borra ni cambia la foto original: solo agrega una copia pequeña.
-const ThumbsTool = ({ products, onDone }) => {
+// Fotos que ya no existen (error 404): se recuerdan en este equipo para no volver a intentarlas cada vez
+const MISSING_PHOTOS_KEY = "flyboutique:fotos-perdidas:v1";
+const missingPhotosGet = () => { try { return new Set(JSON.parse(localStorage.getItem(MISSING_PHOTOS_KEY) || "[]")); } catch (e) { return new Set(); } };
+const ThumbsTool = ({ products, onDone, onEdit, onPatch }) => {
   const [run, setRun] = useState(null);
-  const pending = products.flatMap((p) => (p.images || []).filter((m) => m.type !== "video" && !m.thumb && /^https?:\/\//.test(m.url || "")).map((m) => ({ pid: p.id, name: p.name, url: m.url })));
+  const [missing, setMissing] = useState(missingPhotosGet);
+  const [removed, setRemoved] = useState([]);
+  const pending = products.flatMap((p) => (p.images || []).filter((m) => m.type !== "video" && !m.thumb && /^https?:\/\//.test(m.url || "") && !missing.has(m.url)).map((m) => ({ pid: p.id, name: p.name, url: m.url })));
+  // Prendas que todavía apuntan a una foto perdida (para arreglarlas)
+  const lost = products.flatMap((p) => (p.images || []).filter((m) => missing.has(m.url)).map((m) => ({ pid: p.id, name: p.name, url: m.url }))).filter((f) => !removed.includes(f.url));
+  const remember = (urls) => { const n = new Set([...missing, ...urls]); setMissing(n); try { localStorage.setItem(MISSING_PHOTOS_KEY, JSON.stringify([...n].slice(-300))); } catch (e) { /* sin guardado */ } };
+  const removeLost = (f) => {
+    const p = products.find((x) => x.id === f.pid); if (!p || !onPatch) return;
+    if (!confirm(`¿Quitar de «${p.name}» la foto que ya no existe? Solo se quita el enlace roto: la foto ya no estaba en el almacenamiento. Las demás fotos no cambian.`)) return;
+    onPatch(p.id, { images: (p.images || []).filter((m) => m.url !== f.url) });
+    setRemoved((r) => [...r, f.url]);
+  };
+  const lostBox = lost.length > 0 && (
+    <div className="lost-photos" style={{ marginTop: run?.finished ? 8 : 0, borderTop: run?.finished ? `1px solid ${C.line}` : "none", paddingTop: run?.finished ? 8 : 0 }}>
+      <strong>{lost.length === 1 ? "1 foto ya no existe" : `${lost.length} fotos ya no existen`}</strong> (se borró del almacenamiento). En la tienda se ve el logo FLY en su lugar. Sube otra foto o quita el enlace roto:
+      {lost.map((f) => (
+        <div key={f.url} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+          <span style={{ flex: "1 1 160px", minWidth: 0 }}>• {f.name}</span>
+          {onEdit && <button onClick={() => onEdit(f.pid)} style={{ padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.ink}`, background: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Cambiar foto</button>}
+          {onPatch && <button onClick={() => removeLost(f)} style={{ padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Quitar foto rota</button>}
+        </div>
+      ))}
+    </div>
+  );
+  if (!pending.length && !run && !lostBox) return null;
   if (!pending.length && !run) return null;
   const start = async () => {
     const made = {}; let ok = 0, fail = 0; const fails = [];
@@ -5050,14 +5077,17 @@ const ThumbsTool = ({ products, onDone }) => {
     };
     await Promise.all([worker(), worker(), worker()]);
     if (ok) onDone(made);
+    const gone = fails.filter((f) => /error 404|error 400/.test(f.why)).map((f) => f.url);
+    if (gone.length) remember(gone);
     setRun({ done: ok + fail, total: pending.length, ok, fail, fails, finished: true });
   };
   return (
     <div style={{ background: C.paperDeep, border: `1px solid ${C.line}`, borderRadius: 9, padding: "10px 12px", marginBottom: 10, fontFamily: FONT_BODY, fontSize: 12, color: C.ink }}>
-      {!run && <><strong>{pending.length} foto(s)</strong> sin versión liviana para celular. <button onClick={start} style={{ marginLeft: 6, padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Optimizar fotos</button><div style={{ color: C.stone, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>Crea una copia pequeña de cada foto solo para las listas y miniaturas, así el celular carga rápido y no se traba. La foto original <strong>no se borra ni pierde calidad</strong>: la ficha de la prenda y el zoom siguen usando la original. Las fotos de varios colores se mantienen todas.</div></>}
+      {!run && pending.length > 0 && <><strong>{pending.length} foto(s)</strong> sin versión liviana para celular. <button onClick={start} style={{ marginLeft: 6, padding: "6px 10px", borderRadius: 7, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>Optimizar fotos</button><div style={{ color: C.stone, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>Crea una copia pequeña de cada foto solo para las listas y miniaturas, así el celular carga rápido y no se traba. La foto original <strong>no se borra ni pierde calidad</strong>: la ficha de la prenda y el zoom siguen usando la original. Las fotos de varios colores se mantienen todas.</div></>}
       {run && !run.finished && <>Optimizando fotos… {run.done} de {run.total}. No cierres esta pantalla.</>}
       {run?.finished && <>Listo: {run.ok} foto(s) optimizadas{run.fail ? ` · ${run.fail} no se pudieron` : ""}.
         {run.fails?.length > 0 && <div style={{ marginTop: 6, color: C.inkSoft, lineHeight: 1.5 }}>{run.fails.map((f, i) => <div key={i}>• <strong>{f.name}</strong>: {f.why}.</div>)}<div style={{ color: C.stone, marginTop: 4 }}>Esa foto se sigue viendo igual (con la original); solo carga un poco más lento. Puedes reintentar más tarde.</div></div>}</>}
+      {lostBox}
     </div>
   );
 };
@@ -5227,7 +5257,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
         <ImageIcon size={15} /> {matchingPhotos ? "Asignando fotos…" : "Subir fotos en lote (coincidencia automática)"}
       </button>
       <input ref={photoRef} type="file" accept="image/*" multiple onChange={handleBulkPhotos} style={{ display: "none" }} />
-      {onAddThumbs && <ThumbsTool products={catalog.products} onDone={onAddThumbs} />}
+      {onAddThumbs && <ThumbsTool products={catalog.products} onDone={onAddThumbs} onEdit={openEditor} onPatch={onPatchProduct} />}
       {onPatchProduct && <TranslateTool products={catalog.products} onPatch={onPatchProduct} />}
 
       <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginBottom: 16, textAlign: "center", lineHeight: 1.5 }}>
