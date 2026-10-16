@@ -675,6 +675,7 @@ const SmartVideo = ({ src, poster, style, active = true }) => {
   const [ready, setReady] = useState(false);
   const [manual] = useState(saveData);
   const [play, setPlay] = useState(!manual);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
@@ -691,8 +692,13 @@ const SmartVideo = ({ src, poster, style, active = true }) => {
   }, [visible, active, play]);
   return (
     <div className={ready ? "fvid is-loaded" : "fvid"} style={{ position: "relative", width: "100%", height: "100%", ...style }}>
-      <video ref={ref} src={src} poster={poster || undefined} muted loop playsInline preload={visible || !manual ? "metadata" : "none"} onLoadedData={() => setReady(true)}
-        style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      {/* La imagen de respaldo NO se pone debajo ni encima del video: solo se usa con «ahorro de datos» (antes de tocar ▶) o si el video no carga.
+          Mientras carga se ve el primer cuadro del mismo video (#t=0.1), así no aparece otra foto y luego el video «encima». */}
+      {failed && poster ? <ProductImg src={poster} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : (
+        <video ref={ref} src={/#t=/.test(src) ? src : `${src}#t=0.1`} poster={manual && !play && poster ? poster : undefined} muted loop playsInline preload={visible || !manual ? "metadata" : "none"}
+          onLoadedData={() => setReady(true)} onError={() => setFailed(true)}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      )}
       {!play && <button onClick={() => setPlay(true)} aria-label={t("Reproducir video")} style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer" }}>
         <span style={{ width: 54, height: 54, borderRadius: "50%", background: "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center" }}><Play size={22} color={C.ink} fill={C.ink} style={{ marginLeft: 3 }} /></span>
       </button>}
@@ -5863,7 +5869,7 @@ const AdminBannerList = ({ banners, openEditor, toggleActive, deleteBanner }) =>
       {banners.slice().sort((a, b) => a.order - b.order).map((b) => (
         <AdminCard key={b.id}>
           <div style={{ display: "flex", gap: 12 }}>
-            <div style={{ width: 76, height: 76, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}><ProductImg src={b.image} alt={b.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+            <div style={{ width: 76, height: 76, borderRadius: 8, overflow: "hidden", flexShrink: 0, background: C.paperDeep }}>{b.videoUrl && !b.image ? <video src={`${b.videoUrl}#t=0.1`} muted playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : <ProductImg src={b.image} alt={b.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, marginBottom: 4 }}>{b.title}</div>
               <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 8 }}>Orden {b.order} · CTA: {b.ctaLabel}</div>
@@ -5898,7 +5904,7 @@ const AdminBannerEditor = ({ banner, onSave, onCancel }) => {
     if (fileRef.current) fileRef.current.value = "";
     if (videoRef.current) videoRef.current.value = "";
   };
-  const canSave = form.title.trim() && form.image;
+  const canSave = form.title.trim() && (form.image || form.videoUrl);
   return (
     <div style={{ padding: "18px 18px 100px" }}>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.ink, fontWeight: 800, margin: "0 0 18px" }}>{banner ? "Editar banner" : "Nuevo banner"}</h1>
@@ -5908,13 +5914,13 @@ const AdminBannerEditor = ({ banner, onSave, onCancel }) => {
         <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>{uploading ? "Subiendo…" : <><Upload size={14} /> Subir imagen</>}</button>
         <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
         <input style={inputStyle} value={form.image} onChange={(e) => set("image", e.target.value)} placeholder="o pega una URL de imagen" />
-        <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 4 }}>Esta imagen se usa mientras no haya video, o como respaldo si el video no carga.</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 4 }}>{form.videoUrl ? "Con video, la imagen es opcional: no se ve encima ni debajo del video. Solo se usa si el video no carga o si el celular está en «ahorro de datos»." : "Sube una imagen o un video (abajo). Si pones video, la imagen es opcional."}</div>
         <div style={{ background: C.paperDeep, borderRadius: 8, padding: "10px 12px", marginTop: 10, fontFamily: FONT_BODY, fontSize: 11, color: C.inkSoft, lineHeight: 1.6 }}>
           <strong>Medida recomendada del banner:</strong> 1080×1920px (proporción 9:16, bien alargada — casi ocupa toda la pantalla al entrar), JPG, menos de 500 KB. Deja lo importante (rostro, prenda) centrado, porque se recorta un poco por los costados en pantallas anchas.
         </div>
       </AdminCard>
       <AdminCard style={{ marginBottom: 14 }}>
-        <span style={labelStyle}>Video (opcional — reemplaza a la imagen si lo pones)</span>
+        <span style={labelStyle}>Video (opcional — si lo pones, se ve el video y no la imagen)</span>
         {form.videoUrl && <video src={form.videoUrl} muted style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 8, marginBottom: 10 }} />}
         <button onClick={() => videoRef.current?.click()} disabled={uploading} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 8, border: `1px solid ${C.ink}`, background: "transparent", color: C.ink, fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}>
           {uploading ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {uploading ? "Subiendo…" : "Subir video desde tu equipo"}
@@ -8118,13 +8124,39 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const paid = round2(payments.reduce((a, p) => a + (Number(p.amount) || 0), 0));
   const pending = round2(total - paid);
   const cash = payments.find((p) => p.method === "Efectivo");
+  // Pagos con teclado: al elegir un medio se marca su monto para escribir encima; Enter pasa al siguiente paso
+  // (si falta cobrar, avisa y resalta los medios para elegir el otro; si está completo, va al efectivo recibido o a «Registrar venta»)
+  const payInputs = useRef({});
+  const receivedRef = useRef(null);
+  const registerRef = useRef(null);
+  const [payNudge, setPayNudge] = useState(false);
+  const lastPayCount = useRef(0);
+  useEffect(() => {
+    if (payments.length > lastPayCount.current) {
+      const last = payments[payments.length - 1];
+      const el = last && payInputs.current[last.method];
+      if (el) setTimeout(() => { try { el.focus(); el.select(); } catch (e) { /* nada */ } }, 30);
+    }
+    lastPayCount.current = payments.length;
+    setPayNudge(false);
+  }, [payments.length]);
+  const onPayEnter = (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (pending > 0.004) { setPayNudge(true); e.currentTarget.blur(); return; }
+    setPayNudge(false);
+    if (cash && !received && receivedRef.current) { receivedRef.current.focus(); return; }
+    focusRegister();
+  };
+  const focusRegister = () => { const b = registerRef.current?.querySelector("button"); if (b) { b.focus(); try { b.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) { /* nada */ } } };
   const change = cash && received ? round2(Number(received) - (Number(cash.amount) || 0)) : null;
 
   // Buscar cliente por documento (exacto) o por nombre (sugerencias)
   const byDoc = (d) => customers.find((c) => c.doc && c.doc === d);
   // Tipo de documento: DNI, carné de extranjería, pasaporte o RUC (la factura siempre pide RUC)
   const [docTypeSel, setDocTypeSel] = useState("DNI");
-  const docType = isFactura ? "RUC" : docTypeSel;
+  // RUC solo con Factura; Nota de venta y Boleta van con DNI, carné de extranjería o pasaporte
+  const docType = isFactura ? "RUC" : docTypeSel === "RUC" ? "DNI" : docTypeSel;
   const [customerAddress, setCustomerAddress] = useState("");
   // Consulta DNI (RENIEC) / RUC (SUNAT) con el SQL 24: llena el nombre (y la dirección fiscal del RUC).
   // Si falta el SQL o el token, no se muestra nada y la caja sigue igual que siempre.
@@ -8138,6 +8170,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
     const prevName = autoFill.current.name, prevAddr = autoFill.current.address;
     if (prevName) { setName((n) => (n === prevName ? "" : n)); autoFill.current.name = ""; }
     if (prevAddr) { setCustomerAddress((x) => (x === prevAddr ? "" : x)); autoFill.current.address = ""; }
+    if (docType === "RUC" && doc.length === 11 && !/^(10|20)/.test(doc)) { setLookup({ state: "err", msg: "Para factura el RUC empieza con 10 (persona con negocio) o 20 (empresa)." }); return; }
     if (docType === "RUC" && doc.length === 11 && !rucValido(doc)) { setLookup({ state: "err", msg: "Este RUC no es válido: revisa los números." }); return; }
     if (lookupOff.current) { setLookup(null); return; }
     if (!(docType === "DNI" ? /^\d{8}$/.test(doc) : /^\d{11}$/.test(doc))) { setLookup(null); return; }
@@ -8174,7 +8207,9 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
   const pick = (c) => { setMatched(c); setName(c.name); setDoc(c.doc || ""); setPhone(c.phone || "51"); setEmail(c.email || ""); setShowSug(false); };
   const toggleAnon = (on) => { setAnon(on); setMatched(null); if (on) { setDoc(GENERIC_DOC); setName("Cliente varios"); setPhone("51"); setEmail("sincorreo@flyboutique.pe"); } else { setDoc(""); setName(""); setEmail(""); } };
 
-  const docOk = anon ? !isFactura : docType === "RUC" ? /^\d{11}$/.test(doc) : docType === "DNI" ? /^\d{8}$/.test(doc) : doc.length >= (docType === "CE" ? 9 : 6);
+  // Factura: RUC 10 (persona con negocio) o 20 (empresa), 11 dígitos y dígito verificador correcto
+  const rucOk = /^(10|20)\d{9}$/.test(doc) && rucValido(doc);
+  const docOk = anon ? !isFactura : docType === "RUC" ? rucOk : docType === "DNI" ? /^\d{8}$/.test(doc) : doc.length >= (docType === "CE" ? 9 : 6);
   const nameOk = name.trim().length >= 3;
   // Correo opcional en tienda: solo se revisa si lo escriben. Para factura, la dirección fiscal es obligatoria.
   const emailOk = anon || !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -8226,7 +8261,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
       <div className="checkout-grid" style={{ maxWidth: 1180, margin: "0 auto", padding: "16px 18px 40px" }}>
         <div>
           <div className="doc-tipo" role="group" aria-label="Tipo de comprobante" style={{ display: "flex", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-            {DOC_TIPOS.map(([k, l]) => <Chip key={k} active={comprobanteTipo === k} onClick={() => { setComprobanteTipo(k); if (k === "factura") toggleAnon(false); }}>{l}</Chip>)}
+            {DOC_TIPOS.map(([k, l]) => <Chip key={k} active={comprobanteTipo === k} onClick={() => { if ((k === "factura") !== isFactura && !anon) { setDoc(""); setMatched(null); } setComprobanteTipo(k); if (k === "factura") toggleAnon(false); }}>{l}</Chip>)}
           </div>
           <div className="doc-tipo-nota" style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 14 }}>
             {comprobanteTipo === "nota" ? "Nota de venta: comprobante interno, no se envía a SUNAT." : einvActive ? `${comprobanteTipo === "factura" ? "Factura" : "Boleta"} electrónica: se envía sola a SUNAT al registrar la venta.` : "La facturación electrónica aún no está activa: por ahora se imprime como nota de venta (Más → Facturación electrónica)."}
@@ -8235,7 +8270,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 6 }}>Los datos con * son obligatorios.</div>
           {!anon && !isFactura && (
             <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-              {[["DNI", "DNI"], ["CE", "Carné ext."], ["PAS", "Pasaporte"], ["RUC", "RUC"]].map(([k, l]) => <Chip key={k} active={docType === k} onClick={() => { setDocTypeSel(k); setDoc(""); setMatched(null); }}>{l}</Chip>)}
+              {[["DNI", "DNI"], ["CE", "Carné ext."], ["PAS", "Pasaporte"]].map(([k, l]) => <Chip key={k} active={docType === k} onClick={() => { setDocTypeSel(k); setDoc(""); setMatched(null); }}>{l}</Chip>)}
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -8376,7 +8411,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             {POS_PAY_OPTIONS.map(([m, Icon]) => {
               const used = payments.some((p) => p.method === m);
               return (
-                <button key={m} onClick={() => addPayment(m)} title={used ? `Quitar pago con ${m}` : `Cobrar con ${m}. Puedes combinar varios medios.`} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px", borderRadius: 10, border: `1.5px solid ${used ? C.ink : C.line}`, background: used ? C.ink : C.paper, color: used ? C.paper : C.ink, cursor: "pointer" }}>
+                <button key={m} className={payNudge && !used ? "pay-pick" : undefined} onClick={() => addPayment(m)} title={used ? `Quitar pago con ${m}` : `Cobrar con ${m}. Puedes combinar varios medios.`} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "12px 4px", borderRadius: 10, border: `1.5px solid ${used ? C.ink : C.line}`, background: used ? C.ink : C.paper, color: used ? C.paper : C.ink, cursor: "pointer" }}>
                   <PayBadge method={m} size={32} /><span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 600 }}>{m}</span>
                 </button>
               );
@@ -8386,10 +8421,12 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             <div key={p.method} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <span style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, width: 110 }}>{p.method}</span>
               <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>S/</span>
-              <input inputMode="decimal" value={p.amount} onChange={(e) => setPayments((ps) => ps.map((x, j) => (j === idx ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, "") } : x)))} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
+              <input ref={(el) => { payInputs.current[p.method] = el; }} aria-label={`Monto con ${p.method}`} inputMode="decimal" enterKeyHint="next" value={p.amount} onFocus={(e) => e.target.select()} onKeyDown={onPayEnter}
+                onChange={(e) => setPayments((ps) => ps.map((x, j) => (j === idx ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, "") } : x)))} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
               <button onClick={() => setPayments((ps) => ps.filter((_, j) => j !== idx))} aria-label="Quitar pago" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={16} /></button>
             </div>
           ))}
+          {payNudge && pending > 0.004 && <div role="status" className="pay-nudge" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, background: C.paperDeep, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>Faltan <strong>{money2(pending)}</strong>: toca el otro medio de pago (arriba) y se pone solo con lo que falta.</div>}
           {payments.some((p) => p.method === "Vale") && (
             <ValeInput pay={payments.find((p) => p.method === "Vale")} onChange={(patch) => setPayments((ps) => ps.map((x) => (x.method === "Vale" ? { ...x, ...patch } : x)))} />
           )}
@@ -8397,7 +8434,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             <div style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, width: 140 }}>Efectivo recibido S/</span>
-                <input inputMode="decimal" value={received} onChange={(e) => setReceived(e.target.value.replace(/[^0-9.]/g, ""))} placeholder={Number(cash.amount || 0).toFixed(2)} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
+                <input ref={receivedRef} aria-label="Efectivo recibido" inputMode="decimal" enterKeyHint="done" value={received} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); focusRegister(); } }} onChange={(e) => setReceived(e.target.value.replace(/[^0-9.]/g, ""))} placeholder={Number(cash.amount || 0).toFixed(2)} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
               </div>
               {/* Billetes rápidos: un toque y calcula el vuelto */}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
@@ -8415,8 +8452,8 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink }}>{pending > 0.004 ? "Falta cobrar" : pending < -0.004 ? "Se cobró de más" : "Cobrado completo"}</span>
             <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: Math.abs(pending) < 0.005 ? C.ink : C.accent }}>{money(Math.abs(pending))}</span>
           </div>
-          {!canConfirm && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8, lineHeight: 1.5 }}><span style={{ color: C.accent, fontWeight: 600 }}>Falta completar (*):</span> {[!docOk && (docType === "RUC" ? "RUC de 11 dígitos" : docType === "DNI" ? "DNI de 8 dígitos" : "documento del cliente"), !nameOk && "nombre del cliente", !addressOk && "dirección fiscal", !emailOk && "correo válido (o déjalo vacío)", useCodes && !codeMatch && "quién atendió", !paymentsOk && "completar el pago", manualOverCap && "bajar el descuento manual"].filter(Boolean).join(", ")}.</div>}
-          <PrimaryButton disabled={!canConfirm} onClick={confirm}>{busy ? "Registrando…" : `Registrar venta · ${money2(total)}`}</PrimaryButton>
+          {!canConfirm && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 8, lineHeight: 1.5 }}><span style={{ color: C.accent, fontWeight: 600 }}>Falta completar (*):</span> {[!docOk && (docType === "RUC" ? (/^\d{11}$/.test(doc) && !/^(10|20)/.test(doc) ? "RUC que empiece con 10 o 20" : "RUC válido de 11 dígitos (10… o 20…)") : docType === "DNI" ? "DNI de 8 dígitos" : "documento del cliente"), !nameOk && "nombre del cliente", !addressOk && "dirección fiscal", !emailOk && "correo válido (o déjalo vacío)", useCodes && !codeMatch && "quién atendió", !paymentsOk && "completar el pago", manualOverCap && "bajar el descuento manual"].filter(Boolean).join(", ")}.</div>}
+          <div ref={registerRef} className="register-sale"><PrimaryButton disabled={!canConfirm} onClick={confirm}>{busy ? "Registrando…" : `Registrar venta · ${money2(total)}`}</PrimaryButton></div>
           <div style={{ fontFamily: FONT_BODY, fontSize: 10.5, color: C.stone, marginTop: 8, lineHeight: 1.5 }}>Comprobante interno hasta activar la facturación electrónica SUNAT.</div>
         </div>
       </div>
@@ -11521,6 +11558,10 @@ export default function FlyBoutiqueApp() {
         html, body { height: 100%; overflow: hidden; margin: 0; }
         /* Pantallas que tapan todo (cobro de caja): la página de atrás no se desplaza, así hay una sola barra */
         html.scroll-lock, html.scroll-lock body { overflow: hidden !important; }
+        /* Cobro: si falta pagar, los medios de pago libres palpitan para elegir el otro */
+        @keyframes payPick { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 3px ${C.ink}; } }
+        .pay-pick { animation: payPick 1s ease 3; }
+        .register-sale button:focus-visible { outline: 3px solid ${C.ink}; outline-offset: 3px; }
         #root { height: 100%; }
         .app-content::-webkit-scrollbar, .hscroll::-webkit-scrollbar { display: none; }
         .app-content { scrollbar-width: none; }
