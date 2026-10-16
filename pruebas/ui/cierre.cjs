@@ -55,7 +55,7 @@ let ok = true; const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if
   const t = await p.innerText("body");
   check("cerró y muestra el informe", t.includes("Caja cerrada. Este es el informe del turno"));
   check("el informe queda a la vista", await p.locator("text=Caja cerrada. Este es el informe del turno").isVisible() && (await p.locator("text=Caja cerrada. Este es el informe del turno").boundingBox()).y < 844);
-  check("envió contado 215, motivo y quién cerró", closeBody && closeBody.p_counted === 215 && closeBody.p_notes === "Faltó sencillo" && !!closeBody.p_seller);
+  check("envió contado 215, motivo y quién cerró", closeBody && closeBody.p_counted === 215 && String(closeBody.p_notes).startsWith("Faltó sencillo") && !!closeBody.p_seller);
   await p.screenshot({ path: `${out}/cierre-ok.png` });
   check("después se puede abrir otra vez", t.includes("Abrir caja"));
   console.log(ok ? "TODO OK" : "HAY FALLAS");

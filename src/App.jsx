@@ -7799,7 +7799,7 @@ const ReceiptDocument = ({ sale, settings, format = "80", einv, cfg }) => {
       <div style={{ fontSize: fmt.font + 2 }}><R l="IMPORTE TOTAL" v={money2(total)} b /></div>
       <div style={{ ...small, marginTop: 3 }}>SON: {amountInWords(total)}</div>
       {line}
-      {payments.map((p, i) => <R key={i} l={`Pago ${p.method}${p.code ? ` ${p.code}` : ""}`} v={money2(p.amount)} />)}
+      {payments.map((p, i) => <R key={i} l={`Pago ${p.method}${p.code ? ` ${p.code}` : ""}${p.ref ? ` · Op. ${p.ref}` : ""}`} v={money2(p.amount)} />)}
       {Number(sale.amountReceived) > 0 && <><R l="Efectivo recibido" v={money2(sale.amountReceived)} /><R l="Vuelto" v={money2(sale.vuelto || 0)} /></>}
       {line}
       <div style={small}>Atendió: {sale.staffName || "—"}{sale.sellerCode ? ` (${sale.sellerCode})` : ""}{sale.cashierName && sale.cashierName !== sale.staffName ? ` · Cajero(a): ${sale.cashierName}` : ""}</div>
@@ -8257,7 +8257,7 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
     if (!anon && cleanPhone && !matched && onSaveCustomer) onSaveCustomer({ name: name.trim(), doc, phone: cleanPhone, email: email.trim() });
     onConfirm({
       customerName: name.trim(), customerDoc: doc, customerDocType: anon ? "" : docType, customerAddress: docType === "RUC" ? customerAddress.trim() : "", customerPhone: anon ? "" : cleanPhone, customerEmail: anon ? "" : email.trim(),
-      payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount), ...(p.method === "Vale" ? { code: p.code } : {}) })),
+      payments: payments.map((p) => ({ method: p.method, amount: round2(p.amount), ...(p.method === "Vale" ? { code: p.code } : {}), ...(p.ref && p.method !== "Vale" && p.method !== "Efectivo" ? { ref: p.ref } : {}) })),
       paymentMethod: payments.length > 1 ? "Mixto" : payments[0].method,
       amountReceived: cash && received ? Number(received) : null, vuelto: change && change > 0 ? change : 0,
       promoCode: promo?.code || null, discount: round2(promoDiscount + autoPromo.total + manualDiscount + pointsDiscount), subtotal, total,
@@ -8440,13 +8440,22 @@ const PosCheckout = ({ catalog, saleItems, subtotal, comprobanteTipo, setComprob
             })}
           </div>
           {payments.map((p, idx) => (
-            <div key={p.method} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <React.Fragment key={p.method}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <span style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 600, color: C.ink, width: 110 }}>{p.method}</span>
               <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone }}>S/</span>
               <input ref={(el) => { payInputs.current[p.method] = el; }} aria-label={`Monto con ${p.method}`} inputMode="decimal" enterKeyHint="next" value={p.amount} onFocus={(e) => e.target.select()} onKeyDown={onPayEnter}
                 onChange={(e) => setPayments((ps) => ps.map((x, j) => (j === idx ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, "") } : x)))} style={{ ...inputStyle, flex: 1, fontSize: 15 }} />
               <button onClick={() => setPayments((ps) => ps.filter((_, j) => j !== idx))} aria-label="Quitar pago" style={{ background: "none", border: "none", cursor: "pointer" }}><X size={16} /></button>
             </div>
+            {/* Tarjeta, Yape, Plin, transferencia: n.º de operación opcional (ayuda a cuadrar con el POS o la app al cerrar) */}
+            {!["Efectivo", "Vale"].includes(p.method) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "-2px 0 8px 118px" }}>
+                <input aria-label={`N.º de operación ${p.method}`} value={p.ref || ""} onKeyDown={onPayEnter} onChange={(e) => setPayments((ps) => ps.map((x, j) => (j === idx ? { ...x, ref: e.target.value.replace(/[^0-9A-Za-z-]/g, "").slice(0, 24) } : x)))}
+                  placeholder={p.method === "Tarjeta" ? "N.º de voucher (opcional)" : "N.º de operación (opcional)"} style={{ ...inputStyle, flex: 1, padding: "8px 10px", fontSize: 13 }} />
+              </div>
+            )}
+            </React.Fragment>
           ))}
           {payNudge && pending > 0.004 && <div role="status" className="pay-nudge" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink, background: C.paperDeep, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>Faltan <strong>{money2(pending)}</strong>: toca el otro medio de pago (arriba) y se pone solo con lo que falta.</div>}
           {payments.some((p) => p.method === "Vale") && (
@@ -8492,11 +8501,13 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
   const [storeId, setStoreId] = useState(() => { try { return localStorage.getItem("flyboutique:sede") || posStores[0].id; } catch (e) { return posStores[0].id; } });
   const currentStore = posStores.find((x) => x.id === storeId) || posStores[0];
   // Venta en tienda: solo con la caja de la sede abierta (el servidor también lo exige)
-  const [cashState, setCashState] = useState("loading"); // loading | open | closed | unknown
+  const [cashState, setCashState] = useState("loading"); // loading | open | closed | stale (abierta desde otro día) | unknown
+  const [staleSince, setStaleSince] = useState(null);
   const checkCash = async () => {
     if (channel !== "tienda") { setCashState("open"); return; }
     const { data, error } = await supabase.rpc("current_cash", { p_store: currentStore.id });
-    setCashState(error ? "unknown" : data ? "open" : "closed"); // unknown: aún no se corrió el SQL de caja → no se bloquea
+    setCashState(error ? "unknown" : data ? (cashIsStale(data) ? "stale" : "open") : "closed"); // unknown: aún no se corrió el SQL de caja → no se bloquea
+    setStaleSince(data && cashIsStale(data) ? data.opened_at : null);
   };
   useEffect(() => {
     checkCash();
@@ -8608,6 +8619,22 @@ const PosScreen = ({ catalog, staffName, onCompleteSale, onReserveNumber, onSave
   const posCategories = ["Todo", ...new Set(catalog.products.map((p) => p.category))];
   const tiles = (q.trim() ? suggestions : catalog.products.filter((p) => posCategory === "Todo" || p.category === posCategory)).filter((p) => p.status !== "inactivo");
   const itemsCount = saleItems.reduce((a, i) => a + i.qty, 0);
+  if (channel === "tienda" && cashState === "stale") {
+    return (
+      <div className="caja-de-ayer" style={{ padding: "40px 20px", textAlign: "center", maxWidth: 440, margin: "0 auto" }}>
+        <Banknote size={30} color={C.accent} style={{ marginBottom: 12 }} />
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800, color: C.ink, marginBottom: 8 }}>La caja sigue abierta desde el {new Date(staleSince).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit" })}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, marginBottom: 18, lineHeight: 1.6 }}>
+          Ayer no se cerró. Para que las ventas de hoy no se mezclen con las de ayer, primero hay que <strong>cerrar la caja de ayer contando el dinero</strong> y luego abrir la de hoy.
+          {!["superadmin", "administrador", "cajero"].includes(role) && <><br /><br />Pide al cajero o a Administración que la cierre.</>}
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+          {["superadmin", "administrador", "cajero"].includes(role) && onGoCash && <button onClick={onGoCash} style={{ padding: "12px 20px", borderRadius: 9, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Ir a cerrar la caja</button>}
+          <button onClick={checkCash} style={{ padding: "12px 20px", borderRadius: 9, border: `1px solid ${C.ink}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer" }}>Ya la cerraron, revisar</button>
+        </div>
+      </div>
+    );
+  }
   if (channel === "tienda" && cashState === "closed") {
     return (
       <div style={{ padding: "40px 20px", textAlign: "center", maxWidth: 420, margin: "0 auto" }}>
@@ -9867,6 +9894,11 @@ const cashErrorText = (e) => {
   if (!k && typeof navigator !== "undefined" && navigator.onLine === false) return "Sin internet: no se guardó. Conéctate y vuelve a tocar el botón (no se duplica).";
   return k ? CASH_ERRORS[k] : "No se pudo completar. Revisa tu conexión e intenta de nuevo.";
 };
+// Día en Lima (AAAA-MM-DD): para saber si la caja abierta es de un día anterior (se olvidaron de cerrarla)
+const limaDay = (d) => { try { return new Date(d).toLocaleDateString("en-CA", { timeZone: "America/Lima" }); } catch (e) { return new Date(d).toISOString().slice(0, 10); } };
+const cashIsStale = (c) => !!(c && c.opened_at && limaDay(c.opened_at) < limaDay(Date.now()));
+const limaHour = () => { try { return Number(new Date().toLocaleString("en-US", { timeZone: "America/Lima", hour: "numeric", hour12: false })) % 24; } catch (e) { return new Date().getHours(); } };
+const CASH_DENOMS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1];
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
 
 const useStoreChoice = (settings) => {
@@ -10008,14 +10040,26 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
   const expected = Number(cash?.expectedCash || 0);
   const counted = closing ? Number(closing.counted || 0) : 0;
   const diff = Math.round((counted - expected) * 100) / 100;
+  // Cuadre del cierre: lo que dice el sistema por forma de pago y lo que dicen el voucher del POS / la app (Yape, Plin, banco)
+  const stale = cashIsStale(cash);
+  const otherMethods = Object.entries(cash?.byMethod || {}).filter(([m, v]) => m !== "Efectivo" && Number(v) > 0);
+  const otherDiffs = otherMethods.map(([m, v]) => { const got = closing?.others?.[m]; return { m, sys: Number(v), got, d: got === undefined || got === "" ? null : round2(Number(got) - Number(v)) }; });
+  const otherMismatch = otherDiffs.some((x) => x.d !== null && Math.abs(x.d) >= 0.01);
+  const sessionSales = (catalog.sales || []).filter((x) => cash && x.cashSessionId === cash.id && x.status !== "anulado");
+  const docCount = { nota: sessionSales.filter((x) => x.tipo === "nota").length, boleta: sessionSales.filter((x) => x.tipo === "boleta").length, factura: sessionSales.filter((x) => x.tipo === "factura").length };
+  const cuadreText = () => [
+    otherDiffs.length ? "Cuadre: " + otherDiffs.map((x) => `${x.m} sistema ${money2(x.sys)}${x.d === null ? " (sin revisar)" : Math.abs(x.d) < 0.01 ? " ✓" : ` / según ${x.m === "Tarjeta" ? "POS" : "app"} ${money2(Number(x.got))} (${x.d > 0 ? "+" : ""}${money2(x.d)})`}`).join("; ") : "",
+    sessionSales.length ? `Comprobantes: ${docCount.nota} notas, ${docCount.boleta} boletas, ${docCount.factura} facturas` : "",
+  ].filter(Boolean).join(" · ");
+  const closeNotes = () => [closing.notes.trim(), cuadreText()].filter(Boolean).join(" · ").slice(0, 900);
   const closeCash = () => run(async () => {
     if (closing.shift) {
       const next = closing.next === "" ? counted : Number(closing.next) || 0;
-      const { data, error } = await supabase.rpc("shift_change", { p_session: cash.id, p_counted: counted, p_notes: closing.notes.trim(), p_next_amount: next, p_seller_out: closing.seller || null, p_seller_in: closing.sellerIn || null });
+      const { data, error } = await supabase.rpc("shift_change", { p_session: cash.id, p_counted: counted, p_notes: closeNotes(), p_next_amount: next, p_seller_out: closing.seller || null, p_seller_in: closing.sellerIn || null });
       if (error) { setMsg(error.code === "PGRST202" ? "Para el cambio de turno falta correr el archivo 13-caja-turnos.sql en Supabase." : error.message?.includes("FONDO_MAYOR") ? "El dinero que queda no puede ser mayor que lo contado." : cashErrorText(error)); return; }
       setClosing(null); setClosedReport(data.closed); await load(); return;
     }
-    const { data, error } = await rpcWithFallback("close_cash", { p_session: cash.id, p_counted: counted, p_notes: closing.notes.trim(), p_seller: closing.seller || null }, ["p_seller"]);
+    const { data, error } = await rpcWithFallback("close_cash", { p_session: cash.id, p_counted: counted, p_notes: closeNotes(), p_seller: closing.seller || null }, ["p_seller"]);
     if (error) { setMsg(cashErrorText(error)); return; }
     setClosing(null); setClosedReport(data); await load();
   });
@@ -10098,6 +10142,27 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
               </div>
             ) : <div style={{ fontFamily: FONT_BODY, fontSize: 13, marginTop: 10, opacity: 0.85 }}>Ya puedes vender.</div>}
           </div>
+          {stale && (
+            <div role="alert" className="caja-vieja" style={{ border: `1.5px solid ${C.accent}`, borderRadius: 12, padding: "12px 14px", marginBottom: 12, fontFamily: FONT_BODY, fontSize: 13, color: C.ink, lineHeight: 1.55 }}>
+              <strong style={{ color: C.accent }}>Esta caja sigue abierta desde el {new Date(cash.opened_at).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit" })}.</strong> Ciérrala contando el dinero de ese día; después abre la de hoy. Mientras tanto no se puede vender, para no mezclar días.
+              {canManage && <div style={{ marginTop: 8 }}><button onClick={() => { setClosing({ counted: "", notes: "", shift: false, others: {} }); setMove(null); }} style={btn(true)}>Cerrar la caja de ese día</button></div>}
+            </div>
+          )}
+          {!stale && limaHour() >= 21 && <div className="caja-recordatorio" style={{ background: C.paperDeep, borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>Ya es hora de cierre: al terminar, toca «Cerrar caja» y cuenta el dinero.</div>}
+          {canManage && cash.expectedCash !== undefined && (
+            <AdminCard style={{ marginBottom: 14 }}>
+              <span style={labelStyle}>Ventas del turno por forma de pago</span>
+              <div className="pay-totals" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+                {POS_PAY_OPTIONS.map(([m]) => [m, Number((cash.byMethod || {})[m] || 0)]).concat(Object.entries(cash.byMethod || {}).filter(([m]) => !POS_PAY_OPTIONS.some(([k]) => k === m)).map(([m, v]) => [m, Number(v)])).map(([m, v]) => (
+                  <div key={m} className="pay-total" style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${v > 0 ? C.ink : C.line}`, borderRadius: 10, padding: "8px 10px", opacity: v > 0 ? 1 : 0.55 }}>
+                    <PayBadge method={m} size={26} />
+                    <div style={{ minWidth: 0 }}><div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone }}>{m}</div><div style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 700, color: C.ink }}>{money2(v)}</div></div>
+                  </div>
+                ))}
+              </div>
+              {sessionSales.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginTop: 10 }}>Comprobantes: {docCount.nota} notas de venta · {docCount.boleta} boletas · {docCount.factura} facturas</div>}
+            </AdminCard>
+          )}
           {canManage && cash.expectedCash !== undefined && (
           <AdminCard style={{ marginBottom: 14 }}>
             <details>
@@ -10119,7 +10184,7 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
             <>
               <div className="more-head">Atender clientes</div>
               <div className="cash-grid">
-                {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint="Cobrar prendas al cliente" onClick={onGoSell} dark />}
+                {onGoSell && <BigAction icon={ShoppingCart} title="Vender" hint={stale ? "Primero cierra la caja del día anterior" : "Cobrar prendas al cliente"} onClick={onGoSell} dark disabled={stale} />}
                 {onReturns && <BigAction icon={Undo2} title="Devolución o cambio" hint="La persona trae una prenda" onClick={onReturns} />}
                 {onCredits && <BigAction icon={Wallet} title="Vales" hint="Ver el saldo de un vale" onClick={onCredits} />}
               </div>
@@ -10130,8 +10195,8 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
               </div>
               <div className="more-head">Fin del turno</div>
               <div className="cash-grid">
-                <BigAction icon={RotateCcw} title="Cambio de turno" hint="Entregar la caja a otra persona" onClick={() => { setClosing({ counted: "", notes: "", shift: true, next: "" }); setMove(null); }} />
-                <BigAction icon={Banknote} title="Cerrar caja" hint="Contar el dinero y cerrar el día" onClick={() => { setClosing({ counted: "", notes: "", shift: false }); setMove(null); }} />
+                <BigAction icon={RotateCcw} title="Cambio de turno" hint="Entregar la caja a otra persona" onClick={() => { setClosing({ counted: "", notes: "", shift: true, next: "", others: {} }); setMove(null); }} />
+                <BigAction icon={Banknote} title="Cerrar caja" hint="Contar el dinero y cerrar el día" onClick={() => { setClosing({ counted: "", notes: "", shift: false, others: {} }); setMove(null); }} />
               </div>
               <div ref={formRef} />
               {move && (
@@ -10159,7 +10224,21 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
                     <Chip active={!!closing.shift} onClick={() => setClosing({ ...closing, shift: true, next: closing.next ?? "" })}>Cambio de turno (sigue abierta)</Chip>
                   </div>
                   <SellerPicker sellers={sellers} value={closing.seller || ""} onChange={(c) => setClosing({ ...closing, seller: c })} label={closing.shift ? "¿Quién entrega la caja?" : "¿Quién cierra la caja?"} />
-                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 10, lineHeight: 1.6 }}>Cuenta todo el efectivo de la caja (incluido el fondo) y escríbelo.</div>
+                  <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 10, lineHeight: 1.6 }}><strong>1. Efectivo:</strong> cuenta todo el efectivo de la caja (incluido el fondo) y escríbelo, o usa el contador de billetes.</div>
+                  <FoldCard title="Contar billetes y monedas" summary="Escribe cuántos hay de cada uno y se suma solo" style={{ marginBottom: 10 }}>
+                    <div className="denoms" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 6 }}>
+                      {CASH_DENOMS.map((d) => (
+                        <label key={d} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 12.5 }}>
+                          <span style={{ width: 62, textAlign: "right" }}>{d >= 1 ? `S/ ${d}` : `${Math.round(d * 100)} cént.`} ×</span>
+                          <input aria-label={`Cantidad de ${d >= 1 ? `S/ ${d}` : `${Math.round(d * 100)} céntimos`}`} inputMode="numeric" value={closing.denoms?.[d] || ""} onChange={(e) => {
+                            const denoms = { ...(closing.denoms || {}), [d]: e.target.value.replace(/\D/g, "").slice(0, 4) };
+                            const sum = round2(CASH_DENOMS.reduce((a, x) => a + x * (Number(denoms[x]) || 0), 0));
+                            setClosing({ ...closing, denoms, counted: sum ? sum.toFixed(2) : "" });
+                          }} style={{ ...inputStyle, width: 64, padding: "7px 8px" }} />
+                        </label>
+                      ))}
+                    </div>
+                  </FoldCard>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
                     <span style={{ fontFamily: FONT_BODY, fontSize: 13 }}>Efectivo contado S/</span>
                     <input autoFocus inputMode="decimal" value={closing.counted} onChange={(e) => setClosing({ ...closing, counted: e.target.value.replace(/[^0-9.]/g, "") })} style={{ ...inputStyle, width: 130, fontSize: 15 }} />
@@ -10169,7 +10248,22 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
                       Esperado {money2(expected)} · {diff === 0 ? "Cuadra exacto ✓" : diff > 0 ? `Sobra ${money2(diff)}` : `Falta ${money2(-diff)}`}
                     </div>
                   )}
-                  {closing.counted !== "" && diff !== 0 && <input value={closing.notes} onChange={(e) => setClosing({ ...closing, notes: e.target.value })} placeholder="Motivo de la diferencia (obligatorio)" style={{ ...inputStyle, marginBottom: 8 }} />}
+                  {otherDiffs.length > 0 && (
+                    <div className="cuadre-otros" style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 8, lineHeight: 1.55 }}><strong>2. Tarjeta, Yape, Plin y otros:</strong> compara con el cierre del POS de tarjetas y con la app (Yape/Plin/banco). Escribe lo que dicen ellos; si es igual, sale ✓.</div>
+                      {otherDiffs.map((x) => (
+                        <div key={x.m} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6, fontFamily: FONT_BODY, fontSize: 12.5 }}>
+                          <PayBadge method={x.m} size={22} />
+                          <span style={{ width: 150 }}>{x.m}: sistema <strong>{money2(x.sys)}</strong></span>
+                          <input aria-label={`${x.m} según ${x.m === "Tarjeta" ? "POS" : "app"}`} inputMode="decimal" value={x.got ?? ""} placeholder={x.m === "Tarjeta" ? "según el POS" : "según la app"} onChange={(e) => setClosing({ ...closing, others: { ...(closing.others || {}), [x.m]: e.target.value.replace(/[^0-9.]/g, "") } })} style={{ ...inputStyle, width: 120, padding: "7px 8px" }} />
+                          <button onClick={() => setClosing({ ...closing, others: { ...(closing.others || {}), [x.m]: x.sys.toFixed(2) } })} style={{ padding: "6px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontSize: 11.5, cursor: "pointer" }}>Coincide</button>
+                          {x.d !== null && <span style={{ color: Math.abs(x.d) < 0.01 ? C.ink : C.accent, fontWeight: 600 }}>{Math.abs(x.d) < 0.01 ? "✓" : x.d > 0 ? `Sobra ${money2(x.d)}` : `Falta ${money2(-x.d)}`}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {sessionSales.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, marginBottom: 8 }}><strong>3. Comprobantes del turno:</strong> {docCount.nota} notas de venta · {docCount.boleta} boletas · {docCount.factura} facturas (deben coincidir con los papeles impresos).</div>}
+                  {((closing.counted !== "" && diff !== 0) || otherMismatch) && <input value={closing.notes} onChange={(e) => setClosing({ ...closing, notes: e.target.value })} placeholder="Motivo de la diferencia (obligatorio)" style={{ ...inputStyle, marginBottom: 8 }} />}
                   {closing.shift && closing.counted !== "" && (
                     <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
                       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
@@ -10182,13 +10276,13 @@ const CashScreen = ({ catalog, role, onGoSell, onReturns, onCredits }) => {
                   )}
                   {(() => {
                     const falta = [needSeller && !closing.seller && (closing.shift ? "toca quién entrega la caja" : "toca quién cierra la caja"), closing.counted === "" && "escribe el efectivo contado",
-                      closing.counted !== "" && diff !== 0 && !closing.notes.trim() && "escribe el motivo de la diferencia", needSeller && closing.shift && !closing.sellerIn && "toca quién recibe la caja"].filter(Boolean);
+                      ((closing.counted !== "" && diff !== 0) || otherMismatch) && !closing.notes.trim() && "escribe el motivo de la diferencia", needSeller && closing.shift && !closing.sellerIn && "toca quién recibe la caja"].filter(Boolean);
                     return falta.length ? <div className="cash-missing" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.inkSoft, marginBottom: 8 }}>Para continuar: {falta.join(", ")}.</div> : null;
                   })()}
                   {msg && <div role="alert" className="cash-form-error" style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.accent, marginBottom: 8 }}>{msg}</div>}
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={() => setClosing(null)} style={btn(false)}>Cancelar</button>
-                    <button disabled={busy || closing.counted === "" || (diff !== 0 && !closing.notes.trim()) || (needSeller && (!closing.seller || (closing.shift && !closing.sellerIn)))}
+                    <button disabled={busy || closing.counted === "" || ((diff !== 0 || otherMismatch) && !closing.notes.trim()) || (needSeller && (!closing.seller || (closing.shift && !closing.sellerIn)))}
                       onClick={() => { if (confirm(closing.shift ? "¿Hacer el cambio de turno? Se cierra este turno con su arqueo y se abre el siguiente." : "¿Cerrar la caja? Ya no se podrá vender en esta sede hasta abrirla de nuevo.")) closeCash(); }} style={btn(true)}>{busy ? "Guardando…" : closing.shift ? "Hacer cambio de turno" : "Cerrar caja"}</button>
                   </div>
                 </AdminCard>
