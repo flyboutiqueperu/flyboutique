@@ -37,6 +37,29 @@ check("guarda código interno (sku) y de barras", jeans.variants[0].sku === "90L
 check("precio con coma 71,2 → 71.2", r.products.find((p) => p.name === "Alysa Top").price === 71.2);
 check("categorías mapeadas", r.products.find((p) => p.name === "Aldana Dress").category === "Vestidos" && r.products.find((p) => p.name === "Active Top").category === "Teen Life");
 check("tono de color para Negro", r.products.find((p) => p.name === "Aldana Dress").variants.find((v) => v.colorName === "Negro").colorHex === "#111111");
+{ const extra = [...rows, Object.fromEntries(H.map((h, i) => [h, [99, "ALDANA DRESS AZULINO M", 149, 0, "NIU", "ALDRAZM", "ALDRAZMO03699999", "", "Activo", "", "VESTIDOS", 149][i]]))];
+  let k2 = 0; const r2 = parseTumiSoft(extra, [], { genId: (p) => `${p}_x${++k2}` });
+  const al = r2.products.find((p) => p.name === "Aldana Dress");
+  check("color que no está en el diccionario («AZULINO») se une a la misma prenda", r2.products.length === 9 && al && al.variants.some((v) => v.colorName === "Azulino" && v.barcode === "ALDRAZMO03699999"));
+  check("«ACCESORIO GRIEGA BRAZO» sigue siendo su propia prenda", r2.products.some((p) => p.name === "Accesorio Griega Brazo")); }
+// Colores: diccionario amplio, colores del catálogo y colores aprendidos del mismo archivo
+check("colores nuevos del diccionario: «ALMIRA TOP STEEL», «VERDE OLIVA», «AZUL CLARO», «OFF WHITE»",
+  splitName("ALMIRA TOP STEEL STANDARD").color === "STEEL" && splitName("ALDANA DRESS VERDE OLIVA S").color === "VERDE OLIVA"
+  && splitName("BLUSA SEDA AZUL CLARO M").color === "AZUL CLARO" && splitName("BASIC TEE OFF WHITE S").color === "OFF WHITE" && splitName("ALDANA DRESS CHOCOLATE M").color === "CHOCOLATE");
+check("no confunde nombres con colores: «ALMOND CROISSANT LIP GLOSS VS»", splitName("ALMOND CROISSANT LIP GLOSS VS").color === null);
+{ const row = (n, cod) => Object.fromEntries(H.map((h, i) => [h, [99, n, 149, 0, "NIU", cod, cod + "0001", "", "Activo", "", "VESTIDOS", 149][i]]));
+  const f = [...rows, row("ALDANA DRESS TURMALINA M", "ALDRTUM"), row("NOVA DRESS TURMALINA S", "NODRTUS"), row("NOVA DRESS TURMALINA M", "NODRTUM")];
+  let k = 0; const r4 = parseTumiSoft(f, [], { genId: (p) => `${p}_t${++k}` });
+  const al = r4.products.find((p) => p.name === "Aldana Dress"), nova = r4.products.find((p) => p.name === "Nova Dress");
+  check("color desconocido («TURMALINA») se aprende y se une a Aldana Dress", al && al.variants.some((v) => v.colorName === "Turmalina"));
+  check("y se reconoce también en otra prenda que solo viene en ese color («NOVA DRESS TURMALINA»)", nova && nova.variants.length === 2 && nova.variants.every((v) => v.colorName === "Turmalina"));
+  check("la vista previa cuenta los colores", r4.summary.colores.Turmalina === 3 && r4.summary.colores.Negro >= 2 && r4.summary.sinColor.includes("ACCESORIO GRIEGA BRAZO"));
+  const exist = [{ id: "p1", name: "Luna Top", slug: "luna-top", variants: [{ id: "v1", size: "M", colorName: "Arcoiris", colorHex: "#ABCDEF", stock: 2 }] }];
+  const r5 = parseTumiSoft([row("SOL TOP ARCOIRIS M", "SOTOARM")], exist, { genId: (p) => `${p}_e${++k}` });
+  const sol = r5.products.find((p) => p.name === "Sol Top");
+  check("colores que ya existen en el catálogo («Arcoiris») se reconocen con su mismo tono", sol && sol.variants[0].colorName === "Arcoiris" && sol.variants[0].colorHex === "#ABCDEF");
+  const r6 = parseTumiSoft([row("MIA NEGRO M", "MINEM"), row("MIA DRESS S", "MIDRS"), row("ZOE DRESS M", "ZODRM")], [], { genId: (p) => `${p}_d${++k}` });
+  check("no aprende como color una palabra que es parte del nombre («DRESS»)", r6.products.some((p) => p.name === "Zoe Dress")); }
 check("prendas nuevas quedan ocultas «Esperando fotos» (borrador) hasta tener foto", r.products.every((p) => p.status === "borrador" && p.awaitingPhotos === true));
 check("stock 0 en combinaciones nuevas (el stock se carga aparte)", r.products.every((p) => p.variants.every((v) => v.stock === 0)));
 // Segunda importación: actualiza en vez de duplicar, conserva stock y fotos
