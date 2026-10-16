@@ -4388,7 +4388,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
   const topIds = new Set(items.map((x) => x[0]));
   const side = STAFF_ADMIN.includes(role) ? MORE_ITEMS.filter((it) => !topIds.has(it.id) && (it.id === "backup" ? role === "superadmin" : canOpenScreen(role, it.id)) && (!it.only || it.only === role)) : [];
   const sideIds = new Set(side.map((it) => it.id));
-  const moreScreens = ["transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["impresora", "transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       <div className="side-brand">FLY<span>Panel del staff</span></div>
@@ -7359,6 +7359,48 @@ const rucValido = (r) => {
 const IGV_RATE = 0.18;
 const RECEIPT_FORMAT_KEY = "flyboutique:formato-comprobante";
 const RECEIPT_FORMATS = { "80": { label: "Ticket 80 mm", width: "72mm", page: "80mm auto", font: 11 }, "58": { label: "Ticket 58 mm", width: "48mm", page: "58mm auto", font: 9.5 }, a4: { label: "Hoja A4", width: "180mm", page: "A4", font: 12 } };
+// Ajustes de la impresora de ESTE equipo (la impresora aún no se compró: cada modelo imprime distinto).
+// Letra más grande o más chica, margen, ancho imprimible del rollo y logo. No cambia la venta ni el comprobante.
+const PRINT_CFG_KEY = "flyboutique:impresion:v1";
+const PRINT_DEFAULT = { scale: 100, margin: 2, width58: 48, width80: 72, logo: true };
+const clampN = (v, a, b, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(b, Math.max(a, n)) : d; };
+const printCfgGet = () => {
+  let c = {}; try { c = JSON.parse(localStorage.getItem(PRINT_CFG_KEY) || "{}") || {}; } catch (e) { c = {}; }
+  return { scale: clampN(c.scale, 70, 150, 100), margin: clampN(c.margin, 0, 10, 2), width58: clampN(c.width58, 40, 58, 48), width80: clampN(c.width80, 56, 80, 72), logo: c.logo !== false };
+};
+const printCfgSave = (c) => { try { localStorage.setItem(PRINT_CFG_KEY, JSON.stringify(c)); } catch (e) { /* sin guardado */ } };
+const receiptLayout = (format, cfg = PRINT_DEFAULT) => {
+  const base = RECEIPT_FORMATS[format] || RECEIPT_FORMATS["80"];
+  const width = format === "58" ? `${cfg.width58}mm` : format === "a4" ? base.width : `${cfg.width80}mm`;
+  return { ...base, width, font: Math.round(base.font * (cfg.scale / 100) * 10) / 10, pageMargin: format === "a4" ? "10mm" : `${cfg.margin}mm` };
+};
+const PrintSettings = ({ cfg, onChange, format }) => {
+  const set = (k, v) => { const n = { ...cfg, [k]: v }; onChange(n); printCfgSave(n); };
+  const btn = { width: 34, height: 34, borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 16 };
+  const row = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.line}`, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink };
+  const stepper = (k, step, min, max, unit, label) => (
+    <div style={row}>
+      <span>{label}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <button style={btn} aria-label={`${label}: menos`} onClick={() => set(k, Math.max(min, cfg[k] - step))}>−</button>
+        <strong style={{ minWidth: 52, textAlign: "center", fontVariantNumeric: "tabular-nums" }} aria-label={`${label}: valor`}>{cfg[k]}{unit}</strong>
+        <button style={btn} aria-label={`${label}: más`} onClick={() => set(k, Math.min(max, cfg[k] + step))}>+</button>
+      </span>
+    </div>
+  );
+  return (
+    <div className="print-settings">
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.55, marginBottom: 6 }}>Se guarda solo en este equipo. Imprime una prueba y ajusta hasta que el ticket salga completo y legible. No cambia la venta.</div>
+      {stepper("scale", 5, 70, 150, "%", "Tamaño de letra")}
+      {format !== "a4" && stepper("margin", 1, 0, 10, " mm", "Margen del papel")}
+      {format === "58" && stepper("width58", 1, 40, 58, " mm", "Ancho que imprime (rollo 58)")}
+      {format === "80" && stepper("width80", 1, 56, 80, " mm", "Ancho que imprime (rollo 80)")}
+      <label style={{ ...row, cursor: "pointer" }}><span>Logo «FLY» arriba</span><input type="checkbox" checked={cfg.logo} onChange={(e) => set("logo", e.target.checked)} aria-label="Logo FLY arriba" /></label>
+      <button onClick={() => { onChange({ ...PRINT_DEFAULT }); printCfgSave({ ...PRINT_DEFAULT }); }} style={{ marginTop: 8, background: "none", border: "none", padding: 0, textDecoration: "underline", fontFamily: FONT_BODY, fontSize: 12, color: C.ink, cursor: "pointer" }}>Volver a los valores normales</button>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, lineHeight: 1.55, marginTop: 8 }}>Si el texto se corta a la derecha, baja el «Ancho que imprime». Casi todas las impresoras de 80 mm imprimen 72 mm y las de 58 mm, 48 mm.</div>
+    </div>
+  );
+};
 const UNITS = ["", "UNO", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO", "NUEVE", "DIEZ", "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE", "DIECISÉIS", "DIECISIETE", "DIECIOCHO", "DIECINUEVE", "VEINTE", "VEINTIUNO", "VEINTIDÓS", "VEINTITRÉS", "VEINTICUATRO", "VEINTICINCO", "VEINTISÉIS", "VEINTISIETE", "VEINTIOCHO", "VEINTINUEVE"];
 const TENS = ["", "", "", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA", "SETENTA", "OCHENTA", "NOVENTA"];
 const HUNDREDS = ["", "CIENTO", "DOSCIENTOS", "TRESCIENTOS", "CUATROCIENTOS", "QUINIENTOS", "SEISCIENTOS", "SETECIENTOS", "OCHOCIENTOS", "NOVECIENTOS"];
@@ -7406,9 +7448,10 @@ const EinvQR = ({ text }) => {
   return src ? <img src={src} alt="Código QR del comprobante" style={{ width: 96, height: 96, display: "block", margin: "6px auto" }} /> : null;
 };
 
-const ReceiptDocument = ({ sale, settings, format = "80", einv }) => {
+const ReceiptDocument = ({ sale, settings, format = "80", einv, cfg }) => {
   const company = companyOf(settings);
-  const fmt = RECEIPT_FORMATS[format] || RECEIPT_FORMATS["80"];
+  const pcfg = cfg || printCfgGet();
+  const fmt = receiptLayout(format, pcfg);
   const withIgv = company.taxRegime !== "nrus";
   const total = Number(sale.total || 0);
   const gravada = Math.round((total / (1 + IGV_RATE)) * 100) / 100;
@@ -7424,9 +7467,9 @@ const ReceiptDocument = ({ sale, settings, format = "80", einv }) => {
   const R = ({ l, v, b }) => <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontWeight: b ? 700 : 400 }}><span>{l}</span><span style={{ whiteSpace: "nowrap" }}>{v}</span></div>;
   return (
     <div className="print-area receipt-doc" style={{ width: fmt.width, maxWidth: "100%", margin: "0 auto", background: "#fff", color: "#000", fontFamily: "'Jost', Arial, sans-serif", fontSize: fmt.font, lineHeight: 1.4, padding: format === "a4" ? "10mm" : "3mm 2mm" }}>
-      <style>{`@media print { @page { size: ${fmt.page}; margin: ${format === "a4" ? "10mm" : "2mm"}; } }`}</style>
+      <style>{`@media print { @page { size: ${fmt.page}; margin: ${fmt.pageMargin}; } }`}</style>
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: fmt.font * 2.2, letterSpacing: "0.04em" }}>FLY</div>
+        {pcfg.logo && <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: fmt.font * 2.2, letterSpacing: "0.04em" }}>FLY</div>}
         <div style={{ fontWeight: 700 }}>{company.legalName}</div>
         {company.ruc ? <div>RUC {company.ruc}</div> : <div style={small}>(RUC no configurado: Panel → Datos de la empresa)</div>}
         <div style={small}>{store.address || company.address}</div>
@@ -7500,6 +7543,7 @@ const ReceiptDocument = ({ sale, settings, format = "80", einv }) => {
 const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp, autoEmit = false }) => {
   const [format, setFormat] = useState(() => { try { return localStorage.getItem(RECEIPT_FORMAT_KEY) || "80"; } catch (e) { return "80"; } });
   const choose = (f) => { setFormat(f); try { localStorage.setItem(RECEIPT_FORMAT_KEY, f); } catch (e) { /* nada */ } };
+  const [pcfg, setPcfg] = useState(printCfgGet);
   // Comprobante electrónico: se busca el que ya exista; justo después de vender se envía solo (si está activado)
   const [einv, setEinv] = useState(null);
   const [cfg, setCfg] = useState(null);
@@ -7542,8 +7586,12 @@ const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp, autoEmit = fal
       <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         {Object.entries(RECEIPT_FORMATS).map(([k, f]) => <Chip key={k} active={format === k} onClick={() => choose(k)}>{f.label}</Chip>)}
       </div>
+      <FoldCard title="Ajustar a mi impresora" summary={`Letra ${pcfg.scale}%${format !== "a4" ? ` · margen ${pcfg.margin} mm · ancho ${format === "58" ? pcfg.width58 : pcfg.width80} mm` : ""}${pcfg.logo ? "" : " · sin logo"}`} style={{ marginBottom: 12 }}>
+        <PrintSettings cfg={pcfg} onChange={setPcfg} format={format} />
+      </FoldCard>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: C.stone, marginBottom: 6 }}>Vista previa: así sale en el papel.</div>
       <div style={{ background: "#e9e9e9", borderRadius: 12, padding: "16px 8px", marginBottom: 16, overflowX: "auto" }}>
-        <div style={{ boxShadow: "0 4px 18px rgba(0,0,0,0.12)", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}><ReceiptDocument sale={sale} settings={settings} format={format} einv={einv} /></div>
+        <div style={{ boxShadow: "0 4px 18px rgba(0,0,0,0.12)", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}><ReceiptDocument sale={sale} settings={settings} format={format} einv={einv} cfg={pcfg} /></div>
       </div>
       {cfg && !cfg.missing && (cfg.configured || einv) && (
         <div role="status" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", border: `1px solid ${einv?.status === "rechazado" || einv?.status === "error" || eMsg ? C.accent : C.line}`, borderRadius: 12, padding: "10px 14px", marginBottom: 12, fontFamily: FONT_BODY, fontSize: 12.5, color: C.ink }}>
@@ -7563,8 +7611,34 @@ const ReceiptView = ({ sale, settings, onNewSale, onSendWhatsApp, autoEmit = fal
         <button onClick={() => window.print()} style={{ ...quickLinkStyle, justifyContent: "center", fontWeight: 600 }}><Receipt size={16} /> Imprimir</button>
         <button onClick={onSendWhatsApp} style={{ ...quickLinkStyle, justifyContent: "center", background: "#25D366", color: C.ink, border: "none", fontWeight: 600 }}><MessageCircle size={15} /> WhatsApp</button>
       </div>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 10 }}>¿Necesitas PDF? Toca «Imprimir» y en la impresora elige «Guardar como PDF». Imprimir o guardar no crea otra venta ni cambia el comprobante.</div>
       {sale.notaInterna && <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginBottom: 10 }}>Nota interna (no se imprime): {sale.notaInterna}</div>}
       <PrimaryButton onClick={onNewSale}>Nueva venta</PrimaryButton>
+    </div>
+  );
+};
+
+// Más → «Impresora»: ajustar la impresora de este equipo con un ticket de PRUEBA (no es una venta ni se guarda)
+const PRINT_TEST_SALE = { id: "prueba", serie: "PRUEBA", numero: 1, tipo: "boleta", status: "emitido", createdAt: Date.now(), customerName: "Cliente de prueba", staffName: "Prueba de impresión",
+  items: [{ name: "Blusa de prueba", size: "M", colorName: "Negro", qty: 1, unitPrice: 89.9 }, { name: "Pantalón de prueba con nombre largo para ver si se corta", size: "28", colorName: "Azul", qty: 2, unitPrice: 119 }],
+  subtotal: 327.9, discount: 0, total: 327.9, payments: [{ method: "Efectivo", amount: 327.9 }], amountReceived: 350, vuelto: 22.1 };
+const PrinterScreen = ({ settings }) => {
+  const [format, setFormat] = useState(() => { try { return localStorage.getItem(RECEIPT_FORMAT_KEY) || "80"; } catch (e) { return "80"; } });
+  const choose = (f) => { setFormat(f); try { localStorage.setItem(RECEIPT_FORMAT_KEY, f); } catch (e) { /* nada */ } };
+  const [pcfg, setPcfg] = useState(printCfgGet);
+  return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 720, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Impresora de este equipo</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: C.inkSoft, lineHeight: 1.55, marginBottom: 12 }}>Elige el papel, imprime la prueba y ajusta hasta que salga bien. Funciona con cualquier impresora que el equipo reconozca (ticket térmico 58/80 mm o A4). Las etiquetas adhesivas de prendas van aparte (Stock → Imprimir etiquetas).</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {Object.entries(RECEIPT_FORMATS).map(([k, f]) => <Chip key={k} active={format === k} onClick={() => choose(k)}>{f.label}</Chip>)}
+      </div>
+      <AdminCard style={{ marginBottom: 14 }}><PrintSettings cfg={pcfg} onChange={setPcfg} format={format} /></AdminCard>
+      <div style={{ background: "#e9e9e9", borderRadius: 12, padding: "16px 8px", marginBottom: 14, overflowX: "auto" }}>
+        <div style={{ boxShadow: "0 4px 18px rgba(0,0,0,0.12)", width: "fit-content", maxWidth: "100%", margin: "0 auto" }}><ReceiptDocument sale={PRINT_TEST_SALE} settings={settings} format={format} cfg={pcfg} /></div>
+      </div>
+      <PrimaryButton onClick={() => window.print()}>Imprimir prueba</PrimaryButton>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 11.5, color: C.stone, marginTop: 8 }}>La prueba dice «NOTA DE VENTA PRUEBA-000001»: no se guarda ni cuenta como venta.</div>
     </div>
   );
 };
@@ -9059,6 +9133,7 @@ const MORE_GROUPS = [
 const MORE_ITEMS = [
   { id: "caja", g: "ventas", t: "Caja", d: "Abrir con el fondo, entradas y salidas de dinero, arqueo y cierre del turno.", icon: Banknote, k: "abrir cerrar arqueo turno efectivo fondo" },
   { id: "invoices", g: "ventas", t: "Comprobantes", d: "Buscar una venta, reimprimirla (58 mm, 80 mm, A4), enviarla o anularla.", icon: Receipt, k: "boleta nota venta reimprimir ticket anular buscar" },
+  { id: "impresora", g: "ventas", t: "Impresora (ajustes)", d: "Tamaño de letra, margen y ancho del ticket en este equipo, con un ticket de prueba.", icon: Receipt, k: "imprimir ticket papel 58 80 a4 termica pdf margen letra" },
   { id: "returns", g: "ventas", t: "Devolución o cambio", d: "La persona trae una prenda: se devuelve el dinero, un vale o se cambia.", icon: Undo2, k: "devolver cambiar talla reembolso" },
   { id: "facturacion", g: "ventas", t: "Facturación electrónica", d: "Boletas, facturas y notas de crédito en SUNAT con Nubefact: estado y reintentos.", icon: FileText, k: "sunat nubefact factura boleta nota credito token ruta" },
   { id: "onlineorders", g: "ventas", t: "Pedidos online", d: "Pedidos de la web: validar el pago, preparar, enviar y entregar.", icon: Truck, k: "web pedido envio delivery pago validar", badge: "orders" },
@@ -10229,6 +10304,7 @@ const SCREEN_ACCESS = {
   caja: STAFF_STORE_SELLERS, pos: STAFF_STORE_SELLERS, onlinesales: ["superadmin", "administrador", "vendedora_online"],
   mysales: STAFF_ALL_ROLES, manual: STAFF_ALL_ROLES, stock: STAFF_ALL_ROLES, onlineorders: STAFF_ALL_ROLES,
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
+  impresora: STAFF_STORE_SELLERS,
 };
 const canOpenScreen = (role, sc) => (SCREEN_ACCESS[sc] || []).includes(role);
 // Pantalla con la que se abre el panel según el enlace: #caja → Caja; #staff/<pantalla> → esa pantalla (si su rol puede)
@@ -10455,6 +10531,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {canOpenScreen(role, "fotoscopia") && screen === "fotoscopia" && <PhotoBackupScreen catalog={catalog} />}
         {canOpenScreen(role, "activity") && screen === "activity" && <ActivityScreen />}
         {canOpenScreen(role, "diagnostico") && screen === "diagnostico" && <DiagnosticScreen />}
+        {canOpenScreen(role, "impresora") && screen === "impresora" && <PrinterScreen settings={catalog.settings} />}
         {canOpenScreen(role, "cajapromos") && screen === "cajapromos" && <PosPromosScreen catalog={catalog} updateCatalog={updateCatalog} />}
         {canOpenScreen(role, "facturacion") && screen === "facturacion" && <EInvoiceScreen catalog={catalog} role={role} />}
         {canOpenScreen(role, "purchases") && screen === "purchases" && <PurchasesScreen catalog={catalog} refreshData={refreshData} />}
