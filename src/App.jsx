@@ -323,10 +323,18 @@ async function saveCatalogSafely(next, prev) {
 
 // Guarda solo lo que cambió (y solo si quien guarda es staff).
 let STAFF_CAN_WRITE = false; // solo Super Admin y Administrador guardan cambios directos
+// Guardados del catálogo en camino: mientras haya alguno, la recarga automática (cada 45 s o al volver a la
+// ventana, p. ej. al cerrar «¿Eliminar?») NO reemplaza el catálogo con la copia vieja del servidor
+// (antes una prenda eliminada «volvía a aparecer» y lo importado no se veía hasta volver a tocar).
+const CATALOG_SAVES = { pending: 0, gen: 0 };
+const trackCatalogSave = (promise) => {
+  CATALOG_SAVES.pending++; CATALOG_SAVES.gen++;
+  return Promise.resolve(promise).finally(() => { CATALOG_SAVES.pending--; CATALOG_SAVES.gen++; });
+};
 async function persistStaffChanges(next, prev) {
   if (!STAFF_CAN_WRITE) return;
   const tasks = [];
-  if (!prev || JSON.stringify(pickPublic(next)) !== JSON.stringify(pickPublic(prev))) tasks.push(saveCatalogSafely(next, prev));
+  if (!prev || JSON.stringify(pickPublic(next)) !== JSON.stringify(pickPublic(prev))) tasks.push(trackCatalogSave(saveCatalogSafely(next, prev)));
   const prevSales = new Map((prev?.sales || []).map((s) => [s.id, s]));
   const changedSales = (next.sales || []).filter((s) => s.id && prevSales.get(s.id) !== s);
   if (changedSales.length) tasks.push(supabase.from("sales").upsert(changedSales.map((s) => ({ id: s.id, data: s, created_at: new Date(s.createdAt || Date.now()).toISOString() }))));
@@ -5539,7 +5547,7 @@ const AdminProductList = ({ catalog, openEditor, deleteProduct, onImport, onImpo
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <button onClick={() => openEditor(p.id)} style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Pencil size={13} color={C.ink} /></button>
                 <button onClick={() => onDuplicate(p.id)} title="Duplicar" style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Layers size={13} color={C.ink} /></button>
-                <button onClick={() => deleteProduct(p.id)} style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Trash2 size={13} color={C.accent} /></button>
+                <button onClick={() => deleteProduct(p.id)} title="Eliminar" aria-label="Eliminar" style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid ${C.line}`, background: C.paperDeep, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Trash2 size={13} color={C.accent} /></button>
               </div>
             </AdminCard>
           );
@@ -11026,8 +11034,10 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
     if (!original) return c;
     const copyName = `${original.name} (copia)`;
     const copy = {
-      ...original, id: genId("prod"), name: copyName, slug: slugify(copyName), status: "borrador",
-      variants: original.variants.map((v) => ({ ...v, id: genId("var"), sku: `${slugify(copyName)}-${v.size}-${slugify(v.colorName)}`.toUpperCase() })),
+      ...original, id: genId("prod"), name: copyName, slug: slugify(copyName), status: "borrador", awaitingPhotos: false,
+      // La copia empieza sin stock y sin código de barras: son prendas nuevas (si no, el código saldría repetido
+      // y el servidor rechazaría el guardado, o aparecería stock que no existe).
+      variants: original.variants.map(({ barcode, stockBy, ...v }) => ({ ...v, id: genId("var"), stock: 0, sku: `${slugify(copyName)}-${v.size}-${slugify(v.colorName)}`.toUpperCase() })),
       createdAt: Date.now(), updatedAt: Date.now(),
     };
     return { ...c, products: [copy, ...c.products] };
@@ -11238,8 +11248,11 @@ export default function FlyBoutiqueApp() {
   };
   const refreshPrivate = async () => {
     try {
+      const gen = CATALOG_SAVES.gen;
       const [priv, pub] = await Promise.all([loadPrivateData(), loadCatalog().catch(() => null)]);
-      setCatalog((c) => (c ? { ...c, ...priv, ...(pub ? pickPublic(pub) : {}) } : c));
+      // Si algo se estaba guardando (o se guardó mientras se leía), lo leído puede ser viejo: no se usa.
+      const fresh = pub && !CATALOG_SAVES.pending && CATALOG_SAVES.gen === gen;
+      setCatalog((c) => (c ? { ...c, ...priv, ...(fresh ? pickPublic(pub) : {}) } : c));
       alertNewOrders(priv.sales);
     }
     catch (e) { console.warn("No se pudieron cargar los datos privados:", e); }
