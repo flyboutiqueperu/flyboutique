@@ -48,6 +48,7 @@ jobs:
         run: |
           node pruebas/importar.test.mjs
           node pruebas/seo.test.mjs
+          node pruebas/i18n-colores.test.mjs
 
       - name: Pruebas de navegador
         run: |

@@ -56,6 +56,11 @@ const COLOR_MODS = ["CLARO", "OSCURO", "BEBE", "PALO", "VIEJO", "NEON", "FLUOR",
 const isColorWord = (w, extra) => Object.prototype.hasOwnProperty.call(COLOR_HEX, w) || COLOR_MODS.includes(w) || Boolean(extra && extra.has(w));
 const titleWord = (w) => (/\d/.test(w) ? w : w.charAt(0) + w.slice(1).toLowerCase());
 export const titleCase = (s) => String(s || "").trim().split(/\s+/).map(titleWord).join(" ");
+// TumiSoft escribe sin tildes: el nombre del color se muestra bien escrito («MARRON» → «Marrón»)
+const ACCENTS = { MARRON: "Marrón", CAFE: "Café", MAIZ: "Maíz", MELON: "Melón", PETROLEO: "Petróleo", ELECTRICO: "Eléctrico", CONAC: "Coñac", CHAMPAN: "Champán",
+  OXIDO: "Óxido", BORGONA: "Borgoña", CARMESI: "Carmesí", CARMIN: "Carmín", PURPURA: "Púrpura", LIMON: "Limón", ORQUIDEA: "Orquídea", METALICO: "Metálico", SALMON: "Salmón",
+  BEBE: "Bebé", INDIGO: "Índigo", CARBON: "Carbón" };
+export const colorLabel = (color) => String(color || "").trim().split(/\s+/).map((w) => ACCENTS[w] || titleWord(w)).join(" ");
 
 // «90S LOW RISE JEANS AZUL 34» → { base: "90S LOW RISE JEANS", color: "AZUL", size: "34" }
 // extra (opcional): más palabras de color, las que ya existen en el catálogo o se aprendieron del mismo archivo.
@@ -140,7 +145,7 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
     const activo = !/inactiv|anulad|baja/i.test(String(r.estado || "activo"));
     const categoria = mapCategory(r.categoria);
     summary.categorias.add(categoria);
-    if (samples.length < 12) samples.push({ nombre, prenda: titleCase(base || nombre), color: color ? titleCase(color) : "Único", talla: size || "Única", codigo: interno || barras });
+    if (samples.length < 12) samples.push({ nombre, prenda: titleCase(base || nombre), color: color ? colorLabel(color) : "Único", talla: size || "Única", codigo: interno || barras });
     let prod = out.get(slug);
     if (!prod) {
       const prev = hit?.p || bySlug.get(slug);
@@ -156,7 +161,7 @@ export function parseTumiSoft(rows, existing = [], { genId = (p) => `${p}_${Math
     }
     if (price > 0) prod._prices.push(price);
     if (cost > 0) costs.set(prod.id, cost);
-    const colorName = color ? titleCase(color) : "Único";
+    const colorName = color ? colorLabel(color) : "Único";
     summary.colores[colorName] = (summary.colores[colorName] || 0) + 1;
     if (!color && summary.sinColor.length < 30) summary.sinColor.push(nombre);
     const sizeName = size || "Única";
