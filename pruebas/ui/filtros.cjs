@@ -1,0 +1,43 @@
+// Prueba de filtros de la tienda: «Solo disponibles», talla con stock real, inglés y estadísticas (búsqueda/favoritos). Uso: node pruebas/ui/filtros.cjs <carpeta>
+const { chromium } = require("playwright-core");
+const http = require("http"), fs = require("fs"), path = require("path");
+const dist = process.env.DIST || path.join(__dirname, "dist"), out = process.argv[2] || "/tmp";
+const types = { ".js": "text/javascript", ".png": "image/png", ".css": "text/css", ".webmanifest": "application/manifest+json" };
+const srv = http.createServer((q, r) => { let f = path.join(dist, q.url.split("?")[0].split("#")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) f = path.join(dist, "index.html"); r.writeHead(200, { "content-type": types[path.extname(f)] || "text/html" }); r.end(fs.readFileSync(f)); }).listen(4403);
+const mk = (id, name, cat, price, vs) => ({ id, name, slug: id, category: cat, price, status: "active", showOnline: true, images: [], variants: vs.map(([size, stock], i) => ({ id: id + i, size, colorName: "Negro", colorHex: "#111", stock, sku: id + size })) });
+const catalog = { products: [mk("p1", "Blusa Seda Valentina", "Blusas", 129, [["S", 0], ["M", 2]]), mk("p2", "Vestido Midi Coralina", "Vestidos", 189, [["S", 0], ["M", 0]]), mk("p3", "Falda Plisada Marina", "Faldas", 99, [["S", 1]])], collections: [], banners: [], settings: {}, promoCodes: [] };
+let ok = true; const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if (!v) ok = false; };
+(async () => {
+  const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+  const open = async (lang) => {
+    const ctx = await b.newContext({ locale: "es-PE", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await ctx.addInitScript((l) => { localStorage.setItem("flyboutique:cookieconsent:v1", "none"); localStorage.setItem("flyboutique:idioma:v1", l); window.__ev = []; window.gtag = (k, ev, prm) => window.__ev.push([ev, prm]); }, lang);
+    const p = await ctx.newPage(); p.setDefaultTimeout(4000);
+    p.on("pageerror", (e) => { console.log("ERROR EN PÁGINA:", e.message); ok = false; });
+    await p.route("http://fake.supabase.test/**", (rt) => rt.request().url().includes("store_data") ? rt.fulfill({ json: { data: catalog } }) : rt.fulfill({ json: [] }));
+    return { p, ctx };
+  };
+  let { p, ctx } = await open("es");
+  await p.goto("http://localhost:4403/catalogo"); await p.waitForTimeout(1800);
+  const grid = () => p.innerText(".product-grid");
+  let g = await grid();
+  check("Catálogo: 3 prendas (incluida la agotada)", g.includes("Blusa Seda Valentina") && g.includes("Vestido Midi Coralina") && g.includes("Falda Plisada Marina"));
+  await p.click(".avail-chip"); await p.waitForTimeout(300); g = await grid();
+  check("«Solo disponibles» oculta el vestido agotado", !g.includes("Vestido Midi Coralina") && g.includes("Blusa Seda Valentina") && (await p.innerText("body")).includes("2 prendas"));
+  check("Aparece el chip para quitarlo", (await p.locator("button:has-text('Solo disponibles')").count()) === 2);
+  await p.click(".avail-chip"); await p.waitForTimeout(200);
+  await p.click("button:has-text('Talla')"); await p.waitForTimeout(200);
+  await p.locator(".filter-bar button", { hasText: /^S$/ }).first().click(); await p.waitForTimeout(300); g = await grid();
+  check("Talla S: solo la falda (la blusa no tiene S en stock)", g.includes("Falda Plisada Marina") && !g.includes("Blusa Seda Valentina") && !g.includes("Vestido Midi Coralina"));
+  await p.click(".product-grid button[aria-label='Guardar en favoritos']"); await p.waitForTimeout(200);
+  const ev = await p.evaluate(() => window.__ev.map((x) => x[0]));
+  check("Estadística: guardar en favoritos se cuenta (add_to_wishlist)", ev.includes("add_to_wishlist"));
+  await p.screenshot({ path: `${out}/filtros.png` });
+  await ctx.close();
+  ({ p, ctx } = await open("en"));
+  await p.goto("http://localhost:4403/catalogo"); await p.waitForTimeout(1800);
+  check("Inglés: «In stock only»", (await p.innerText(".filter-bar")).includes("In stock only"));
+  await ctx.close();
+  console.log(ok ? "TODO OK" : "HAY FALLAS");
+  await b.close(); srv.close(); process.exit(ok ? 0 : 1);
+})().catch((e) => { console.log("FALLO:", e.message); process.exit(1); });

@@ -9,7 +9,7 @@ const exp = Math.floor(Date.now() / 1000) + 3600;
 const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ sub: "u1", aal: "aal2", role: "authenticated", exp, email: "ana@staff.flyboutique.pe", amr: [{ method: "totp", timestamp: 1 }] })}.sig`;
 const user = { id: "u1", email: "ana@staff.flyboutique.pe", aud: "authenticated", role: "authenticated", app_metadata: { provider: "email" }, user_metadata: {}, factors: [{ id: "f1", factor_type: "totp", status: "verified" }] };
 const catalog = { products: [], collections: [], banners: [], settings: { company: { legalName: "FLY BOUTIQUE SAC", ruc: "20123456789" } }, promoCodes: [] };
-let ok = true; const logoOn = (d) => d.text.trim().split("\n")[0].trim() === "FLY";
+let ok = true; const logoOn = (d) => d.logo;
 const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if (!v) ok = false; };
 (async () => {
   const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
@@ -34,7 +34,7 @@ const check = (t, v) => { console.log(v ? "OK " : "FALLA", t); if (!v) ok = fals
   };
   let { p, ctx } = await open("superadmin");
   await p.evaluate(() => { location.hash = "#staff/impresora"; }); await p.waitForTimeout(900);
-  const doc = () => p.evaluate(() => { const d = document.querySelector(".receipt-doc"); const cs = getComputedStyle(d); return { w: d.getBoundingClientRect().width, font: parseFloat(cs.fontSize), text: d.innerText }; });
+  const doc = () => p.evaluate(() => { const d = document.querySelector(".receipt-doc"); const cs = getComputedStyle(d); return { w: d.getBoundingClientRect().width, font: parseFloat(cs.fontSize), text: d.innerText, logo: !!d.querySelector(".fly-logo") }; });
   let d0 = await doc();
   check("Abre «Impresora de este equipo» con ticket de prueba", (await p.innerText("body")).includes("Impresora de este equipo") && d0.text.includes("PRUEBA-000001") && d0.text.includes("FLY BOUTIQUE SAC"));
   await p.click('button[aria-label="Tamaño de letra: más"]'); await p.click('button[aria-label="Tamaño de letra: más"]'); await p.waitForTimeout(150);

@@ -595,9 +595,16 @@ const OutletRules = ({ compact }) => (
     {OUTLET_RULES.map((r) => <div key={r}>· {t(r)}</div>)}
   </div>
 );
+// Logo oficial «FLY» (vector, el mismo de public/logo-fly.svg). Se ve nítido en cualquier tamaño y al imprimir.
+const FlyLogo = ({ height = 16, color = "currentColor", style, title = "FLY" }) => (
+  <svg className="fly-logo" viewBox="0 0 393 164" height={height} width={(height * 393) / 164} role="img" aria-label={title} style={{ display: "block", flexShrink: 0, ...style }}>
+    <path fill={color} d="M0 0 L123 0 L123 36 L39 36 L39 68 L111 68 L111 103 L39 103 L39 164 L0 164 Z M135 0 L174 0 L174 129 L251 129 L251 164 L135 164 Z M228 0 L272 0 L308 66 L348 0 L393 0 L329 104 L329 164 L288 164 L288 104 Z" />
+  </svg>
+);
+// Mismo tamaño que tenía el texto «FLY» (alto ≈ 0,415 × size: mismo ancho que antes)
 const BadgeLogo = ({ size = 34, dark }) => (
   <div style={{ height: size, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-    <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: size * 0.52, letterSpacing: "0.02em", lineHeight: 1, color: dark ? "#FFFFFF" : "#000000" }}>FLY</span>
+    <FlyLogo height={Math.round(size * 0.415 * 10) / 10} color={dark ? "#FFFFFF" : "#000000"} />
   </div>
 );
 const FlightPath = ({ width = 70, color = C.ink }) => (
@@ -1515,6 +1522,7 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
   const [sizes, setSizes] = useState(new Set());
   const [colors, setColors] = useState(new Set());
   const [tags, setTags] = useState(new Set());
+  const [onlyAvail, setOnlyAvail] = useState(false); // «Solo disponibles»: oculta lo agotado
   const [sort, setSort] = useState("relevance");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
@@ -1532,7 +1540,9 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
   const nq = normText(searchQuery.trim());
   if (nq) filtered = filtered.filter((p) => normText(`${p.name} ${p.nameEn || ""} ${p.category} ${t(p.category)} ${p.tag || ""} ${p.description || ""} ${productColors(p).map((c) => `${c.n} ${t(c.n)}`).join(" ")}`).includes(nq));
   if (activeCollection) { const col = collections.find((c) => c.id === activeCollection); if (col) filtered = filtered.filter((p) => col.productIds.includes(p.id)); }
-  if (sizes.size) filtered = filtered.filter((p) => productSizes(p).some((s) => sizes.has(s)));
+  // Talla: solo prendas que TIENEN esa talla con stock (no sirve ver una prenda cuya talla M ya se agotó)
+  if (sizes.size) filtered = filtered.filter((p) => (p.variants || []).some((v) => sizes.has(v.size) && Number(v.stock) > 0));
+  if (onlyAvail) filtered = filtered.filter((p) => !productSoldOut(p));
   if (colors.size) filtered = filtered.filter((p) => productColors(p).some((c) => colors.has(c.n)));
   if (tags.size) filtered = filtered.filter((p) => p.tag && tags.has(p.tag));
   if (priceLimit < maxPrice) filtered = filtered.filter((p) => p.price <= priceLimit);
@@ -1540,8 +1550,8 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
   if (sort === "price-desc") filtered.sort((a, b) => b.price - a.price);
   if (sort === "new") filtered.sort((a, b) => (b.tag === "Nuevo") - (a.tag === "Nuevo"));
 
-  const activeFilterCount = sizes.size + colors.size + tags.size + (priceLimit < maxPrice ? 1 : 0) + (sort !== "relevance" ? 1 : 0) + (searchQuery ? 1 : 0) + (activeCategory !== "Todo" || group ? 1 : 0);
-  const clearAll = () => { setSizes(new Set()); setColors(new Set()); setTags(new Set()); setPriceLimit(maxPrice); setSort("relevance"); setActiveCollection(null); setSearchQuery && setSearchQuery(""); setGroup && setGroup(null); setActiveCategory("Todo"); setPanel(null); };
+  const activeFilterCount = sizes.size + colors.size + tags.size + (onlyAvail ? 1 : 0) + (priceLimit < maxPrice ? 1 : 0) + (sort !== "relevance" ? 1 : 0) + (searchQuery ? 1 : 0) + (activeCategory !== "Todo" || group ? 1 : 0);
+  const clearAll = () => { setSizes(new Set()); setColors(new Set()); setTags(new Set()); setOnlyAvail(false); setPriceLimit(maxPrice); setSort("relevance"); setActiveCollection(null); setSearchQuery && setSearchQuery(""); setGroup && setGroup(null); setActiveCategory("Todo"); setPanel(null); };
   const toggleSet = (set, setter, v) => { const n = new Set(set); n.has(v) ? n.delete(v) : n.add(v); setter(n); };
   const allTags = [...new Set(products.map((p) => p.tag).filter(Boolean))];
   const visibleCats = [...new Set(products.map((p) => p.category))].filter((c) => !group || (group === "Ropa" ? groupOfCategory(c) === "Ropa" : groupCats.includes(c)));
@@ -1571,6 +1581,7 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
           {filterBtn("color", "Color", Sparkles, colors.size)}
           {filterBtn("precio", "Precio", Ticket, priceLimit < maxPrice ? 1 : 0)}
           {allTags.length > 0 && filterBtn("destacado", "Destacado", Star, tags.size)}
+          <button className="avail-chip" onClick={() => setOnlyAvail((v) => !v)} aria-pressed={onlyAvail} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 999, border: `1px solid ${onlyAvail ? C.ink : C.line}`, background: onlyAvail ? C.ink : C.paper, color: onlyAvail ? C.paper : C.ink, fontFamily: FONT_BODY, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}><Check size={13} /> {t("Solo disponibles")}</button>
           {filterBtn("orden", sort === "relevance" ? "Ordenar" : (SORT_OPTIONS.find(([k]) => k === sort) || [, "Ordenar"])[1], ArrowUpDown, 0)}
           {!outlet && onOutlet && <button onClick={onOutlet} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 999, border: `1px solid ${C.ink}`, background: C.paper, color: C.ink, fontFamily: FONT_DISPLAY, fontSize: 12, fontWeight: 800, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>{t("OUTLET")} <ChevronRight size={13} /></button>}
         </div>
@@ -1616,6 +1627,7 @@ const CategoryScreen = ({ outlet = false, onOutlet, catalog, activeCategory, set
           {[...sizes].map((x) => <button key={"s" + x} onClick={() => toggleSet(sizes, setSizes, x)} style={activeChipStyle}>{t("Talla")} {x} <X size={11} /></button>)}
           {[...colors].map((x) => <button key={"c" + x} onClick={() => toggleSet(colors, setColors, x)} style={activeChipStyle}>{x} <X size={11} /></button>)}
           {[...tags].map((x) => <button key={"t" + x} onClick={() => toggleSet(tags, setTags, x)} style={activeChipStyle}>{x} <X size={11} /></button>)}
+          {onlyAvail && <button onClick={() => setOnlyAvail(false)} style={activeChipStyle}>{t("Solo disponibles")} <X size={11} /></button>}
           {priceLimit < maxPrice && <button onClick={() => setPriceLimit(maxPrice)} style={activeChipStyle}>{t("Hasta")} {money(priceLimit)} <X size={11} /></button>}
           {sort !== "relevance" && <button onClick={() => setSort("relevance")} style={activeChipStyle}>{(SORT_OPTIONS.find(([k]) => k === sort) || [])[1]} <X size={11} /></button>}
           <button onClick={clearAll} style={{ ...activeChipStyle, border: "none", background: "transparent", color: C.ink, fontWeight: 600, textDecoration: "underline", flexShrink: 0 }}><RotateCcw size={11} /> {t("Restablecer todos")}</button>
@@ -4391,7 +4403,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
   const moreScreens = ["impresora", "transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
-      <div className="side-brand">FLY<span>Panel del staff</span></div>
+      <div className="side-brand"><FlyLogo height={21} /><span>Panel del staff</span></div>
       {items.map(([key, label, Icon]) => {
         const active = screen === key || (key === "products" && screen === "productEditor") || (key === "more" && moreScreens.includes(screen) && !sideIds.has(screen));
         return (
@@ -5890,7 +5902,7 @@ const LabelCard = ({ o, settings }) => {
   return (
         <div className="label-print" style={{ background: C.white, color: "#000", border: "2px solid #000", borderRadius: 8, padding: "14px 16px", fontFamily: FONT_BODY, maxWidth: 420, width: "100%", margin: "0 auto", breakInside: "avoid", pageBreakInside: "avoid" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #000", paddingBottom: 8, marginBottom: 8 }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 900, letterSpacing: "0.04em" }}>FLY</div>
+            <FlyLogo height={22} style={{ margin: "0 auto" }} />
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 11, fontWeight: 700 }}>{method}</div>
               <div style={{ fontSize: 15, fontWeight: 800 }}>{o.serie}-{String(o.numero).padStart(6, "0")}</div>
@@ -6189,7 +6201,7 @@ const TransferDoc = ({ t, settings }) => {
   return (
     <div className="print-area" style={{ background: "#fff", color: "#000", border: "1px solid #000", borderRadius: 10, padding: "16px 16px", fontFamily: FONT_BODY }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
-        <div><div style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: 22 }}>FLY</div><div style={{ fontSize: 11 }}>{settings?.company?.legalName || "Fly Boutique"}</div></div>
+        <div><FlyLogo height={18} /><div style={{ fontSize: 11, marginTop: 3 }}>{settings?.company?.legalName || "Fly Boutique"}</div></div>
         <div style={{ textAlign: "right" }}><div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 13, letterSpacing: "0.06em" }}>GUÍA DE TRASLADO INTERNO</div><div style={{ fontSize: 15, fontWeight: 700 }}>{t.code}</div><div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>{TRANSFER_STATUS[t.status]}</div></div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px", fontSize: 12, margin: "14px 0" }}>
@@ -7176,7 +7188,7 @@ const LabelsScreen = ({ catalog, onBack }) => {
   const label = ({ key, p, v }) => (
     <div key={key} className="fly-label" style={{ width: F.w, height: F.h, boxSizing: "border-box", padding: "1.5mm 2mm", background: "#fff", color: "#000", fontFamily: "'Jost', Arial, sans-serif", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden", border: "1px dashed #bbb" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 4 }}>
-        <span style={{ fontFamily: "'Archivo', Arial, sans-serif", fontWeight: 900, fontSize: 10 }}>FLY</span>
+        <FlyLogo height={8} />
         {showPrice && <span style={{ fontWeight: 700, fontSize: 10 }}>S/ {Number(p.price).toFixed(2)}</span>}
       </div>
       <div style={{ fontSize: 8.5, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
@@ -7499,7 +7511,7 @@ const ReceiptDocument = ({ sale, settings, format = "80", einv, cfg }) => {
     <div className="print-area receipt-doc" style={{ width: fmt.width, maxWidth: "100%", margin: "0 auto", background: "#fff", color: "#000", fontFamily: "'Jost', Arial, sans-serif", fontSize: fmt.font, lineHeight: 1.4, padding: format === "a4" ? "10mm" : "3mm 2mm" }}>
       <style>{`@media print { @page { size: ${fmt.page}; margin: ${fmt.pageMargin}; } }`}</style>
       <div style={{ textAlign: "center" }}>
-        {pcfg.logo && <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 900, fontSize: fmt.font * 2.2, letterSpacing: "0.04em" }}>FLY</div>}
+        {pcfg.logo && <FlyLogo height={Math.round(fmt.font * 1.8)} color="#000" style={{ margin: "0 auto 4px" }} />}
         <div style={{ fontWeight: 700 }}>{company.legalName}</div>
         {company.ruc ? <div>RUC {company.ruc}</div> : <div style={small}>(RUC no configurado: Panel → Datos de la empresa)</div>}
         <div style={small}>{store.address || company.address}</div>
@@ -10800,7 +10812,7 @@ export default function FlyBoutiqueApp() {
   const [catalogGroup, setCatalogGroup] = useState(null);
   const [outletCat, setOutletCat] = useState("Todo");
   const [outletQ, setOutletQ] = useState("");
-  const goCatalog = (cat = "Todo", group = null, q = "") => { setSelectedProduct(null); setActiveCategory(cat); setCatalogGroup(group || (cat !== "Todo" ? groupOfCategory(cat) : null)); setSearchQuery(q); setScreen("category"); scrollAllTop(); };
+  const goCatalog = (cat = "Todo", group = null, q = "") => { if (q && q.trim()) track("search", { search_term: q.trim().slice(0, 80) }); setSelectedProduct(null); setActiveCategory(cat); setCatalogGroup(group || (cat !== "Todo" ? groupOfCategory(cat) : null)); setSearchQuery(q); setScreen("category"); scrollAllTop(); };
   const navigateFromProduct = (target, cat) => { if (target === "home") { setSelectedProduct(null); setScreen("home"); } else goCatalog(cat); scrollAllTop(); };
   const openProduct = (product, colorName = null) => { trackView(product.id); setSelectedColorPref(typeof colorName === "string" ? colorName : null); setSelectedProduct(product); track("view_item", { currency: "PEN", value: product.price, items: [gaItem(product)] }); };
   const removeFromViewed = (productId) => {
@@ -10855,6 +10867,7 @@ export default function FlyBoutiqueApp() {
   });
   const toggleFav = (id) => setFavs((prev) => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) { const fp = catalog?.products?.find((x) => x.id === id); if (fp) track("add_to_wishlist", { currency: "PEN", value: fp.price, items: [gaItem(fp)] }); }
     try { window.storage.set(WISHLIST_KEY, JSON.stringify([...next]), false); } catch (e) { /* storage unavailable */ }
     return next;
   });
@@ -11509,7 +11522,7 @@ export default function FlyBoutiqueApp() {
       <div className={`app-frame${mode === "store" && selectedProduct ? " pdp-open" : ""}${mode === "staff" ? " is-staff" : ""}`} style={frameStyle}>
         {!catalog ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, background: C.paper }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 52, fontWeight: 900, color: C.ink, letterSpacing: "0.04em" }}>FLY</div>
+            <FlyLogo height={42} color={C.ink} />
             {catalogError ? (
               <>
                 <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, textAlign: "center", maxWidth: 260 }}>{t("No pudimos cargar la tienda. Revisa tu conexión e intenta de nuevo.")}</div>
