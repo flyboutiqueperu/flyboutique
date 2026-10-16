@@ -4644,13 +4644,14 @@ const DateRangeField = ({ from, to, onChange, max, placeholder = "Elegir fechas"
     </CalPop>
   );
 };
-const AdminTopBar = ({ title, onBack, onExit, onHome }) => (
-  <div className="admin-topbar" style={{ position: "sticky", top: 0, zIndex: 15, background: C.ink, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+const AdminTopBar = ({ title, onBack, onExit, onHome, onClock }) => (
+  <div className="admin-topbar" style={{ position: "sticky", top: 0, zIndex: 15, background: C.ink, padding: "16px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
       {onBack && <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", display: "flex" }}><ArrowLeft size={18} color={C.paper} /></button>}
       <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 800, color: C.paper, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
     </div>
     <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+    {onClock && <button onClick={onClock} className="tb-clock" style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.25)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }} aria-label="Marcar asistencia"><Clock size={12} /><span className="tb-label">Marcar</span></button>}
     {onHome && <button onClick={onHome} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.25)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }} aria-label="Inicio del panel"><Home size={12} /><span className="tb-label">Inicio</span></button>}
     <button onClick={onExit} title="Cierra tu sesión. La caja sigue abierta para el siguiente turno." style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, color: C.paper, background: "none", border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", whiteSpace: "nowrap" }} aria-label="Cerrar sesión"><LogOut size={12} /><span className="tb-label">Cerrar sesión</span><span className="tb-short">Salir</span></button>
     </div>
@@ -4673,7 +4674,7 @@ const AdminNav = ({ screen, setScreen, role }) => {
   const topIds = new Set(items.map((x) => x[0]));
   const side = STAFF_ADMIN.includes(role) ? MORE_ITEMS.filter((it) => !topIds.has(it.id) && (it.id === "backup" ? role === "superadmin" : canOpenScreen(role, it.id)) && (!it.only || it.only === role)) : [];
   const sideIds = new Set(side.map((it) => it.id));
-  const moreScreens = ["impresora", "transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
+  const moreScreens = ["sueldos", "asistencia", "impresora", "transfers", "purchases", "activity", "diagnostico", "cajapromos", "docapi", "fotoscopia", "facturacion", "banners", "bannerEditor", "collections", "collectionEditor", "invoices", "reports", "more", "users", "promocodes", "onlineorders", "caja", "sellers", "manual"];
   return (
     <div className="staff-nav" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: C.paperDeep, borderTop: `1px solid ${C.line}`, padding: "10px 6px calc(10px + env(safe-area-inset-bottom))", display: "flex", justifyContent: "space-around", zIndex: 30 }}>
       <div className="side-brand"><FlyLogo height={21} /><span>Panel del staff</span></div>
@@ -7168,7 +7169,7 @@ const ACTIVITY_GROUPS = [
   ["inventario", "Inventario y compras", (a) => /^(guia_|traslado_|compra_|costo_|gasto_)/.test(a)],
   ["equipo", "Equipo y configuración", (a) => /^(usuario_|vendedor_|consulta_doc_config|permiso_publicidad)/.test(a)],
 ];
-const ACTIVITY_EXTRA = { catalogo_importado: "Catálogo importado (Excel)", fotos_subidas: "Fotos subidas en lote", caja_entrada: "Entrada de dinero", caja_salida: "Salida de dinero", devolucion: "Devolución", cambio_prendas: "Cambio de prendas", vale_creado: "Vale creado", vale_anulado: "Vale anulado", puntos_canjeados: "Puntos canjeados", comprobante_aceptado: "Comprobante aceptado por SUNAT", comprobante_enviado: "Comprobante enviado", comprobante_rechazado: "Comprobante rechazado", comprobante_error: "Comprobante con error", comprobante_anulado: "Comprobante anulado", nota_credito_aceptado: "Nota de crédito aceptada", nota_credito_enviado: "Nota de crédito enviada", nota_credito_rechazado: "Nota de crédito rechazada", nota_credito_error: "Nota de crédito con error", facturacion_config: "Configuración de facturación", consulta_doc_config: "Configuración DNI/RUC", permiso_publicidad: "Permiso de publicidad", vendedor_guardado: "Vendedor guardado" };
+const ACTIVITY_EXTRA = { asistencia_codigo_invalido: "Asistencia: código no reconocido", asistencia_persona: "Asistencia: persona guardada", asistencia_pin: "Asistencia: PIN cambiado", asistencia_corregida: "Asistencia: marca agregada a mano", asistencia_anulada: "Asistencia: marca anulada", asistencia_ajuste: "Sueldos: ajuste", asistencia_ajuste_anulado: "Sueldos: ajuste quitado", catalogo_importado: "Catálogo importado (Excel)", fotos_subidas: "Fotos subidas en lote", caja_entrada: "Entrada de dinero", caja_salida: "Salida de dinero", devolucion: "Devolución", cambio_prendas: "Cambio de prendas", vale_creado: "Vale creado", vale_anulado: "Vale anulado", puntos_canjeados: "Puntos canjeados", comprobante_aceptado: "Comprobante aceptado por SUNAT", comprobante_enviado: "Comprobante enviado", comprobante_rechazado: "Comprobante rechazado", comprobante_error: "Comprobante con error", comprobante_anulado: "Comprobante anulado", nota_credito_aceptado: "Nota de crédito aceptada", nota_credito_enviado: "Nota de crédito enviada", nota_credito_rechazado: "Nota de crédito rechazada", nota_credito_error: "Nota de crédito con error", facturacion_config: "Configuración de facturación", consulta_doc_config: "Configuración DNI/RUC", permiso_publicidad: "Permiso de publicidad", vendedor_guardado: "Vendedor guardado" };
 const activityLabel = (a) => ACTION_LABELS[a] || ACTIVITY_EXTRA[a] || String(a || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const ACTIVITY_KEYS = { archivo: "Archivo", filas: "Filas", nuevas: "Nuevas", actualizadas: "Actualizadas", combinaciones: "Tallas y colores", costos: "Costos", fotos: "Fotos", prendas: "Prendas", publicadas: "Publicadas", reemplazadas: "Reemplazadas", sin_reconocer: "Sin reconocer", venta: "Venta", comprobante: "Comprobante", nota: "Nota", modifica: "Modifica", guia: "Guía", motivo: "Motivo", total: "Total", monto: "Monto", amount: "Monto", detalle: "Detalle", codigo: "Código", code: "Código", reason: "Motivo", token: "Token", sede: "Sede", diferencia: "Diferencia", difference: "Diferencia", serie: "Serie", numero: "Número" };
 const activityDetail = (d) => {
@@ -10081,6 +10082,8 @@ const MORE_ITEMS = [
   { id: "banners", g: "tienda", t: "Banners", d: "Las imágenes o videos grandes que rotan en la portada de la tienda.", icon: Images, k: "portada imagen video inicio" },
   { id: "collections", g: "tienda", t: "Colecciones", d: "Agrupar prendas (ej. «Oficina») para mostrarlas juntas en la web.", icon: Layers, k: "coleccion look agrupar" },
   { id: "manual", g: "equipo", t: "Manual del equipo", d: "Cómo se hace cada cosa, paso a paso, con imágenes.", icon: BookOpen, k: "ayuda guia como se hace" },
+  { id: "sueldos", g: "equipo", t: "Asistencia y sueldos", d: "Personas, PIN o llavero para marcar, horas de cada día y el pago de la quincena en Excel.", icon: Wallet, k: "sueldo planilla quincena pago horas extra tardanza asistencia marcar entrada salida pin llavero tag" },
+  { id: "asistencia", g: "equipo", t: "Marcar asistencia", d: "Cada persona marca su entrada o salida con su PIN o llavero.", icon: Clock, k: "marcar entrada salida asistencia hora llegada pin llavero tag reloj" },
   { id: "activity", g: "equipo", t: "Registro de actividad", d: "Quién abrió o cerró la caja, anuló, devolvió o cambió algo, y cuándo.", icon: History, k: "auditoria historial quien cambios log bitacora actividad" },
   { id: "reports", g: "equipo", t: "Reportes", d: "Ventas por día, vendedora, sede y prenda; rentabilidad y gastos.", icon: BarChart3, k: "reporte venta ganancia margen gasto vendedor" },
   { id: "users", g: "equipo", t: "Usuarios y permisos", d: "Crear cuentas del staff, cambiar su rol o contraseña.", icon: UserCog, k: "usuario rol contraseña cajero acceso", only: "superadmin" },
@@ -11293,6 +11296,301 @@ const StaffManual = ({ role }) => {
 // ---- Qué pantallas puede abrir cada rol (una sola lista para el menú, los enlaces y la flecha atrás) ----
 // Si alguien escribe a mano otra dirección (ej. #staff/reports siendo cajero), vuelve a su pantalla de inicio.
 // La base de datos además rechaza cualquier dato que su rol no pueda ver o cambiar.
+// ==================== ASISTENCIA Y SUELDOS (SQL 31) ====================
+// Marcar: PIN de 4–6 números o llavero (el lector USB escribe el número y Enter, como un teclado). La hora la pone el servidor.
+const limaTime = (iso) => new Date(iso).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/Lima" });
+const limaDate = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Lima" }); // AAAA-MM-DD
+const ATT_ERR = { CODIGO_INVALIDO: "Código no reconocido. Revisa tu PIN o vuelve a pasar el llavero.", DEMASIADOS_INTENTOS: "Demasiados intentos fallidos. Espera 10 minutos o avisa a Administración.", SIN_PERMISO: "Este equipo no tiene permiso para marcar.", PGRST202: "Falta correr el SQL 31 en Supabase." };
+const attErr = (e) => { const m = String(e?.message || e?.code || e || ""); const k = Object.keys(ATT_ERR).find((x) => m.includes(x) || e?.code === x); return k ? ATT_ERR[k] : "No se pudo marcar: " + m; };
+
+const AttendanceKiosk = () => {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null); // {ok, name, kind, at, repeat} | {error}
+  const [today, setToday] = useState([]);
+  const [now, setNow] = useState(new Date());
+  const inputRef = useRef(null);
+  const clearT = useRef(null);
+  const loadToday = async () => { const { data, error } = await supabase.rpc("att_today"); if (!error && Array.isArray(data)) setToday(data); };
+  useEffect(() => { loadToday(); const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  // El cuadro siempre listo para el lector de llaveros
+  useEffect(() => { const f = () => { if (document.activeElement?.tagName !== "INPUT") inputRef.current?.focus(); }; f(); const t = setInterval(f, 1500); return () => clearInterval(t); }, []);
+  const submit = async (c = code) => {
+    const v = String(c).trim(); if (!v || busy) return;
+    setBusy(true); setCode("");
+    const { data, error } = await supabase.rpc("att_clock", { p_code: v });
+    setBusy(false);
+    const r = error ? { error: attErr(error) } : data?.ok === false ? { error: attErr(data.error) } : { ok: true, ...data };
+    setRes(r);
+    try { if (r.ok && navigator.vibrate) navigator.vibrate(60); } catch (e) { /* sin vibración */ }
+    clearTimeout(clearT.current); clearT.current = setTimeout(() => setRes(null), r.ok ? 5000 : 6000);
+    if (r.ok) loadToday();
+    inputRef.current?.focus();
+  };
+  const press = (d) => { if (d === "⌫") setCode((x) => x.slice(0, -1)); else if (d === "OK") submit(); else setCode((x) => (x.length < 20 ? x + d : x)); };
+  const inNow = (() => { const last = new Map(); [...today].reverse().forEach((m) => last.set(m.name, m)); return [...last.values()].filter((m) => m.kind === "entrada"); })();
+  return (
+    <div className="att-kiosk" style={{ padding: "18px 18px 90px", maxWidth: 760, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Marcar asistencia</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>Escribe tu PIN y toca <strong>Marcar</strong> (o pasa tu llavero). Entrada o salida se elige sola.</div>
+      <div className="att-clock" style={{ background: C.ink, color: C.paper, borderRadius: 18, padding: "18px 20px", textAlign: "center", marginBottom: 14 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 46, fontWeight: 900, letterSpacing: ".02em", lineHeight: 1 }}>{now.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "America/Lima" })}</div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 13.5, opacity: 0.8, marginTop: 6 }}>{now.toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Lima" }).replace(/^./, (c) => c.toUpperCase())}</div>
+      </div>
+      {res && (
+        <div className={`att-result fold-in ${res.ok ? "is-ok" : "is-err"}`} role="status" style={{ borderRadius: 16, padding: "16px 18px", marginBottom: 14, border: `2px solid ${res.ok ? C.ink : C.accent}`, background: res.ok ? C.paperDeep : C.accentSoft, display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ width: 48, height: 48, borderRadius: "50%", background: res.ok ? C.ink : C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{res.ok ? <Check size={26} /> : <X size={26} />}</span>
+          {res.ok ? (
+            <div style={{ fontFamily: FONT_BODY, color: C.ink }}>
+              <div style={{ fontSize: 20, fontWeight: 800 }}>{res.kind === "entrada" ? "Entrada" : "Salida"} · {limaTime(res.at)}</div>
+              <div style={{ fontSize: 15 }}>{res.kind === "entrada" ? "¡Buen turno" : "¡Hasta luego"}, {res.name}!{res.repeat ? " (ya estaba marcado)" : ""}</div>
+            </div>
+          ) : <div style={{ fontFamily: FONT_BODY, fontSize: 15, fontWeight: 600, color: C.ink }}>{res.error}</div>}
+        </div>
+      )}
+      <form onSubmit={(e) => { e.preventDefault(); submit(); }} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <input ref={inputRef} aria-label="PIN o llavero" value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9A-Za-z]/g, "").slice(0, 20))} type="password" inputMode="numeric" autoComplete="off" placeholder="PIN o llavero"
+          style={{ ...inputStyle, fontSize: 26, letterSpacing: ".3em", textAlign: "center", height: 62, fontWeight: 800 }} />
+        <button type="submit" disabled={!code || busy} className="att-go" style={{ minWidth: 120, borderRadius: 12, border: "none", background: C.ink, color: C.paper, fontFamily: FONT_BODY, fontSize: 17, fontWeight: 800, cursor: "pointer", opacity: code && !busy ? 1 : 0.4 }}>{busy ? "…" : "Marcar"}</button>
+      </form>
+      <div className="att-pad" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 18 }}>
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "OK"].map((d) => (
+          <button key={d} type="button" aria-label={d === "⌫" ? "Borrar" : d === "OK" ? "Marcar" : d} onClick={() => press(d)} disabled={d === "OK" && (!code || busy)}
+            style={{ height: 64, borderRadius: 14, border: `1px solid ${d === "OK" ? C.ink : C.line}`, background: d === "OK" ? C.ink : C.paperDeep, color: d === "OK" ? C.paper : C.ink, fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 800, cursor: "pointer" }}>{d}</button>
+        ))}
+      </div>
+      <AdminCard>
+        <span style={labelStyle}>Hoy</span>
+        {inNow.length > 0 && <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.ink, marginBottom: 8 }}>En la tienda ahora: <strong>{inNow.map((m) => m.name).join(", ")}</strong></div>}
+        {today.length === 0 ? <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone }}>Todavía nadie marcó hoy.</div> : today.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontFamily: FONT_BODY, fontSize: 13.5 }}>
+            <span>{m.name}</span><span style={{ color: m.kind === "entrada" ? C.ink : C.stone, fontWeight: 600 }}>{m.kind === "entrada" ? "Entrada" : "Salida"} · {limaTime(m.at)}</span>
+          </div>
+        ))}
+      </AdminCard>
+    </div>
+  );
+};
+
+// ---- Cálculo de la quincena (misma regla que el Excel de sueldos) ----
+// Por día con marcas: (salida − entrada, se suman los tramos) − break − jornada = minutos de más (+) o de menos (−).
+// Valor hora = base ÷ (15 × jornada) salvo que se ponga otro. Total = base + minutos/60 × valor hora − ausencias + feriados + bonos − adelantos − descuentos.
+const quincenaOf = (d = new Date()) => { const y = d.getFullYear(), m = d.getMonth(); const first = d.getDate() <= 15; const start = new Date(y, m, first ? 1 : 16, 12); const end = first ? new Date(y, m, 15, 12) : new Date(y, m + 1, 0, 12); return { start: calYmd(start), end: calYmd(end) }; };
+const shiftQuincena = (q, k) => { const s = fromYmd(q.start); if (k < 0) { if (s.getDate() === 1) return quincenaOf(new Date(s.getFullYear(), s.getMonth() - 1, 20, 12)); return quincenaOf(new Date(s.getFullYear(), s.getMonth(), 5, 12)); } return quincenaOf(new Date(fromYmd(q.end).getTime() + 2 * 864e5)); };
+const attRate = (p) => (Number(p.hour_rate) > 0 ? Number(p.hour_rate) : Number(p.base_quincena) / (15 * (Number(p.daily_hours) || 8)));
+const calcPayroll = (person, marks, adjustments, q) => {
+  const mine = marks.filter((m) => m.person_id === person.id && !m.voided).sort((a, b) => new Date(a.at) - new Date(b.at));
+  const days = [];
+  for (let d = fromYmd(q.start); calYmd(d) <= q.end; d = new Date(d.getTime() + 864e5)) {
+    const key = calYmd(d);
+    const ms = mine.filter((m) => limaDate(m.at) === key);
+    let worked = 0, open = null, missing = false;
+    ms.forEach((m) => { if (m.kind === "entrada") { if (open) missing = true; open = m; } else if (open) { worked += (new Date(m.at) - new Date(open.at)) / 60000; open = null; } else missing = true; });
+    if (open) missing = true;
+    const has = ms.length > 0;
+    const net = has ? Math.max(0, worked - (Number(person.break_minutes) || 0)) : 0;
+    const diff = has && !missing ? net - (Number(person.daily_hours) || 8) * 60 : 0;
+    days.push({ key, d, marks: ms, entrada: ms.find((m) => m.kind === "entrada"), salida: [...ms].reverse().find((m) => m.kind === "salida"), worked: net, diff, missing, has });
+  }
+  const rate = attRate(person);
+  const diffMin = days.reduce((a, x) => a + x.diff, 0);
+  const extra = (diffMin / 60) * rate;
+  const adj = (k) => adjustments.filter((a) => a.person_id === person.id && a.kind === k).reduce((s, a) => s + Number(a.amount || 0), 0);
+  const base = Number(person.base_quincena) || 0;
+  const total = base + extra - adj("ausencia") + adj("feriado") + adj("bono") - adj("adelanto") - adj("descuento");
+  return { days, rate, diffMin, extra, base, total, ausencia: adj("ausencia"), feriado: adj("feriado"), bono: adj("bono"), adelanto: adj("adelanto"), descuento: adj("descuento"), missing: days.filter((x) => x.missing).length };
+};
+const hhmm = (min) => { const s = min < 0 ? "−" : ""; const a = Math.round(Math.abs(min)); return `${s}${Math.floor(a / 60)}:${String(a % 60).padStart(2, "0")}`; };
+const DOW_ES = ["DOMINGO", "LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"];
+
+const PayrollScreen = () => {
+  const [tab, setTab] = useState("quincena");
+  const [people, setPeople] = useState(null);
+  const [marks, setMarks] = useState([]);
+  const [adjs, setAdjs] = useState([]);
+  const [q, setQ] = useState(() => quincenaOf());
+  const [open, setOpen] = useState(null); // persona desplegada
+  const [edit, setEdit] = useState(null); // persona en edición
+  const [err, setErr] = useState("");
+  const [adj, setAdj] = useState({ kind: "ausencia", amount: "", note: "" });
+  const [fix, setFix] = useState(null); // {person, day, kind, time, note}
+  useBackStep(!!edit, () => setEdit(null));
+  useBackStep(!!fix, () => setFix(null));
+  const load = async () => {
+    setErr("");
+    const [p, m, a] = await Promise.all([supabase.rpc("att_people_list"), supabase.rpc("att_marks_range", { p_from: q.start, p_to: q.end }), supabase.rpc("att_adjustments_list", { p_period: q.start })]);
+    if (p.error) { setErr(p.error.code === "PGRST202" ? "Falta correr el SQL 31 en Supabase (página «Copiar SQL»)." : p.error.message); setPeople([]); return; }
+    setPeople(p.data || []); setMarks(m.data || []); setAdjs(a.data || []);
+  };
+  useEffect(() => { load(); }, [q.start]);
+  const active = (people || []).filter((p) => p.active);
+  const rows = active.map((p) => ({ p, r: calcPayroll(p, marks, adjs, q) }));
+  const grand = rows.reduce((s, x) => s + x.r.total, 0);
+  const qLabel = `${fmtDay(q.start)} – ${fmtDay(q.end)}`;
+
+  const savePerson = async () => {
+    const e = edit;
+    const { data, error } = await supabase.rpc("att_save_person", { p_id: e.id || null, p_name: e.name, p_daily_hours: Number(e.daily_hours) || 8, p_break_minutes: Number(e.break_minutes) || 0, p_base: Number(e.base_quincena) || 0, p_hour_rate: e.hour_rate === "" || e.hour_rate == null ? null : Number(e.hour_rate), p_active: e.active !== false, p_tag: e.tag || null });
+    if (error) { alert(error.message.includes("LLAVERO_REPETIDO") ? "Ese llavero ya lo tiene otra persona." : "No se guardó: " + error.message); return; }
+    if (e.pin) {
+      const { error: pe } = await supabase.rpc("att_set_pin", { p_id: data.id, p_pin: e.pin });
+      if (pe) { alert(pe.message.includes("PIN_REPETIDO") ? "Ese PIN ya lo usa otra persona. Elige otro." : pe.message.includes("PIN_FACIL") ? "PIN muy fácil (1111, 1234…). Elige otro." : "PIN no válido: usa de 4 a 6 números."); return; }
+    }
+    setEdit(null); load();
+  };
+  const addAdj = async (personId) => {
+    const { error } = await supabase.rpc("att_save_adjustment", { p_person: personId, p_period: q.start, p_kind: adj.kind, p_amount: Number(adj.amount), p_note: adj.note });
+    if (error) { alert("No se guardó: " + error.message); return; }
+    setAdj({ kind: "ausencia", amount: "", note: "" }); load();
+  };
+  const voidAdj = async (id) => { if (!confirm("¿Quitar este ajuste?")) return; await supabase.rpc("att_void_adjustment", { p_id: id }); load(); };
+  const saveFix = async () => {
+    const at = new Date(`${fix.day}T${fix.time}:00-05:00`).toISOString();
+    const { error } = await supabase.rpc("att_add_mark", { p_person: fix.person, p_kind: fix.kind, p_at: at, p_note: fix.note });
+    if (error) { alert(error.message.includes("MOTIVO") ? "Escribe el motivo (ej. «olvidó marcar»)." : "No se guardó: " + error.message); return; }
+    setFix(null); load();
+  };
+  const voidMark = async (id) => { const why = prompt("¿Por qué se anula esta marca? (queda en el registro)"); if (!why) return; const { error } = await supabase.rpc("att_void_mark", { p_id: id, p_reason: why }); if (error) alert(error.message); load(); };
+  const exportXlsx = async () => {
+    const XLSX = await loadXLSX();
+    const wb = XLSX.utils.book_new();
+    rows.forEach(({ p, r }) => {
+      const aoa = [["HORAS JORNADA", hhmm(p.daily_hours * 60), "", "VALOR HORA S/", Number(r.rate.toFixed(4))], [], ["FECHA", "DÍA", "INGRESO", "SALIDA", "TRABAJADAS", "BREAK", "DIFERENCIA", "HORAS", "S/"]];
+      r.days.forEach((x) => aoa.push([x.key.split("-").reverse().join("/"), DOW_ES[x.d.getDay()], x.entrada ? limaTime(x.entrada.at) : "", x.salida ? limaTime(x.salida.at) : "", x.has ? hhmm(x.worked) : "", x.has ? hhmm(p.break_minutes || 0) : "", x.has ? (x.missing ? "FALTA MARCA" : hhmm(x.diff)) : "", x.has && !x.missing ? Number((x.diff / 60).toFixed(2)) : "", x.has && !x.missing ? Number(((x.diff / 60) * r.rate).toFixed(2)) : ""]));
+      aoa.push([], ["SUELDO BASE", r.base], ["HORAS +/−", Number(r.extra.toFixed(2))], ["AUSENCIAS", -r.ausencia], ["FERIADOS", r.feriado], ["BONOS", r.bono], ["ADELANTOS", -r.adelanto], ["DESCUENTOS", -r.descuento], ["TOTAL A PAGAR", Number(r.total.toFixed(2))]);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), p.name.slice(0, 28).toUpperCase());
+    });
+    const tot = [["QUINCENA", qLabel], [], ["PERSONA", "BASE", "HORAS +/−", "AJUSTES", "TOTAL"], ...rows.map(({ p, r }) => [p.name, r.base, Number(r.extra.toFixed(2)), Number((r.total - r.base - r.extra).toFixed(2)), Number(r.total.toFixed(2))]), [], ["TOTAL", "", "", "", Number(grand.toFixed(2))]];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tot), "TOTAL QUINCENA");
+    XLSX.writeFile(wb, `sueldos-quincena-${q.start}.xlsx`);
+  };
+
+  const field = (label, k, props = {}) => <Field label={label}><input style={inputStyle} value={edit[k] ?? ""} onChange={(e) => setEdit((x) => ({ ...x, [k]: e.target.value }))} {...props} /></Field>;
+  if (edit) return (
+    <div style={{ padding: "18px 18px 90px", maxWidth: 640, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, margin: "0 0 14px" }}>{edit.id ? `Editar a ${edit.name}` : "Nueva persona"}</h1>
+      <AdminCard>
+        {field("Nombre", "name", { placeholder: "Ej. Nicolle" })}
+        <div className="ed-row">
+          <Field label="Jornada por día"><div style={{ display: "flex", gap: 8 }}>{[["8", "8 horas"], ["4", "4 horas"]].map(([v, l]) => <Chip key={v} active={String(edit.daily_hours) === v} onClick={() => setEdit((x) => ({ ...x, daily_hours: v }))}>{l}</Chip>)}</div></Field>
+          {field("Break (minutos que no se cuentan)", "break_minutes", { inputMode: "numeric", placeholder: "0" })}
+        </div>
+        <div className="ed-row">
+          {field("Sueldo base de la quincena (S/)", "base_quincena", { inputMode: "decimal", placeholder: "Ej. 615" })}
+          {field("Valor hora (S/) — vacío = automático", "hour_rate", { inputMode: "decimal", placeholder: edit.base_quincena ? `Auto: ${(Number(edit.base_quincena) / (15 * (Number(edit.daily_hours) || 8))).toFixed(3)}` : "Automático" })}
+        </div>
+        <div className="ed-row">
+          {field(edit.has_pin ? "PIN nuevo (vacío = no cambia)" : "PIN (4 a 6 números)", "pin", { inputMode: "numeric", type: "password", autoComplete: "new-password", placeholder: "••••" })}
+          {field("Llavero (pásalo por el lector o escribe su número)", "tag", { placeholder: "Ej. 0006930684" })}
+        </div>
+        <Switch on={edit.active !== false} onClick={() => setEdit((x) => ({ ...x, active: !(x.active !== false) }))} label={edit.active !== false ? "Activa (puede marcar)" : "Inactiva (ya no trabaja)"} />
+      </AdminCard>
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+        <button type="button" onClick={() => setEdit(null)} style={{ flex: 1, minHeight: 48, borderRadius: 10, border: `1px solid ${C.line}`, background: "transparent", fontFamily: FONT_BODY, fontWeight: 600, cursor: "pointer" }}>Cancelar</button>
+        <PrimaryButton disabled={!edit.name?.trim()} onClick={savePerson} style={{ flex: 2, width: "auto", minHeight: 48 }}>Guardar</PrimaryButton>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="payroll" style={{ padding: "18px 18px 90px", maxWidth: 980, margin: "0 auto" }}>
+      <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.ink, fontWeight: 800, margin: "0 0 4px" }}>Asistencia y sueldos</h1>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 14 }}>Cada persona marca con su PIN o llavero en «Marcar asistencia». Aquí se calcula la quincena igual que el Excel: minutos de más suman y de menos restan al valor hora.</div>
+      {err && <div style={{ background: C.accentSoft, borderRadius: 10, padding: "10px 12px", fontFamily: FONT_BODY, fontSize: 13, marginBottom: 12 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>{[["quincena", "Quincena"], ["personas", "Personas y PIN"]].map(([k, l]) => <Chip key={k} active={tab === k} onClick={() => setTab(k)}>{l}</Chip>)}</div>
+
+      {tab === "personas" && (
+        <>
+          <button type="button" onClick={() => setEdit({ name: "", daily_hours: "8", break_minutes: "0", base_quincena: "", hour_rate: "", pin: "", tag: "", active: true })} style={{ ...quickLinkStyle, width: "100%", justifyContent: "center", marginBottom: 12, minHeight: 48 }}><Plus size={16} /> Agregar persona</button>
+          {(people || []).map((p) => (
+            <AdminCard key={p.id} style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 12, opacity: p.active ? 1 : 0.55 }}>
+              <div style={{ flex: 1, fontFamily: FONT_BODY }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{p.name}{!p.active ? " (inactiva)" : ""}</div>
+                <div style={{ fontSize: 12, color: C.stone }}>{p.daily_hours} h/día · base S/ {Number(p.base_quincena).toFixed(2)} · valor hora S/ {attRate(p).toFixed(3)} · {p.has_pin ? "PIN ✓" : "sin PIN"} · {p.tag ? "llavero ✓" : "sin llavero"}</div>
+              </div>
+              <button type="button" aria-label={`Editar ${p.name}`} onClick={() => setEdit({ ...p, daily_hours: String(p.daily_hours), break_minutes: String(p.break_minutes), base_quincena: String(p.base_quincena), hour_rate: p.hour_rate == null ? "" : String(p.hour_rate), pin: "", tag: p.tag || "" })} style={{ width: 42, height: 42, borderRadius: 10, border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Pencil size={16} /></button>
+            </AdminCard>
+          ))}
+          {people && !people.length && !err && <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, textAlign: "center", padding: 20 }}>Agrega a cada persona con su PIN para que pueda marcar.</div>}
+        </>
+      )}
+
+      {tab === "quincena" && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <button type="button" aria-label="Quincena anterior" onClick={() => setQ(shiftQuincena(q, -1))} style={{ width: 44, height: 44, borderRadius: "50%", border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ArrowLeft size={17} /></button>
+            <div className="q-label" style={{ flex: 1, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14.5, fontWeight: 700 }}>{qLabel}</div>
+            <button type="button" aria-label="Quincena siguiente" onClick={() => setQ(shiftQuincena(q, 1))} style={{ width: 44, height: 44, borderRadius: "50%", border: `1px solid ${C.line}`, background: C.paper, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><ChevronRight size={18} /></button>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <div style={{ flex: 1, background: C.ink, color: C.paper, borderRadius: 14, padding: "12px 14px" }}><div style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 800 }} className="q-total">S/ {grand.toFixed(2)}</div><div style={{ fontFamily: FONT_BODY, fontSize: 11.5, opacity: 0.8 }}>total a pagar ({rows.length} personas)</div></div>
+            <button type="button" onClick={exportXlsx} disabled={!rows.length} style={{ ...quickLinkStyle, flexDirection: "column", justifyContent: "center", gap: 4, minWidth: 110, fontSize: 12 }}><FileSpreadsheet size={20} /> Descargar Excel</button>
+          </div>
+          {rows.map(({ p, r }) => (
+            <div key={p.id} className={`pay-person${open === p.id ? " is-open" : ""}`} style={{ background: C.paperDeep, border: `1px solid ${open === p.id ? C.ink : C.line}`, borderRadius: 14, marginBottom: 10, overflow: "hidden" }}>
+              <button type="button" onClick={() => setOpen(open === p.id ? null : p.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left", minHeight: 64 }}>
+                <div style={{ flex: 1, fontFamily: FONT_BODY }}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: r.missing ? C.accent : C.stone }}>Base S/ {r.base.toFixed(2)} · horas {hhmm(r.diffMin)} = S/ {r.extra.toFixed(2)}{r.missing ? ` · ${r.missing} día(s) con marca incompleta` : ""}</div>
+                </div>
+                <div className="pay-total" style={{ fontFamily: FONT_DISPLAY, fontSize: 19, fontWeight: 800 }}>S/ {r.total.toFixed(2)}</div>
+                <ChevronDown size={18} style={{ transform: open === p.id ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+              </button>
+              {open === p.id && (
+                <div className="fold-in" style={{ padding: "0 12px 14px", borderTop: `1px solid ${C.line}` }}>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, fontSize: 12.5, minWidth: 520 }}>
+                      <thead><tr>{["Día", "Ingreso", "Salida", "Trabajó", "+/−", "S/", ""].map((h) => <th key={h} style={{ textAlign: "left", padding: "8px 6px", color: C.stone, fontWeight: 600 }}>{h}</th>)}</tr></thead>
+                      <tbody>{r.days.map((x) => (
+                        <tr key={x.key} style={{ borderTop: `1px solid ${C.line}`, background: x.missing ? C.accentSoft : "transparent" }}>
+                          <td style={{ padding: "6px" }}>{fmtDay(x.key)}</td>
+                          <td style={{ padding: "6px" }}>{x.entrada ? limaTime(x.entrada.at) : "—"}{x.entrada?.source === "manual" ? " ✎" : ""}</td>
+                          <td style={{ padding: "6px" }}>{x.salida ? limaTime(x.salida.at) : x.has ? <strong style={{ color: C.accent }}>falta</strong> : "—"}{x.salida?.source === "manual" ? " ✎" : ""}</td>
+                          <td style={{ padding: "6px" }}>{x.has ? hhmm(x.worked) : ""}</td>
+                          <td style={{ padding: "6px", fontWeight: 700, color: x.diff < 0 ? C.accent : C.ink }}>{x.has && !x.missing ? hhmm(x.diff) : ""}</td>
+                          <td style={{ padding: "6px" }}>{x.has && !x.missing ? ((x.diff / 60) * r.rate).toFixed(2) : ""}</td>
+                          <td style={{ padding: "6px", whiteSpace: "nowrap" }}>
+                            <button type="button" title="Agregar marca olvidada" aria-label={`Corregir ${x.key}`} onClick={() => setFix({ person: p.id, day: x.key, kind: x.entrada && !x.salida ? "salida" : "entrada", time: "", note: "" })} style={{ border: `1px solid ${C.line}`, background: C.paper, borderRadius: 8, padding: "4px 8px", cursor: "pointer", fontSize: 11.5 }}>+ marca</button>
+                            {x.marks.map((m) => <button key={m.id} type="button" title={`Anular ${m.kind} ${limaTime(m.at)}`} onClick={() => voidMark(m.id)} style={{ marginLeft: 4, border: "none", background: "none", color: C.stone, cursor: "pointer", fontSize: 11 }}>✕{limaTime(m.at).replace(/\s?[ap]\.?\s?m\.?/i, "")}</button>)}
+                          </td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    <span style={labelStyle}>Ajustes de esta quincena</span>
+                    {adjs.filter((a) => a.person_id === p.id).map((a) => <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontFamily: FONT_BODY, fontSize: 13, padding: "4px 0" }}><span>{a.kind[0].toUpperCase() + a.kind.slice(1)}{a.note ? ` · ${a.note}` : ""}</span><span>{["ausencia", "adelanto", "descuento"].includes(a.kind) ? "−" : "+"}S/ {Number(a.amount).toFixed(2)} <button type="button" aria-label="Quitar ajuste" onClick={() => voidAdj(a.id)} style={{ border: "none", background: "none", cursor: "pointer" }}><X size={13} /></button></span></div>)}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                      <select aria-label="Tipo de ajuste" value={adj.kind} onChange={(e) => setAdj((x) => ({ ...x, kind: e.target.value }))} style={{ ...inputStyle, width: "auto" }}><option value="ausencia">Ausencia (resta)</option><option value="adelanto">Adelanto (resta)</option><option value="descuento">Descuento (resta)</option><option value="feriado">Feriado trabajado (suma)</option><option value="bono">Bono (suma)</option></select>
+                      <input aria-label="Monto del ajuste" inputMode="decimal" placeholder="S/" value={adj.amount} onChange={(e) => setAdj((x) => ({ ...x, amount: e.target.value.replace(/[^0-9.]/g, "") }))} style={{ ...inputStyle, width: 90 }} />
+                      {adj.kind === "ausencia" && <button type="button" onClick={() => setAdj((x) => ({ ...x, amount: (attRate(p) * p.daily_hours).toFixed(2), note: x.note || "1 día" }))} style={{ border: `1px solid ${C.line}`, background: C.paper, borderRadius: 8, padding: "0 10px", cursor: "pointer", fontSize: 12 }}>1 día = S/ {(attRate(p) * p.daily_hours).toFixed(2)}</button>}
+                      <input aria-label="Nota del ajuste" placeholder="Nota (opcional)" value={adj.note} onChange={(e) => setAdj((x) => ({ ...x, note: e.target.value }))} style={{ ...inputStyle, flex: "1 1 120px", width: "auto" }} />
+                      <button type="button" disabled={!(Number(adj.amount) > 0)} onClick={() => addAdj(p.id)} style={{ border: "none", background: C.ink, color: C.paper, borderRadius: 8, padding: "0 14px", minHeight: 42, cursor: "pointer", opacity: Number(adj.amount) > 0 ? 1 : 0.4 }}>Agregar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          {people && !rows.length && !err && <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: C.stone, textAlign: "center", padding: 20 }}>Primero agrega a las personas en «Personas y PIN».</div>}
+        </>
+      )}
+      {fix && createPortal(
+        <div className="overlay-sheet" style={{ position: "fixed", inset: 0, zIndex: 90, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+          <div onClick={() => setFix(null)} style={{ position: "absolute", inset: 0, background: `${C.scrim}88` }} />
+          <div className="sheet-panel" style={{ position: "relative", background: C.paper, borderRadius: "18px 18px 0 0", padding: 20, maxWidth: 520, width: "100%", margin: "0 auto", animation: "slideUp .25s ease" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 800, marginBottom: 4 }}>Agregar marca olvidada</div>
+            <div style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.stone, marginBottom: 12 }}>{fmtDay(fix.day, true)} · queda como «manual» con tu nombre y el motivo.</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>{["entrada", "salida"].map((k) => <Chip key={k} active={fix.kind === k} onClick={() => setFix((x) => ({ ...x, kind: k }))}>{k === "entrada" ? "Entrada" : "Salida"}</Chip>)}</div>
+            <Field label="Hora"><input type="time" aria-label="Hora de la marca" value={fix.time} onChange={(e) => setFix((x) => ({ ...x, time: e.target.value }))} style={{ ...inputStyle, fontSize: 18 }} /></Field>
+            <Field label="Motivo"><input aria-label="Motivo" value={fix.note} onChange={(e) => setFix((x) => ({ ...x, note: e.target.value }))} placeholder="Ej. olvidó marcar la salida" style={inputStyle} /></Field>
+            <PrimaryButton disabled={!fix.time || !fix.note.trim()} onClick={saveFix}>Guardar marca</PrimaryButton>
+          </div>
+        </div>, document.body)}
+    </div>
+  );
+};
+
 const STAFF_ALL_ROLES = ["superadmin", "administrador", "cajero", "vendedora_tienda", "vendedora_online", "almacen"];
 const STAFF_ADMIN = ["superadmin", "administrador"];
 const STAFF_STORE_SELLERS = ["superadmin", "administrador", "cajero", "vendedora_tienda"];
@@ -11305,6 +11603,7 @@ const SCREEN_ACCESS = {
   transfers: ["superadmin", "administrador", "almacen", "cajero", "vendedora_tienda"],
   impresora: STAFF_STORE_SELLERS,
   avisos: ["superadmin", "administrador", "vendedora_online", "vendedora_tienda", "cajero"],
+  asistencia: STAFF_ALL_ROLES, sueldos: STAFF_ADMIN,
 };
 const canOpenScreen = (role, sc) => (SCREEN_ACCESS[sc] || []).includes(role);
 // Pantalla con la que se abre el panel según el enlace: #caja → Caja; #staff/<pantalla> → esa pantalla (si su rol puede)
@@ -11534,7 +11833,7 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
   return (
     <div className="staff-shell" style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", background: C.paper, minHeight: 0 }}>
       <div ref={staffMainRef} className="app-content staff-main" style={{ flex: 1, overflowY: "auto", position: "relative", paddingBottom: 78 }}>
-        {screen !== "productEditor" && screen !== "bannerEditor" && screen !== "collectionEditor" && <AdminTopBar title={`Fly · ${ROLE_LABELS[role] || role}`} onExit={onExit} onBack={screen !== homeScreen ? () => window.history.back() : null} onHome={screen !== homeScreen ? () => setScreen(homeScreen) : null} />}
+        {screen !== "productEditor" && screen !== "bannerEditor" && screen !== "collectionEditor" && <AdminTopBar title={`Fly · ${ROLE_LABELS[role] || role}`} onExit={onExit} onClock={screen !== "asistencia" ? () => setScreen("asistencia") : null} onBack={screen !== homeScreen ? () => window.history.back() : null} onHome={screen !== homeScreen ? () => setScreen(homeScreen) : null} />}
         {screen === "productEditor" && <AdminTopBar title={editingProductId ? "Editar producto" : "Nuevo producto"} onBack={() => goBack("products")} onExit={onExit} />}
         {screen === "bannerEditor" && <AdminTopBar title={editingBannerId ? "Editar banner" : "Nuevo banner"} onBack={() => goBack("banners")} onExit={onExit} />}
         {screen === "collectionEditor" && <AdminTopBar title={editingCollectionId ? "Editar colección" : "Nueva colección"} onBack={() => goBack("collections")} onExit={onExit} />}
@@ -11544,6 +11843,8 @@ const StaffApp = ({ catalog, updateCatalog, patchCatalog, refreshData, role, sta
         {screen === "mysales" && <MySalesScreen sales={catalog.sales} staffName={staffName} userId={currentUserId} />}
         {["superadmin", "administrador", "cajero", "vendedora_tienda"].includes(role) && screen === "caja" && <CashScreen catalog={catalog} role={role} onGoSell={canSellStore ? () => setScreen("pos") : null} onReturns={canOpenScreen(role, "returns") ? () => { setReturnSale(null); setScreen("returns"); } : null} onCredits={canOpenScreen(role, "credits") ? () => setScreen("credits") : null} />}
         {canOpenScreen(role, "avisos") && screen === "avisos" && <StockAlertsScreen catalog={catalog} />}
+        {canOpenScreen(role, "asistencia") && screen === "asistencia" && <AttendanceKiosk />}
+        {canOpenScreen(role, "sueldos") && screen === "sueldos" && <PayrollScreen />}
         {canOpenScreen(role, "credits") && screen === "credits" && <CreditsScreen role={role} settings={catalog.settings} onSaveMonths={STAFF_ADMIN.includes(role) ? (n) => updateCatalog((c) => ({ ...c, settings: { ...c.settings, creditMonths: n } })) : null} />}
         {canOpenScreen(role, "returns") && screen === "returns" && <ReturnsScreen key={returnSale?.id || "nueva"} catalog={catalog} initialSale={returnSale}
           onSaved={(data) => { patchCatalog((c) => ({ ...c, sales: c.sales.some((x) => x.id === data.id) ? c.sales.map((x) => (x.id === data.id ? data : x)) : c.sales })); refreshData && refreshData(); }} />}
